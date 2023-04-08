@@ -149,13 +149,51 @@ func TestLockResource(t * testing.T) {
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{})
   r3 := NewResource("r3", "", []Resource{r1, r2})
+  r4 := NewResource("r3", "", []Resource{r1, r2})
 
   event_manager := NewEventManager()
   err_1 := event_manager.AddResource(r1)
   err_2 := event_manager.AddResource(r2)
   err_3 := event_manager.AddResource(r3)
+  err_4 := event_manager.AddResource(r4)
 
-  if err_1 != nil || err_2 != nil || err_3 != nil {
+  if err_1 != nil || err_2 != nil || err_3 != nil || err_4 != nil {
     t.Fatal("Failed to add initial tiered resources for test")
+  }
+
+  // Lock r3(so also r1&r2)
+  err := r3.Lock()
+  if err != nil {
+    t.Fatal("Failed to lock r3")
+  }
+
+  err = r3.Lock()
+  if err == nil {
+    t.Fatal("Locked r3 after locking r3")
+  }
+
+  err = r4.Lock()
+  if err == nil {
+    t.Fatal("Locked r4 after locking r3")
+  }
+
+  err = r1.Lock()
+  if err == nil {
+    t.Fatal("Locked r1 after locking r3")
+  }
+
+  err = r3.Unlock()
+  if err != nil {
+    t.Fatal("Failed to unlock r3")
+  }
+
+  err = r4.Lock()
+  if err != nil {
+    t.Fatal("Failed to lock r4 after unlocking r3")
+  }
+
+  err = r4.Unlock()
+  if err != nil {
+    t.Fatal("Failed to unlock r4")
   }
 }

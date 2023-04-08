@@ -133,12 +133,63 @@ type Resource interface {
   AddParent(parent Resource) error
   Children() []Resource
   Parents() []Resource
+  Lock() error
+  Unlock() error
 }
 
 type BaseResource struct {
   BaseNode
   parents []Resource
   children []Resource
+  locked bool
+  state_lock sync.Mutex
+}
+
+// Grab the state mutex and check the state, if unlocked continue to hold the mutex while doing the same for children
+// When the bottom of a tree is reached(no more children) go back up and set the lock state
+func (resource * BaseResource) Lock() error {
+  var err error = nil
+  resource.state_lock.Lock()
+  if resource.locked == true {
+    err = errors.New("Resource already locked")
+  } else {
+    all_children_locked := true
+    for _, child := range resource.Children() {
+      err = child.Lock()
+      if err != nil {
+        all_children_locked = false
+        break
+      }
+    }
+    if all_children_locked == true {
+      resource.locked = true
+    }
+  }
+  resource.state_lock.Unlock()
+  return err
+}
+
+// Recurse through children, unlocking until no more children
+func (resource * BaseResource) Unlock() error {
+  var err error = nil
+  resource.state_lock.Lock()
+  if resource.locked == false {
+    err = errors.New("Resource already unlocked")
+  } else {
+    all_children_unlocked := true
+    for _, child := range resource.Children() {
+      err = child.Unlock()
+      if err != nil {
+        all_children_unlocked = false
+        break
+      }
+    }
+    if all_children_unlocked == true{
+      resource.locked = false
+    }
+  }
+  resource.state_lock.Unlock()
+  return err
 }
 
 func (resource * BaseResource) Children() []Resource {
@@ -168,6 +219,8 @@ func (resource * BaseResource) AddParent(parent Resource) error {
   resource.parents = append(resource.parents, parent)
   return nil
 }
+
+
 
 type Event interface {
   GraphNode
