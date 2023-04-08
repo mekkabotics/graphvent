@@ -161,11 +161,14 @@ func TestLockResource(t * testing.T) {
     t.Fatal("Failed to add initial tiered resources for test")
   }
 
+  r1_l := r1.UpdateChannel()
+
   // Lock r3(so also r1&r2)
   err := r3.Lock()
   if err != nil {
     t.Fatal("Failed to lock r3")
   }
+  (*graph_tester)(t).CheckForNil(r1_l)
 
   err = r3.Lock()
   if err == nil {
@@ -186,14 +189,17 @@ func TestLockResource(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to unlock r3")
   }
+  (*graph_tester)(t).CheckForNil(r1_l)
 
   err = r4.Lock()
   if err != nil {
     t.Fatal("Failed to lock r4 after unlocking r3")
   }
+  (*graph_tester)(t).CheckForNil(r1_l)
 
   err = r4.Unlock()
   if err != nil {
     t.Fatal("Failed to unlock r4")
   }
+  (*graph_tester)(t).CheckForNil(r1_l)
 }

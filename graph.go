@@ -149,6 +149,8 @@ type BaseResource struct {
 // When the bottom of a tree is reached(no more children) go back up and set the lock state
 func (resource * BaseResource) Lock() error {
   var err error = nil
+  locked := false
+
   resource.state_lock.Lock()
   if resource.locked == true {
     err = errors.New("Resource already locked")
@@ -163,15 +165,23 @@ func (resource * BaseResource) Lock() error {
     }
     if all_children_locked == true {
       resource.locked = true
+      locked = true
     }
   }
   resource.state_lock.Unlock()
+
+  if locked == true {
+    resource.Update()
+  }
+
   return err
 }
 
 // Recurse through children, unlocking until no more children
 func (resource * BaseResource) Unlock() error {
   var err error = nil
+  unlocked := false
+
   resource.state_lock.Lock()
   if resource.locked == false {
     err = errors.New("Resource already unlocked")
@@ -186,9 +196,15 @@ func (resource * BaseResource) Unlock() error {
     }
     if all_children_unlocked == true{
       resource.locked = false
+      unlocked = true
     }
   }
   resource.state_lock.Unlock()
+
+  if unlocked == true {
+    resource.Update()
+  }
+
   return err
 }
 
