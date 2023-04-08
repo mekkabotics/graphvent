@@ -138,7 +138,41 @@ func TestResourceUpdate(t * testing.T) {
 }
 
 func TestAddEvent(t * testing.T) {
+  root_event := NewEvent("", "", []Resource{})
+  r1 := NewResource("r1", "", []Resource{})
+  r2 := NewResource("r2", "", []Resource{r1})
 
+  name := "Test Event"
+  description := "A test event"
+  resources := []Resource{r2}
+  new_event := NewEvent(name, description, resources)
+
+  event_manager := NewEventManager(root_event, []Resource{r1})
+  err := event_manager.AddResource(r2)
+  if err != nil {
+    t.Fatal("Failed to add r2 to event_manager")
+  }
+
+  err = event_manager.AddEvent(root_event, new_event)
+  if err != nil {
+    t.Fatalf("Failed to add new_event to root_event: %s", err)
+  }
+
+  res := event_manager.FindEvent(new_event.ID())
+  if res == nil {
+    t.Fatalf("Failed to find new_event in event_manager: %s", err)
+  }
+
+  if res.Name() != name || res.Description() != description {
+    t.Fatal("Event found in event_manager didn't match added")
+  }
+
+  res_required := res.RequiredResources()
+  if len(res_required) < 1 {
+    t.Fatal("Event found in event_manager didn't match added")
+  } else if res_required[0].ID() != r2.ID() {
+    t.Fatal("Event found in event_manager didn't match added")
+  }
 }
 
 func TestLockResource(t * testing.T) {
