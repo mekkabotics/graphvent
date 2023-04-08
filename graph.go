@@ -137,7 +137,6 @@ type Resource interface {
 
 type BaseResource struct {
   BaseNode
-  update_channel chan error
   parents []Resource
   children []Resource
 }
@@ -153,7 +152,7 @@ func (resource * BaseResource) Parents() []Resource {
 func (resource * BaseResource) AddParent(parent Resource) error {
   // Don't add self as parent
   if parent.ID() == resource.ID() {
-    error_str := fmt.Sprintf("Will not add %s as parent of itself", parent.ID)
+    error_str := fmt.Sprintf("Will not add %s as parent of itself", parent.ID())
     return errors.New(error_str)
   }
 
@@ -190,7 +189,22 @@ type BaseEvent struct {
   parent Event
 }
 
-func NewBaseEvent(name string, description string, required_resources []Resource) * BaseEvent {
+func NewResource(name string, description string, children []Resource) * BaseResource {
+  resource := &BaseResource{
+    BaseNode: BaseNode{
+      name: name,
+      description: description,
+      id: gql_randid(),
+      listeners: []chan error{},
+    },
+    parents: []Resource{},
+    children: children,
+  }
+
+  return resource
+}
+
+func NewEvent(name string, description string, required_resources []Resource) * BaseEvent {
   event := &BaseEvent{
     BaseNode: BaseNode{
       name: name,
@@ -199,6 +213,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
       listeners: []chan error{},
     },
     parent: nil,
+    children: []Event{},
     locked_resources: []Resource{},
     created_resources: []Resource{},
     required_resources: required_resources,
@@ -272,10 +287,25 @@ func NewEventManager() * EventManager {
   return state;
 }
 
+func (manager * EventManager) FindResource(id graphql.ID) Resource {
+  resource, exists := manager.dag_nodes[id]
+  if exists == false {
+    return nil
+  }
+
+  return resource
+}
+
+func (manager * EventManager) FindEvent(id graphql.ID) Event {
+  event := manager.root_event.FindChild(id)
+
+  return event
+}
+
 func (manager * EventManager) AddResource(resource Resource) error {
   _, exists := manager.dag_nodes[resource.ID()]
   if exists == true {
-    error_str := fmt.Sprintf("%s is already in the resource DAG, cannot add again")
+    error_str := fmt.Sprintf("%s is already in the resource DAG, cannot add again", resource.ID())
     return errors.New(error_str)
   }
 
