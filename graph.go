@@ -2,6 +2,7 @@ package main
 
 import (
   "fmt"
+  "log"
   "errors"
   "sync"
   graphql "github.com/graph-gophers/graphql-go"
@@ -112,6 +113,10 @@ func (resource * BaseResource) Update() error {
     }
   }
 
+  if resource.lock_holder != nil {
+    resource.lock_holder.Update()
+  }
+
   return nil
 }
 
@@ -133,7 +138,7 @@ type Resource interface {
   AddParent(parent Resource) error
   Children() []Resource
   Parents() []Resource
-  Lock() error
+  Lock(event Event) error
   Unlock() error
 }
 
@@ -141,30 +146,30 @@ type BaseResource struct {
   BaseNode
   parents []Resource
   children []Resource
-  locked bool
+  lock_holder Event
   state_lock sync.Mutex
 }
 
 // Grab the state mutex and check the state, if unlocked continue to hold the mutex while doing the same for children
 // When the bottom of a tree is reached(no more children) go back up and set the lock state
-func (resource * BaseResource) Lock() error {
+func (resource * BaseResource) Lock(event Event) error {
   var err error = nil
   locked := false
 
   resource.state_lock.Lock()
-  if resource.locked == true {
+  if resource.lock_holder != nil {
     err = errors.New("Resource already locked")
   } else {
     all_children_locked := true
     for _, child := range resource.Children() {
-      err = child.Lock()
+      err = child.Lock(event)
       if err != nil {
         all_children_locked = false
         break
       }
     }
     if all_children_locked == true {
-      resource.locked = true
+      resource.lock_holder = event
       locked = true
     }
   }
@@ -183,7 +188,7 @@ func (resource * BaseResource) Unlock() error {
   unlocked := false
 
   resource.state_lock.Lock()
-  if resource.locked == false {
+  if resource.lock_holder == nil {
     err = errors.New("Resource already unlocked")
   } else {
     all_children_unlocked := true
@@ -195,7 +200,7 @@ func (resource * BaseResource) Unlock() error {
       }
     }
     if all_children_unlocked == true{
-      resource.locked = false
+      resource.lock_holder = nil
       unlocked = true
     }
   }
@@ -348,12 +353,26 @@ type EventManager struct {
   root_event Event
 }
 
-func NewEventManager() * EventManager {
-  state := &EventManager{
+// root_event's requirements must be in dag_nodes, and dag_nodes must be ordered by dependency(no children first)
+func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
+
+  manager := &EventManager{
     dag_nodes: map[graphql.ID]Resource{},
     root_event: nil,
   }
-  return state;
+
+  // Construct the DAG
+  for _, resource := range dag_nodes {
+    err := manager.AddResource(resource)
+    if err != nil {
+      log.Printf("Failed to add %s to EventManager: %s", resource.ID(), err)
+      return nil
+    }
+  }
+
+  manager.AddEvent(nil, root_event)
+
+  return manager;
 }
 
 func (manager * EventManager) FindResource(id graphql.ID) Resource {
@@ -399,14 +418,10 @@ func (manager * EventManager) AddResource(resource Resource) error {
 // Add resources created by the event to the DAG
 // Add child to parent
 func (manager * EventManager) AddEvent(parent Event, child Event) error {
-  if manager.root_event.FindChild(child.ID()) != nil {
-    error_str := fmt.Sprintf("Event %s already exists in the event tree, can not add again", child.ID())
-    return errors.New(error_str)
-  }
-
-  if manager.root_event.FindChild(parent.ID()) == nil {
-    error_str := fmt.Sprintf("Event %s is not present in the event tree, cannot add %s as child", parent.ID(), child.ID())
-    return errors.New(error_str)
+  if child == nil {
+    return errors.New("Cannot add nil Event to EventManager")
+  } else if len(child.Children()) != 0 {
+    return errors.New("Adding events recursively not implemented")
   }
 
   for _, resource := range child.RequiredResources() {
@@ -425,7 +440,28 @@ func (manager * EventManager) AddEvent(parent Event, child Event) error {
     }
   }
 
-  parent.AddChild(child)
+  if manager.root_event == nil && parent != nil {
+    error_str := fmt.Sprintf("EventManager has no root, so can't add event to parent")
+    return errors.New(error_str)
+  } else if manager.root_event != nil && parent == nil {
+    // TODO
+    return errors.New("Replacing root event not implemented")
+  } else if manager.root_event == nil && parent == nil {
+    manager.root_event = child
+  } else {
+    if manager.root_event.FindChild(parent.ID()) == nil {
+      error_str := fmt.Sprintf("Event %s is not present in the event tree, cannot add %s as child", parent.ID(), child.ID())
+      return errors.New(error_str)
+    }
+
+    if manager.root_event.FindChild(child.ID()) != nil {
+      error_str := fmt.Sprintf("Event %s already exists in the event tree, can not add again", child.ID())
+      return errors.New(error_str)
+    }
+
+    parent.AddChild(child)
+  }
+
   return nil
 }
 

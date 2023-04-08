@@ -5,7 +5,7 @@ import (
 )
 
 func fake_data() * EventManager {
-  event_manager := NewEventManager()
+  resources := []Resource{}
 
   teams := []*Team{}
   teams = append(teams, NewTeam("6659", "A", []string{"jimmy"}))
@@ -22,24 +22,19 @@ func fake_data() * EventManager {
   teams = append(teams, NewTeam("315",  "Z", []string{"emily"}))
 
   for _, team := range teams {
-    err := event_manager.AddResource(team)
-    if err != nil {
-      log.Print(err)
-    }
+    resources = append(resources, team)
   }
 
-
-  alliances := []Resource{}
   for i, team := range teams[:len(teams)-1] {
     for _, team2 := range teams[i+1:] {
       alliance := NewAlliance(team, team2)
-      alliances = append(alliances, alliance)
-      err := event_manager.AddResource(alliance)
-      if err != nil {
-        log.Print(err)
-      }
+      resources = append(resources, alliance)
     }
   }
+
+  root_event := NewEvent("root_event", "", []Resource{})
+
+  event_manager := NewEventManager(root_event, resources)
 
   return event_manager
 }

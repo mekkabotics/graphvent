@@ -50,9 +50,9 @@ func TestNewResourceAdd(t *testing.T) {
   description := "A resource for testing"
   children := []Resource{}
 
+  root_event := NewEvent("", "", []Resource{})
   test_resource := NewResource(name, description, children)
-  event_manager := NewEventManager()
-  event_manager.AddResource(test_resource)
+  event_manager := NewEventManager(root_event, []Resource{test_resource})
   res := event_manager.FindResource(test_resource.ID())
 
   if res == nil {
@@ -65,56 +65,48 @@ func TestNewResourceAdd(t *testing.T) {
 }
 
 func TestDoubleResourceAdd(t * testing.T) {
+  root_event := NewEvent("", "", []Resource{})
   test_resource := NewResource("", "", []Resource{})
-  event_manager := NewEventManager()
-  err_1 := event_manager.AddResource(test_resource)
-  err_2 := event_manager.AddResource(test_resource)
+  event_manager := NewEventManager(root_event, []Resource{test_resource})
+  err := event_manager.AddResource(test_resource)
 
-  if err_1 != nil {
-    t.Fatalf("First AddResource returned error %s", err_1)
-  }
-
-  if err_2 == nil {
+  if err == nil {
     t.Fatal("Second AddResource returned nil")
   }
 }
 
 func TestMissingResourceAdd(t * testing.T) {
+  root_event := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{r1})
 
-  event_manager := NewEventManager()
+  event_manager := NewEventManager(root_event, []Resource{})
   err := event_manager.AddResource(r2)
   if err == nil {
     t.Fatal("AddResource with missing child returned nil")
   }
 }
 
-func TestTieredResourceAdd(t * testing.T) {
+func TestTieredResource(t * testing.T) {
+  root_event := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{r1})
 
-  event_manager := NewEventManager()
-  err_1 := event_manager.AddResource(r1)
-  err_2 := event_manager.AddResource(r2)
-  if err_1 != nil || err_2 != nil {
-    t.Fatal("Failed adding tiered resource")
+  event_manager := NewEventManager(root_event, []Resource{r1, r2})
+  if event_manager == nil {
+    t.Fatal("Failed to create event manager with tiered resources")
   }
 }
 
 func TestResourceUpdate(t * testing.T) {
+  root_event := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{})
   r3 := NewResource("r3", "", []Resource{r1, r2})
   r4 := NewResource("r4", "", []Resource{r3})
 
-  event_manager := NewEventManager()
-  err_1 := event_manager.AddResource(r1)
-  err_2 := event_manager.AddResource(r2)
-  err_3 := event_manager.AddResource(r3)
-  err_4 := event_manager.AddResource(r4)
-
-  if err_1 != nil || err_2 != nil || err_3 != nil || err_4 != nil {
+  event_manager := NewEventManager(root_event, []Resource{r1, r2, r3, r4})
+  if event_manager == nil {
     t.Fatal("Failed to add initial tiered resources for test")
   }
 
@@ -145,41 +137,44 @@ func TestResourceUpdate(t * testing.T) {
   (*graph_tester)(t).CheckForNil(r4_l)
 }
 
+func TestAddEvent(t * testing.T) {
+
+}
+
 func TestLockResource(t * testing.T) {
+  root_event := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{})
   r3 := NewResource("r3", "", []Resource{r1, r2})
   r4 := NewResource("r3", "", []Resource{r1, r2})
 
-  event_manager := NewEventManager()
-  err_1 := event_manager.AddResource(r1)
-  err_2 := event_manager.AddResource(r2)
-  err_3 := event_manager.AddResource(r3)
-  err_4 := event_manager.AddResource(r4)
+  event_manager := NewEventManager(root_event, []Resource{r1, r2, r3, r4})
 
-  if err_1 != nil || err_2 != nil || err_3 != nil || err_4 != nil {
+  if event_manager == nil {
     t.Fatal("Failed to add initial tiered resources for test")
   }
 
   r1_l := r1.UpdateChannel()
+  rel := root_event.UpdateChannel()
 
-  err := r3.Lock()
+  err := r3.Lock(root_event)
   if err != nil {
     t.Fatal("Failed to lock r3")
   }
   (*graph_tester)(t).CheckForNil(r1_l)
+  (*graph_tester)(t).CheckForNil(rel)
 
-  err = r3.Lock()
+  err = r3.Lock(root_event)
   if err == nil {
     t.Fatal("Locked r3 after locking r3")
   }
 
-  err = r4.Lock()
+  err = r4.Lock(root_event)
   if err == nil {
     t.Fatal("Locked r4 after locking r3")
   }
 
-  err = r1.Lock()
+  err = r1.Lock(root_event)
   if err == nil {
     t.Fatal("Locked r1 after locking r3")
   }
@@ -189,16 +184,19 @@ func TestLockResource(t * testing.T) {
     t.Fatal("Failed to unlock r3")
   }
   (*graph_tester)(t).CheckForNil(r1_l)
+  (*graph_tester)(t).CheckForNil(rel)
 
-  err = r4.Lock()
+  err = r4.Lock(root_event)
   if err != nil {
     t.Fatal("Failed to lock r4 after unlocking r3")
   }
   (*graph_tester)(t).CheckForNil(r1_l)
+  (*graph_tester)(t).CheckForNil(rel)
 
   err = r4.Unlock()
   if err != nil {
     t.Fatal("Failed to unlock r4")
   }
   (*graph_tester)(t).CheckForNil(r1_l)
+  (*graph_tester)(t).CheckForNil(rel)
 }
