@@ -106,37 +106,43 @@ func TestResourceUpdate(t * testing.T) {
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{})
   r3 := NewResource("r3", "", []Resource{r1, r2})
+  r4 := NewResource("r4", "", []Resource{r3})
 
   event_manager := NewEventManager()
   err_1 := event_manager.AddResource(r1)
   err_2 := event_manager.AddResource(r2)
   err_3 := event_manager.AddResource(r3)
+  err_4 := event_manager.AddResource(r4)
 
-  if err_1 != nil || err_2 != nil || err_3 != nil {
+  if err_1 != nil || err_2 != nil || err_3 != nil || err_4 != nil {
     t.Fatal("Failed to add initial tiered resources for test")
   }
 
   r1_l := r1.UpdateChannel()
   r2_l := r2.UpdateChannel()
   r3_l := r3.UpdateChannel()
+  r4_l := r4.UpdateChannel()
 
   // Calling Update() on the parent with no other parents should only notify node listeners
   r3.Update()
   (*graph_tester)(t).CheckForNone(r1_l)
   (*graph_tester)(t).CheckForNone(r2_l)
   (*graph_tester)(t).CheckForNil(r3_l)
+  (*graph_tester)(t).CheckForNil(r4_l)
 
   // Calling Update() on a child should notify listeners of the parent and child, but not siblings
   r2.Update()
   (*graph_tester)(t).CheckForNone(r1_l)
   (*graph_tester)(t).CheckForNil(r2_l)
   (*graph_tester)(t).CheckForNil(r3_l)
+  (*graph_tester)(t).CheckForNil(r4_l)
 
   // Calling Update() on a child should notify listeners of the parent and child, but not siblings
   r1.Update()
   (*graph_tester)(t).CheckForNil(r1_l)
   (*graph_tester)(t).CheckForNone(r2_l)
   (*graph_tester)(t).CheckForNil(r3_l)
+  (*graph_tester)(t).CheckForNil(r4_l)
 }
 
 func TestLockResource(t * testing.T) {
