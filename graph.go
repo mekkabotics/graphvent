@@ -7,13 +7,16 @@ import (
   "sync"
   graphql "github.com/graph-gophers/graphql-go"
   "github.com/google/uuid"
+  "reflect"
 )
 
+// Generate a random graphql id
 func gql_randid() graphql.ID{
   uuid_str := uuid.New().String()
   return graphql.ID(uuid_str)
 }
 
+// GraphNode is the interface common to both DAG nodes and Event tree nodes
 type GraphNode interface {
   Name() string
   Description() string
@@ -23,6 +26,8 @@ type GraphNode interface {
   Update() error
 }
 
+// BaseNode is the most basic implementation of the GraphNode interface
+// It is used to implement functions common to Events and Resources
 type BaseNode struct {
   name string
   description string
@@ -94,8 +99,9 @@ func (node * BaseNode) UpdateListeners() error {
   return nil
 }
 
+// Basic implementation must be overwritten to do anything useful
 func (node * BaseNode) Update() error {
-  return node.UpdateListeners()
+  return errors.New("Cannot Update a BaseNode")
 }
 
 // Resources propagate update up to multiple parents, and not downwards
@@ -133,6 +139,7 @@ func (event * BaseEvent) Update() error {
   return nil
 }
 
+// Resource is the interface that DAG nodes are made from
 type Resource interface {
   GraphNode
   AddParent(parent Resource) error
@@ -142,6 +149,8 @@ type Resource interface {
   Unlock() error
 }
 
+// BaseResource is the most basic resource that can exist in the DAG
+// It holds a single state variable, which contains a pointer to the event that is locking it
 type BaseResource struct {
   BaseNode
   parents []Resource
@@ -221,6 +230,7 @@ func (resource * BaseResource) Parents() []Resource {
   return resource.parents
 }
 
+// Add a parent to a DAG node
 func (resource * BaseResource) AddParent(parent Resource) error {
   // Don't add self as parent
   if parent.ID() == resource.ID() {
@@ -241,26 +251,56 @@ func (resource * BaseResource) AddParent(parent Resource) error {
   return nil
 }
 
+type EventInfo interface {}
 
+type BaseEventInfo struct {
+  EventInfo
+}
 
+type EventQueueInfo struct {
+  EventInfo
+  priority int
+}
+
+func (info * EventQueueInfo) Priority() int {
+  return info.priority
+}
+
+// Event is the interface that event tree nodes must implement
 type Event interface {
   GraphNode
   Children() []Event
+  ChildInfo() []EventInfo
+  ChildInfoType() reflect.Type
   Parent() Event
   RegisterParent(parent Event) error
   RequiredResources() []Resource
   CreatedResources() []Resource
-  AddChild(child Event) error
+  AddChild(child Event, info EventInfo) error
   FindChild(id graphql.ID) Event
 }
 
+// BaseEvent is the most basic event that can exist in the event tree.
+// On start it automatically transitions to completion.
+// It can optionally require events, which will all need to be locked to start it
+// It can optionally create resources, which will be locked by default and unlocked on completion
+// This node by itself doesn't implement any special behaviours for children, so they will be ignored.
+// When starter, this event automatically transitions to completion and unlocks all it's resources(including created)
 type BaseEvent struct {
   BaseNode
   locked_resources []Resource
   created_resources []Resource
   required_resources []Resource
   children []Event
+  child_info []EventInfo
+  child_info_type reflect.Type
   parent Event
+}
+
+// EventQueue is a basic event that can have children.
+// On start, it attempts to start it's children from the highest 'priority'
+type EventQueue struct {
+  BaseEvent
 }
 
 func NewResource(name string, description string, children []Resource) * BaseResource {
@@ -288,12 +328,36 @@ func NewEvent(name string, description string, required_resources []Resource) * 
     },
     parent: nil,
     children: []Event{},
+    child_info: []EventInfo{},
+    child_info_type: reflect.TypeOf((*BaseEventInfo)(nil)).Elem(),
     locked_resources: []Resource{},
     created_resources: []Resource{},
     required_resources: required_resources,
   }
 
   return event
+}
+
+func NewEventQueue(name string, description string, required_resources []Resource) * EventQueue {
+  queue := &EventQueue{
+    BaseEvent: BaseEvent{
+      BaseNode: BaseNode{
+        name: name,
+        description: description,
+        id: gql_randid(),
+        listeners: []chan error{},
+      },
+      parent: nil,
+      children: []Event{},
+      child_info: []EventInfo{},
+      child_info_type: reflect.TypeOf((*EventQueueInfo)(nil)).Elem(),
+      locked_resources: []Resource{},
+      created_resources: []Resource{},
+      required_resources: required_resources,
+    },
+  }
+
+  return queue
 }
 
 // Store the nodes parent for upwards propagation of changes
@@ -322,6 +386,14 @@ func (event * BaseEvent) Children() []Event {
   return event.children
 }
 
+func (event * BaseEvent) ChildInfo() []EventInfo {
+  return event.child_info
+}
+
+func (event * BaseEvent) ChildInfoType() reflect.Type {
+  return event.child_info_type
+}
+
 func (event * BaseEvent) FindChild(id graphql.ID) Event {
   if id == event.ID() {
     return event
@@ -337,7 +409,18 @@ func (event * BaseEvent) FindChild(id graphql.ID) Event {
   return nil
 }
 
-func (event * BaseEvent) AddChild(child Event) error {
+func (event * BaseEvent) AddChild(child Event, info EventInfo) error {
+  if info == nil {
+    return errors.New("info cannot be nil in AddChild")
+  }
+
+  child_info_type := reflect.TypeOf(info).Elem()
+  event_info_type := event.ChildInfoType()
+  if child_info_type != event_info_type {
+    error_str := fmt.Sprintf("BaseEvent only supports child_info of type %s, not %s", child_info_type.Name(), event_info_type.Name())
+    return errors.New(error_str)
+  }
+
   err := child.RegisterParent(event)
   if err != nil {
     error_str := fmt.Sprintf("Failed to register %s as a parent of %s, cancelling AddChild", event.ID(), child.ID())
@@ -345,6 +428,7 @@ func (event * BaseEvent) AddChild(child Event) error {
   }
 
   event.children = append(event.children, child)
+  event.child_info = append(event.child_info, info)
   return nil
 }
 
@@ -370,7 +454,7 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
     }
   }
 
-  manager.AddEvent(nil, root_event)
+  manager.AddEvent(nil, root_event, nil)
 
   return manager;
 }
@@ -417,7 +501,7 @@ func (manager * EventManager) AddResource(resource Resource) error {
 // Check that created resources don't exist in the DAG
 // Add resources created by the event to the DAG
 // Add child to parent
-func (manager * EventManager) AddEvent(parent Event, child Event) error {
+func (manager * EventManager) AddEvent(parent Event, child Event, info EventInfo) error {
   if child == nil {
     return errors.New("Cannot add nil Event to EventManager")
   } else if len(child.Children()) != 0 {
@@ -448,6 +532,7 @@ func (manager * EventManager) AddEvent(parent Event, child Event) error {
     return errors.New("Replacing root event not implemented")
   } else if manager.root_event == nil && parent == nil {
     manager.root_event = child
+    return nil;
   } else {
     if manager.root_event.FindChild(parent.ID()) == nil {
       error_str := fmt.Sprintf("Event %s is not present in the event tree, cannot add %s as child", parent.ID(), child.ID())
@@ -459,10 +544,8 @@ func (manager * EventManager) AddEvent(parent Event, child Event) error {
       return errors.New(error_str)
     }
 
-    parent.AddChild(child)
+    return parent.AddChild(child, info)
   }
-
-  return nil
 }
 
 

@@ -153,7 +153,7 @@ func TestAddEvent(t * testing.T) {
     t.Fatal("Failed to add r2 to event_manager")
   }
 
-  err = event_manager.AddEvent(root_event, new_event)
+  err = event_manager.AddEvent(root_event, new_event, (*BaseEventInfo)(nil))
   if err != nil {
     t.Fatalf("Failed to add new_event to root_event: %s", err)
   }
@@ -233,4 +233,24 @@ func TestLockResource(t * testing.T) {
   }
   (*graph_tester)(t).CheckForNil(r1_l)
   (*graph_tester)(t).CheckForNil(rel)
+}
+
+func TestAddToEventQueue(t * testing.T) {
+  queue := NewEventQueue("q", "", []Resource{})
+  new_event := NewEvent("1", "", []Resource{})
+
+  err := queue.AddChild(new_event, (*BaseEventInfo)(nil))
+  if err == nil {
+    t.Fatal("suceeded in added BaseEventInfo to queue")
+  }
+
+  err = queue.AddChild(new_event, nil)
+  if err == nil {
+    t.Fatal("suceeded in added nil info to queue")
+  }
+
+  err = queue.AddChild(new_event, &EventQueueInfo{priority: 0})
+  if err != nil {
+    t.Fatal("failed to add valid event + info to queue")
+  }
 }
