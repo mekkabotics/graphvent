@@ -5,7 +5,6 @@ import (
   "log"
   "errors"
   graphql "github.com/graph-gophers/graphql-go"
-  "context"
 )
 
 type EventManager struct {
@@ -35,9 +34,8 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
   return manager;
 }
 
-func (manager * EventManager) Run(ctx context.Context) error {
-  //return manager.root_event.Run(ctx)
-  return nil
+func (manager * EventManager) Run() error {
+  return manager.root_event.Run()
 }
 
 func (manager * EventManager) FindResource(id graphql.ID) Resource {
@@ -97,14 +95,13 @@ func (manager * EventManager) AddEvent(parent Event, child Event, info EventInfo
     }
   }
 
-  for _, resource := range child.CreatedResources() {
-    _, exists := manager.dag_nodes[resource.ID()]
-    if exists == true {
-      error_str := fmt.Sprintf("Created resource %s already exists in DAG, cannot add event %s", resource.ID(), child.ID())
-      return errors.New(error_str)
-    }
-    manager.AddResource(resource)
+  resource := child.DoneResource()
+  _, exists := manager.dag_nodes[resource.ID()]
+  if exists == true {
+    error_str := fmt.Sprintf("Created resource %s already exists in DAG, cannot add event %s", resource.ID(), child.ID())
+    return errors.New(error_str)
   }
+  manager.AddResource(resource)
 
   if manager.root_event == nil && parent != nil {
     error_str := fmt.Sprintf("EventManager has no root, so can't add event to parent")

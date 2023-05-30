@@ -32,7 +32,7 @@ func fake_data() * EventManager {
     }
   }
 
-  root_event, _ := NewEventQueue("root_event", "", []Resource{})
+  root_event := NewEventQueue("root_event", "", []Resource{})
 
   event_manager := NewEventManager(root_event, resources)
 
