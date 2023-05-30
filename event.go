@@ -99,6 +99,7 @@ func (event * BaseEvent) Lock() error {
     if err != nil {
       lock_err = true
     }
+    locked_resources = append(locked_resources, resource)
   }
 
   if lock_err == true {
@@ -111,6 +112,12 @@ func (event * BaseEvent) Lock() error {
 }
 
 func (event * BaseEvent) Unlock() error {
+  for _, resource := range(event.RequiredResources()) {
+    err := resource.Unlock(event)
+    if err != nil {
+      panic(err)
+    }
+  }
   return event.DoneResource().Unlock(event)
 }
 
@@ -213,11 +220,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
   }
 
   queue.actions["queue_event"] = func() (string, error) {
-    // Sort the list of events by priority
-    // Keep trying to lock the highest priority event until the end of the list is reached, or an event is locked
-    // If an event is locked, transition it to "started" and start event in a new goroutine
-    // If the end of the queue is reached and there are no uncompleted events, transition to "done"
-    // If the end of the queue is reached and there are uncompleted events, transition to "wait"
+    // Copy the events to sort the list
     copied_events := make([]Event, len(queue.Children()))
     copy(copied_events, queue.Children())
     less := func(i int, j int) bool {
@@ -242,6 +245,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
           go func(event Event, info * EventQueueInfo, queue * EventQueue) {
             event.Run()
             info.state = "done"
+            event.Unlock()
             queue.signal <- "event_done"
           }(event, info, queue)
         }
