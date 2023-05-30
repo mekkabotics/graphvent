@@ -3,6 +3,7 @@ package main
 import (
   "testing"
   "time"
+  "context"
 )
 
 type graph_tester testing.T
@@ -50,7 +51,7 @@ func TestNewResourceAdd(t *testing.T) {
   description := "A resource for testing"
   children := []Resource{}
 
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
   test_resource := NewResource(name, description, children)
   event_manager := NewEventManager(root_event, []Resource{test_resource})
   res := event_manager.FindResource(test_resource.ID())
@@ -65,7 +66,7 @@ func TestNewResourceAdd(t *testing.T) {
 }
 
 func TestDoubleResourceAdd(t * testing.T) {
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
   test_resource := NewResource("", "", []Resource{})
   event_manager := NewEventManager(root_event, []Resource{test_resource})
   err := event_manager.AddResource(test_resource)
@@ -76,7 +77,7 @@ func TestDoubleResourceAdd(t * testing.T) {
 }
 
 func TestMissingResourceAdd(t * testing.T) {
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{r1})
 
@@ -88,7 +89,7 @@ func TestMissingResourceAdd(t * testing.T) {
 }
 
 func TestTieredResource(t * testing.T) {
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{r1})
 
@@ -99,7 +100,7 @@ func TestTieredResource(t * testing.T) {
 }
 
 func TestResourceUpdate(t * testing.T) {
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{})
   r3 := NewResource("r3", "", []Resource{r1, r2})
@@ -138,14 +139,14 @@ func TestResourceUpdate(t * testing.T) {
 }
 
 func TestAddEvent(t * testing.T) {
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{r1})
 
   name := "Test Event"
   description := "A test event"
   resources := []Resource{r2}
-  new_event := NewEvent(name, description, resources)
+  new_event, _ := NewEvent(name, description, resources)
 
   event_manager := NewEventManager(root_event, []Resource{r1})
   err := event_manager.AddResource(r2)
@@ -153,7 +154,7 @@ func TestAddEvent(t * testing.T) {
     t.Fatal("Failed to add r2 to event_manager")
   }
 
-  err = event_manager.AddEvent(root_event, new_event, (*BaseEventInfo)(nil))
+  err = event_manager.AddEvent(root_event, new_event, nil)
   if err != nil {
     t.Fatalf("Failed to add new_event to root_event: %s", err)
   }
@@ -176,7 +177,8 @@ func TestAddEvent(t * testing.T) {
 }
 
 func TestLockResource(t * testing.T) {
-  root_event := NewEvent("", "", []Resource{})
+  root_event, _ := NewEvent("", "", []Resource{})
+  test_event, _ := NewEvent("", "", []Resource{})
   r1 := NewResource("r1", "", []Resource{})
   r2 := NewResource("r2", "", []Resource{})
   r3 := NewResource("r3", "", []Resource{r1, r2})
@@ -213,7 +215,12 @@ func TestLockResource(t * testing.T) {
     t.Fatal("Locked r1 after locking r3")
   }
 
-  err = r3.Unlock()
+  err = r3.Unlock(test_event)
+  if err == nil {
+    t.Fatal("Unlocked r3 with event that didn't lock it")
+  }
+
+  err = r3.Unlock(root_event)
   if err != nil {
     t.Fatal("Failed to unlock r3")
   }
@@ -227,7 +234,7 @@ func TestLockResource(t * testing.T) {
   (*graph_tester)(t).CheckForNil(r1_l)
   (*graph_tester)(t).CheckForNil(rel)
 
-  err = r4.Unlock()
+  err = r4.Unlock(root_event)
   if err != nil {
     t.Fatal("Failed to unlock r4")
   }
@@ -236,21 +243,110 @@ func TestLockResource(t * testing.T) {
 }
 
 func TestAddToEventQueue(t * testing.T) {
-  queue := NewEventQueue("q", "", []Resource{})
-  new_event := NewEvent("1", "", []Resource{})
+  queue, _ := NewEventQueue("q", "", []Resource{})
+  event_1, _ := NewEvent("1", "", []Resource{})
+  event_2, _ := NewEvent("2", "", []Resource{})
 
-  err := queue.AddChild(new_event, (*BaseEventInfo)(nil))
-  if err == nil {
-    t.Fatal("suceeded in added BaseEventInfo to queue")
-  }
-
-  err = queue.AddChild(new_event, nil)
+  err := queue.AddChild(event_1, nil)
   if err == nil {
     t.Fatal("suceeded in added nil info to queue")
   }
 
-  err = queue.AddChild(new_event, &EventQueueInfo{priority: 0})
+  err = queue.AddChild(event_1, &EventQueueInfo{priority: 0})
   if err != nil {
     t.Fatal("failed to add valid event + info to queue")
   }
+
+  err = queue.AddChild(event_2, &EventQueueInfo{priority: 1})
+  if err != nil {
+    t.Fatal("failed to add valid event + info to queue")
+  }
+}
+
+func TestStartBaseEvent(t * testing.T) {
+  event_1, r := NewEvent("1", "", []Resource{})
+  manager := NewEventManager(event_1, []Resource{})
+
+  e_l := event_1.UpdateChannel()
+  r_l := r.UpdateChannel()
+  (*graph_tester)(t).CheckForNone(e_l)
+  (*graph_tester)(t).CheckForNone(r_l)
+
+  if r.Owner() != event_1 {
+    t.Fatal("r is not owned by event_1")
+  }
+
+  err := manager.Run(context.Background())
+  if err != nil {
+    t.Fatal(err)
+  }
+  // Check that the update channels for the event and resource have updates
+  (*graph_tester)(t).CheckForNil(e_l)
+  (*graph_tester)(t).CheckForNil(r_l)
+
+  if r.Owner() != nil {
+    t.Fatal("r still owned after event completed")
+  }
+}
+
+func TestStartEventQueue(t * testing.T) {
+  root_event, r := NewEventQueue("", "", []Resource{})
+  rel := root_event.UpdateChannel();
+  manager := NewEventManager(root_event, []Resource{})
+
+  e1, e1_r := NewEvent("1", "", []Resource{})
+  e1_info := NewEventQueueInfo(1)
+  err := manager.AddEvent(root_event, e1, e1_info)
+  if err != nil {
+    t.Fatal("Failed to add e1 to manager")
+  }
+  (*graph_tester)(t).CheckForNil(rel)
+
+  e2, e2_r := NewEvent("1", "", []Resource{})
+  e2_info := NewEventQueueInfo(2)
+  err = manager.AddEvent(root_event, e2, e2_info)
+  if err != nil {
+    t.Fatal("Failed to add e2 to manager")
+  }
+  (*graph_tester)(t).CheckForNil(rel)
+
+  e3, e3_r := NewEvent("1", "", []Resource{})
+  e3_info := NewEventQueueInfo(3)
+  err = manager.AddEvent(root_event, e3, e3_info)
+  if err != nil {
+    t.Fatal("Failed to add e3 to manager")
+  }
+  (*graph_tester)(t).CheckForNil(rel)
+
+  e1_l := e1.UpdateChannel();
+  e2_l := e2.UpdateChannel();
+  e3_l := e3.UpdateChannel();
+
+  // Now that an event manager is constructed with a queue and 3 basic events
+  // start the queue and check that all the events are executed
+  err = manager.Run(context.Background())
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  time.Sleep( 5 * time.Second)
+
+  if r.Owner() != nil {
+    t.Fatal("root event was not finished after starting")
+  }
+
+  if e1_r.Owner() != nil {
+    t.Fatal("e1 was not completed")
+  }
+  (*graph_tester)(t).CheckForNil(e1_l)
+
+  if e2_r.Owner() != nil {
+    t.Fatal("e2 was not completed")
+  }
+  (*graph_tester)(t).CheckForNil(e2_l)
+
+  if e3_r.Owner() != nil {
+    t.Fatal("e3 was not completed")
+  }
+  (*graph_tester)(t).CheckForNil(e3_l)
 }
