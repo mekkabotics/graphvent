@@ -3,21 +3,20 @@ package main
 import (
   "errors"
   "sync"
-  graphql "github.com/graph-gophers/graphql-go"
   "github.com/google/uuid"
 )
 
 // Generate a random graphql id
-func gql_randid() graphql.ID{
+func randid() string{
   uuid_str := uuid.New().String()
-  return graphql.ID(uuid_str)
+  return uuid_str
 }
 
 // GraphNode is the interface common to both DAG nodes and Event tree nodes
 type GraphNode interface {
   Name() string
   Description() string
-  ID() graphql.ID
+  ID() string
   UpdateListeners() error
   UpdateChannel() chan error
   Update() error
@@ -28,7 +27,7 @@ type GraphNode interface {
 type BaseNode struct {
   name string
   description string
-  id graphql.ID
+  id string
   listeners []chan error
   listeners_lock sync.Mutex
 }
@@ -41,7 +40,7 @@ func (node * BaseNode) Description() string {
   return node.description
 }
 
-func (node * BaseNode) ID() graphql.ID {
+func (node * BaseNode) ID() string {
   return node.id
 }
 

@@ -4,7 +4,6 @@ import (
   "fmt"
   "log"
   "errors"
-  graphql "github.com/graph-gophers/graphql-go"
   "reflect"
   "sort"
 )
@@ -54,7 +53,7 @@ type Event interface {
   RequiredResources() []Resource
   DoneResource() Resource
   AddChild(child Event, info EventInfo) error
-  FindChild(id graphql.ID) Event
+  FindChild(id string) Event
   Run() error
   Abort() error
   Signal(action string) error
@@ -177,7 +176,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     BaseNode: BaseNode{
       name: name,
       description: description,
-      id: gql_randid(),
+      id: randid(),
       listeners: []chan error{},
     },
     parent: nil,
@@ -315,7 +314,7 @@ func (event * BaseEvent) ChildInfo(idx Event) EventInfo {
   return val
 }
 
-func (event * BaseEvent) FindChild(id graphql.ID) Event {
+func (event * BaseEvent) FindChild(id string) Event {
   if id == event.ID() {
     return event
   }

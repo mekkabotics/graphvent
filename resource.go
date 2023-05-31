@@ -153,7 +153,7 @@ func NewResource(name string, description string, children []Resource) * BaseRes
     BaseNode: BaseNode{
       name: name,
       description: description,
-      id: gql_randid(),
+      id: randid(),
       listeners: []chan error{},
     },
     parents: []Resource{},

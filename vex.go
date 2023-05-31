@@ -3,19 +3,11 @@ package main
 import (
   "fmt"
   "log"
+  "time"
 )
-
-type ArenaDriver interface {
-
-}
-
-type VirtualArenaDriver struct {
-
-}
 
 type Arena struct {
   BaseResource
-  driver ArenaDriver
 }
 
 func NewVirtualArena(name string) * Arena {
@@ -24,13 +16,12 @@ func NewVirtualArena(name string) * Arena {
       BaseNode: BaseNode{
         name: name,
         description: "A virtual vex arena",
-        id: gql_randid(),
+        id: randid(),
         listeners: []chan error{},
       },
       parents: []Resource{},
       children: []Resource{},
     },
-    driver: VirtualArenaDriver{},
   }
 
   return arena
@@ -46,7 +37,7 @@ func NewMember(name string) * Member {
       BaseNode: BaseNode{
         name: name,
         description: "A Team Member",
-        id: gql_randid(),
+        id: randid(),
         listeners: []chan error{},
       },
       parents: []Resource{},
@@ -80,7 +71,7 @@ func NewTeam(org string, team string, members []*Member) * Team {
       BaseNode: BaseNode{
         name: name,
         description: description,
-        id: gql_randid(),
+        id: randid(),
         listeners: []chan error{},
       },
       parents: []Resource{},
@@ -108,7 +99,7 @@ func NewAlliance(team0 * Team, team1 * Team) * Alliance {
       BaseNode: BaseNode{
         name: name,
         description: description,
-        id: gql_randid(),
+        id: randid(),
         listeners: []chan error{},
       },
       parents: []Resource{},
@@ -121,7 +112,11 @@ func NewAlliance(team0 * Team, team1 * Team) * Alliance {
 type Match struct {
   BaseEvent
   state string
+  control string
+  control_start time.Time
 }
+
+const start_slack = 3000 * time.Millisecond
 
 func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match {
   name := fmt.Sprintf("Match: %s vs. %s", alliance0.Name(), alliance1.Name() )
@@ -130,22 +125,28 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
   match := &Match{
     BaseEvent: NewBaseEvent(name, description, []Resource{alliance0, alliance1, arena}),
     state: "init",
+    control: "init",
+    control_start: time.UnixMilli(0),
   }
   match.LockDone()
 
   match.actions["start"] = func() (string, error) {
-    // put the match into "scheduled" state
     log.Printf("Starting match")
+    match.control = "none"
     match.state = "scheduled"
     return "wait", nil
   }
 
+  match.actions["queue_autonomous"] = func() (string, error) {
+    match.control = "none"
+    match.state = "autonomous_queued"
+    match.control_start = time.Now().Add(start_slack)
+    return "wait", nil
+  }
+
   match.actions["start_autonomous"] = func() (string, error) {
-    if match.state != "scheduled" {
-      log.Printf("Cannot start_autonomous when the match is in %s", match.state)
-      return "wait", nil
-    }
-    log.Printf("Starting autonomous")
+    match.control = "autonomous"
+    match.state = "autonomous_running"
     return "wait", nil
   }
 

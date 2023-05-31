@@ -4,11 +4,10 @@ import (
   "fmt"
   "log"
   "errors"
-  graphql "github.com/graph-gophers/graphql-go"
 )
 
 type EventManager struct {
-  dag_nodes map[graphql.ID]Resource
+  dag_nodes map[string]Resource
   root_event Event
 }
 
@@ -16,7 +15,7 @@ type EventManager struct {
 func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
 
   manager := &EventManager{
-    dag_nodes: map[graphql.ID]Resource{},
+    dag_nodes: map[string]Resource{},
     root_event: nil,
   }
 
@@ -41,7 +40,7 @@ func (manager * EventManager) Run() error {
   return manager.root_event.Run()
 }
 
-func (manager * EventManager) FindResource(id graphql.ID) Resource {
+func (manager * EventManager) FindResource(id string) Resource {
   resource, exists := manager.dag_nodes[id]
   if exists == false {
     return nil
@@ -50,7 +49,7 @@ func (manager * EventManager) FindResource(id graphql.ID) Resource {
   return resource
 }
 
-func (manager * EventManager) FindEvent(id graphql.ID) Event {
+func (manager * EventManager) FindEvent(id string) Event {
   event := manager.root_event.FindChild(id)
 
   return event
