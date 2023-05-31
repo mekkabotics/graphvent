@@ -330,9 +330,12 @@ func TestStartEventQueue(t * testing.T) {
   root_event := NewEventQueue("", "", []Resource{})
   r := root_event.DoneResource()
   rel := root_event.UpdateChannel();
-  manager := NewEventManager(root_event, []Resource{})
+  res_1 := NewResource("test_resource", "", []Resource{})
+  res_2 := NewResource("test_resource", "", []Resource{})
+  manager := NewEventManager(root_event, []Resource{res_1, res_2})
 
-  e1:= NewEvent("1", "", []Resource{})
+
+  e1:= NewEvent("1", "", []Resource{res_1, res_2})
   e1_r := e1.DoneResource()
   e1_info := NewEventQueueInfo(1)
   err := manager.AddEvent(root_event, e1, e1_info)
@@ -341,7 +344,7 @@ func TestStartEventQueue(t * testing.T) {
   }
   (*graph_tester)(t).CheckForNil(rel)
 
-  e2 := NewEvent("1", "", []Resource{})
+  e2 := NewEvent("1", "", []Resource{res_1})
   e2_r := e2.DoneResource()
   e2_info := NewEventQueueInfo(2)
   err = manager.AddEvent(root_event, e2, e2_info)
@@ -350,7 +353,7 @@ func TestStartEventQueue(t * testing.T) {
   }
   (*graph_tester)(t).CheckForNil(rel)
 
-  e3 := NewEvent("1", "", []Resource{})
+  e3 := NewEvent("1", "", []Resource{res_2})
   e3_r := e3.DoneResource()
   e3_info := NewEventQueueInfo(3)
   err = manager.AddEvent(root_event, e3, e3_info)

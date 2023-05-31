@@ -2,6 +2,7 @@ package main
 
 import (
   "fmt"
+  "log"
 )
 
 type ArenaDriver interface {
@@ -119,6 +120,7 @@ func NewAlliance(team0 * Team, team1 * Team) * Alliance {
 
 type Match struct {
   BaseEvent
+  state string
 }
 
 func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match {
@@ -127,11 +129,24 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match := &Match{
     BaseEvent: NewBaseEvent(name, description, []Resource{alliance0, alliance1, arena}),
+    state: "init",
   }
   match.LockDone()
 
-  match.actions["start"] = func(match Event) (string, error) {
-    return "", nil
+  match.actions["start"] = func() (string, error) {
+    // put the match into "scheduled" state
+    log.Printf("Starting match")
+    match.state = "scheduled"
+    return "wait", nil
+  }
+
+  match.actions["start_autonomous"] = func() (string, error) {
+    if match.state != "scheduled" {
+      log.Printf("Cannot start_autonomous when the match is in %s", match.state)
+      return "wait", nil
+    }
+    log.Printf("Starting autonomous")
+    return "wait", nil
   }
 
   return match

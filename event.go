@@ -2,6 +2,7 @@ package main
 
 import (
   "fmt"
+  "log"
   "errors"
   graphql "github.com/graph-gophers/graphql-go"
   "reflect"
@@ -73,7 +74,7 @@ type BaseEvent struct {
   required_resources []Resource
   children []Event
   child_info map[Event]EventInfo
-  actions map[string]func(Event) (string, error)
+  actions map[string]func() (string, error)
   parent Event
   signal chan string
   abort chan string
@@ -138,7 +139,7 @@ func (event * BaseEvent) Run() error {
     }
 
     // Run the edge function
-    next_action, err = action(event)
+    next_action, err = action()
     if err != nil {
       return err
     } else if next_action == "wait" {
@@ -184,7 +185,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     child_info: map[Event]EventInfo{},
     done_resource: done_resource,
     required_resources: required_resources,
-    actions: map[string]func(Event)(string, error){},
+    actions: map[string]func()(string, error){},
     signal: make(chan string, 10),
     abort: make(chan string, 1),
   }
@@ -199,7 +200,7 @@ func NewEvent(name string, description string, required_resources []Resource) (*
   // Lock the done_resource by default
   event.LockDone()
 
-  event_ptr.actions["start"] = func(event Event) (string, error) {
+  event_ptr.actions["start"] = func() (string, error) {
     return "", nil
   }
 
@@ -214,11 +215,13 @@ func NewEventQueue(name string, description string, required_resources []Resourc
   // Need to lock it with th BaseEvent since Unlock is implemented on the BaseEvent
   queue.LockDone()
 
-  queue.actions["start"] = func(queue Event) (string, error) {
+  queue.actions["start"] = func() (string, error) {
+    log.Printf("Starting Event Queue")
     return "queue_event", nil
   }
 
-  queue.actions["queue_event"] = func(queue Event) (string, error) {
+  queue.actions["queue_event"] = func() (string, error) {
+    log.Printf("Queueing events")
     // Copy the events to sort the list
     copied_events := make([]Event, len(queue.Children()))
     copy(copied_events, queue.Children())
@@ -260,11 +263,18 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     }
   }
 
-  queue.actions["event_done"] = func(queue Event) (string, error) {
+  queue.actions["event_done"] = func() (string, error) {
+    log.Printf("event_done")
     return "queue_event", nil
   }
 
-  queue.actions["resource_available"] = func(queue Event) (string, error) {
+  queue.actions["resource_available"] = func() (string, error) {
+    log.Printf("resources_available")
+    return "queue_event", nil
+  }
+
+  queue.actions["event_added"] = func() (string, error) {
+    log.Printf("event_added")
     return "queue_event", nil
   }
 

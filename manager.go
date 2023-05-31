@@ -24,12 +24,15 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
   for _, resource := range dag_nodes {
     err := manager.AddResource(resource)
     if err != nil {
-      log.Printf("Failed to add %s to EventManager: %s", resource.ID(), err)
+      log.Printf("Failed to add %s to EventManager: %s", resource.Name(), err)
       return nil
     }
   }
 
-  manager.AddEvent(nil, root_event, nil)
+  err := manager.AddEvent(nil, root_event, nil)
+  if err != nil {
+    log.Printf("Failed to add %s to EventManager as root_event: %s", root_event.Name(), err)
+  }
 
   return manager;
 }
@@ -56,14 +59,14 @@ func (manager * EventManager) FindEvent(id graphql.ID) Event {
 func (manager * EventManager) AddResource(resource Resource) error {
   _, exists := manager.dag_nodes[resource.ID()]
   if exists == true {
-    error_str := fmt.Sprintf("%s is already in the resource DAG, cannot add again", resource.ID())
+    error_str := fmt.Sprintf("%s is already in the resource DAG, cannot add again", resource.Name())
     return errors.New(error_str)
   }
 
   for _, child := range resource.Children() {
     _, exists := manager.dag_nodes[child.ID()]
     if exists == false {
-      error_str := fmt.Sprintf("%s is not in the resource DAG, cannot add %s to DAG", child.ID(), resource.ID())
+      error_str := fmt.Sprintf("%s is not in the resource DAG, cannot add %s to DAG", child.Name(), resource.Name())
       return errors.New(error_str)
     }
   }

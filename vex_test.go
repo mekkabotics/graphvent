@@ -3,6 +3,7 @@ package main
 import (
   "testing"
   "fmt"
+  "time"
 )
 
 type vex_tester graph_tester
@@ -98,7 +99,7 @@ func TestNewAllianceAdd(t *testing.T) {
   }
 }
 
-func TestNewMatchAdd(t *testing.T) {
+func TestNewMatch(t *testing.T) {
   name_1 := "Noah"
   name_2 := "Ben"
   name_3 := "Justin"
@@ -132,5 +133,14 @@ func TestNewMatchAdd(t *testing.T) {
   root_event := NewMatch(alliance_1, alliance_2, arena)
 
   event_manager := NewEventManager(root_event, []Resource{member_1, member_2, member_3, member_4, team_1, team_2, team_3, team_4, alliance_1, alliance_2, arena})
-  println(event_manager)
+
+  go func() {
+    time.Sleep(time.Second * 2)
+    root_event.Abort()
+  }()
+
+  err := event_manager.Run()
+  if err == nil {
+    t.Fatal(err)
+  }
 }
