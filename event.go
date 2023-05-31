@@ -56,8 +56,9 @@ type Event interface {
   FindChild(id graphql.ID) Event
   Run() error
   Abort() error
-  Lock() error
-  Unlock() error
+  Signal(action string) error
+  LockResources() error
+  Finish() error
 }
 
 // BaseEvent is the most basic event that can exist in the event tree.
@@ -72,26 +73,26 @@ type BaseEvent struct {
   required_resources []Resource
   children []Event
   child_info map[Event]EventInfo
-  actions map[string]func() (string, error)
+  actions map[string]func(Event) (string, error)
   parent Event
   signal chan string
   abort chan string
 }
 
 func (event * BaseEvent) Abort() error {
+  for _, event := range(event.Children()) {
+    event.Abort()
+  }
   event.signal <- "abort"
   return nil
 }
 
-func (queue * EventQueue) Abort() error {
-  for _, event := range(queue.Children()) {
-    event.Abort()
-  }
-  queue.signal <- "abort"
+func (event * BaseEvent) Signal(action string) error {
+  event.signal <- action
   return nil
 }
 
-func (event * BaseEvent) Lock() error {
+func (event * BaseEvent) LockResources() error {
   locked_resources := []Resource{}
   lock_err := false
   for _, resource := range(event.RequiredResources()) {
@@ -111,7 +112,7 @@ func (event * BaseEvent) Lock() error {
   return nil
 }
 
-func (event * BaseEvent) Unlock() error {
+func (event * BaseEvent) Finish() error {
   for _, resource := range(event.RequiredResources()) {
     err := resource.Unlock(event)
     if err != nil {
@@ -119,6 +120,10 @@ func (event * BaseEvent) Unlock() error {
     }
   }
   return event.DoneResource().Unlock(event)
+}
+
+func (event * BaseEvent) LockDone() {
+  event.DoneResource().Lock(event)
 }
 
 func (event * BaseEvent) Run() error {
@@ -133,17 +138,19 @@ func (event * BaseEvent) Run() error {
     }
 
     // Run the edge function
-    next_action, err = action()
+    next_action, err = action(event)
     if err != nil {
       return err
-    }
-
-    // Check signals
-    select {
-    case reason := <-event.abort:
-      error_str := fmt.Sprintf("State Machine aborted: %s", reason)
-      return errors.New(error_str)
-    default:
+    } else if next_action == "wait" {
+      // Wait for an external signal to set the next_action
+      signal := <- event.signal
+      if signal == "abort" {
+        return errors.New("State Machine aborted by signal")
+      } else {
+        next_action = signal
+      }
+    } else {
+      // next_action is already set correctly
     }
 
     // Update the event after running the edge
@@ -163,9 +170,9 @@ type EventQueue struct {
   BaseEvent
 }
 
-func NewEvent(name string, description string, required_resources []Resource) (* BaseEvent) {
+func NewBaseEvent(name string, description string, required_resources []Resource) (BaseEvent) {
   done_resource := NewResource("event_done", "signal that event is done", []Resource{})
-  event := &BaseEvent{
+  event := BaseEvent{
     BaseNode: BaseNode{
       name: name,
       description: description,
@@ -177,49 +184,41 @@ func NewEvent(name string, description string, required_resources []Resource) (*
     child_info: map[Event]EventInfo{},
     done_resource: done_resource,
     required_resources: required_resources,
-    actions: map[string]func()(string, error){},
+    actions: map[string]func(Event)(string, error){},
     signal: make(chan string, 10),
-  }
-
-  // Lock the done_resource by default
-  done_resource.Lock(event)
-
-  event.actions["start"] = func() (string, error) {
-    return "", nil
+    abort: make(chan string, 1),
   }
 
   return event
 }
 
+func NewEvent(name string, description string, required_resources []Resource) (* BaseEvent) {
+  event := NewBaseEvent(name, description, required_resources)
+  event_ptr := &event
+
+  // Lock the done_resource by default
+  event.LockDone()
+
+  event_ptr.actions["start"] = func(event Event) (string, error) {
+    return "", nil
+  }
+
+  return event_ptr
+}
+
 func NewEventQueue(name string, description string, required_resources []Resource) (* EventQueue) {
-  done_resource := NewResource("event_done", "signal that event is done", []Resource{})
   queue := &EventQueue{
-    BaseEvent: BaseEvent{
-      BaseNode: BaseNode{
-        name: name,
-        description: description,
-        id: gql_randid(),
-        listeners: []chan error{},
-      },
-      parent: nil,
-      children: []Event{},
-      child_info: map[Event]EventInfo{},
-      done_resource: done_resource,
-      required_resources: required_resources,
-      actions: map[string]func()(string, error){},
-      signal: make(chan string, 10),
-      abort: make(chan string, 1),
-    },
+    BaseEvent: NewBaseEvent(name, description, []Resource{}),
   }
 
   // Need to lock it with th BaseEvent since Unlock is implemented on the BaseEvent
-  done_resource.Lock(&queue.BaseEvent)
+  queue.LockDone()
 
-  queue.actions["start"] = func() (string, error) {
+  queue.actions["start"] = func(queue Event) (string, error) {
     return "queue_event", nil
   }
 
-  queue.actions["queue_event"] = func() (string, error) {
+  queue.actions["queue_event"] = func(queue Event) (string, error) {
     // Copy the events to sort the list
     copied_events := make([]Event, len(queue.Children()))
     copy(copied_events, queue.Children())
@@ -236,17 +235,17 @@ func NewEventQueue(name string, description string, required_resources []Resourc
       if info.state == "queued" {
         wait = true
         // Try to lock it
-        err := event.Lock()
+        err := event.LockResources()
         // start in new goroutine
         if err != nil {
 
         } else {
           info.state = "running"
-          go func(event Event, info * EventQueueInfo, queue * EventQueue) {
+          go func(event Event, info * EventQueueInfo, queue Event) {
             event.Run()
             info.state = "done"
-            event.Unlock()
-            queue.signal <- "event_done"
+            event.Finish()
+            queue.Signal("event_done")
           }(event, info, queue)
         }
       } else if info.state == "running" {
@@ -261,19 +260,11 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     }
   }
 
-  queue.actions["wait"] = func() (string, error) {
-    // Wait until signaled by a thread
-    /*
-      What signals to take action for:
-       - abort : sent by any other thread : abort any child events and set the next event to none
-       - resource_available : sent by the aggregator goroutine when the lock on a resource changes : see if any events can be locked
-       - event_done : sent by child event threads : see if all events are completed
-    */
-    signal := <- queue.signal
-    if signal == "abort" {
-      queue.abort <- "aborted by signal"
-      return "", nil
-    }
+  queue.actions["event_done"] = func(queue Event) (string, error) {
+    return "queue_event", nil
+  }
+
+  queue.actions["resource_available"] = func(queue Event) (string, error) {
     return "queue_event", nil
   }
 

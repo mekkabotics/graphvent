@@ -8,18 +8,18 @@ func fake_data() * EventManager {
   resources := []Resource{}
 
   teams := []*Team{}
-  teams = append(teams, NewTeam("6659", "A", []string{"jimmy"}))
-  teams = append(teams, NewTeam("6659", "B", []string{"timmy"}))
-  teams = append(teams, NewTeam("6659", "C", []string{"grace"}))
-  teams = append(teams, NewTeam("6659", "D", []string{"jeremy"}))
-  teams = append(teams, NewTeam("210",  "W", []string{"bobby"}))
-  teams = append(teams, NewTeam("210",  "X", []string{"toby"}))
-  teams = append(teams, NewTeam("210",  "Y", []string{"jennifer"}))
-  teams = append(teams, NewTeam("210",  "Z", []string{"emily"}))
-  teams = append(teams, NewTeam("315",  "W", []string{"bobby"}))
-  teams = append(teams, NewTeam("315",  "X", []string{"toby"}))
-  teams = append(teams, NewTeam("315",  "Y", []string{"jennifer"}))
-  teams = append(teams, NewTeam("315",  "Z", []string{"emily"}))
+  teams = append(teams, NewTeam("6659", "A", []*Member{NewMember("jimmy")}))
+  teams = append(teams, NewTeam("6659", "B", []*Member{NewMember("timmy")}))
+  teams = append(teams, NewTeam("6659", "C", []*Member{NewMember("grace")}))
+  teams = append(teams, NewTeam("6659", "D", []*Member{NewMember("jeremy")}))
+  teams = append(teams, NewTeam("210",  "W", []*Member{NewMember("bobby")}))
+  teams = append(teams, NewTeam("210",  "X", []*Member{NewMember("toby")}))
+  teams = append(teams, NewTeam("210",  "Y", []*Member{NewMember("jennifer")}))
+  teams = append(teams, NewTeam("210",  "Z", []*Member{NewMember("emily")}))
+  teams = append(teams, NewTeam("315",  "W", []*Member{NewMember("bobby")}))
+  teams = append(teams, NewTeam("315",  "X", []*Member{NewMember("toby")}))
+  teams = append(teams, NewTeam("315",  "Y", []*Member{NewMember("jennifer")}))
+  teams = append(teams, NewTeam("315",  "Z", []*Member{NewMember("emily")}))
 
   for _, team := range teams {
     resources = append(resources, team)

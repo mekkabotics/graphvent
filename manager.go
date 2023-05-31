@@ -12,7 +12,7 @@ type EventManager struct {
   root_event Event
 }
 
-// root_event's requirements must be in dag_nodes, and dag_nodes must be ordered by dependency(no children first)
+// root_event's requirements must be in dag_nodes, and dag_nodes must be ordered by dependency(children first)
 func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
 
   manager := &EventManager{
