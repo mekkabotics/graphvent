@@ -2,6 +2,7 @@ package main
 
 import (
   "errors"
+  "log"
   "sync"
   "github.com/google/uuid"
 )
@@ -17,9 +18,9 @@ type GraphNode interface {
   Name() string
   Description() string
   ID() string
-  UpdateListeners() error
-  UpdateChannel() chan error
-  Update() error
+  UpdateListeners(info string) error
+  UpdateChannel() chan string
+  Update(reason string) error
 }
 
 // BaseNode is the most basic implementation of the GraphNode interface
@@ -28,7 +29,7 @@ type BaseNode struct {
   name string
   description string
   id string
-  listeners []chan error
+  listeners []chan string
   listeners_lock sync.Mutex
 }
 
@@ -45,8 +46,9 @@ func (node * BaseNode) ID() string {
 }
 
 // Create a new listener channel for the node, add it to the nodes listener list, and return the new channel
-func (node * BaseNode) UpdateChannel() chan error {
-  new_listener := make(chan error, 1)
+const listener_buffer = 10
+func (node * BaseNode) UpdateChannel() chan string{
+  new_listener := make(chan string, listener_buffer)
   node.listeners_lock.Lock()
   node.listeners = append(node.listeners, new_listener)
   node.listeners_lock.Unlock()
@@ -54,7 +56,7 @@ func (node * BaseNode) UpdateChannel() chan error {
 }
 
 // Send the update to listener channels
-func (node * BaseNode) UpdateListeners() error {
+func (node * BaseNode) UpdateListeners(info string) error {
   closed_listeners := []int{}
   listeners_closed := false
 
@@ -63,7 +65,7 @@ func (node * BaseNode) UpdateListeners() error {
   node.listeners_lock.Lock()
   for i, listener := range node.listeners {
     select {
-      case listener <- nil:
+      case listener <- info:
       default:
         close(listener)
         closed_listeners = append(closed_listeners, i)
@@ -74,7 +76,7 @@ func (node * BaseNode) UpdateListeners() error {
   // If any listeners have been closed, loop over the listeners
   // Add listeners to the "remaining" list if i insn't in closed_listeners
   if listeners_closed == true {
-    remaining_listeners := []chan error{}
+    remaining_listeners := []chan string{}
     for i, listener := range node.listeners {
       listener_closed := false
       for _, index := range closed_listeners {
@@ -96,6 +98,7 @@ func (node * BaseNode) UpdateListeners() error {
 }
 
 // Basic implementation must be overwritten to do anything useful
-func (node * BaseNode) Update() error {
+func (node * BaseNode) Update(reason string) error {
+  log.Printf("UPDATE: BaseNode %s: %s", node.Name(), reason)
   return errors.New("Cannot Update a BaseNode")
 }

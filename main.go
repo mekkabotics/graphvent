@@ -2,6 +2,7 @@ package main
 
 import (
   "log"
+  "math/rand"
 )
 
 func fake_team(org string, id string, names []string) (*Team, []*Member) {
@@ -57,10 +58,14 @@ func fake_data() * EventManager {
   resources = append(resources, m12[0])
 
   alliances := []*Alliance{}
-  for i, team := range teams[:len(teams)-1] {
-    for _, team2 := range teams[i+1:] {
-      alliance := NewAlliance(team, team2)
-      alliances = append(alliances, alliance)
+  for i, team := range(teams){
+    for true {
+      idx := rand.Intn(len(teams))
+      if idx != i {
+        alliance := NewAlliance(team, teams[idx])
+        alliances = append(alliances, alliance)
+        break
+      }
     }
   }
 
@@ -81,26 +86,32 @@ func fake_data() * EventManager {
     resources = append(resources, alliance)
   }
 
-
-
   root_event := NewEventQueue("root_event", "", []Resource{})
   event_manager := NewEventManager(root_event, resources)
   arena_idx := 0
-  for i, alliance := range alliances[:len(alliances)-1] {
-    for _, alliance2 := range alliances[i+1:] {
-      match := NewMatch(alliance, alliance2, arenas[arena_idx])
-      err := event_manager.AddEvent(root_event, match, NewEventQueueInfo(i))
-      if err != nil {
-        log.Printf("Error adding %s: %s", match.Name(), err)
-      }
-      arena_idx += 1
-      if arena_idx >= len(arenas) {
-        arena_idx = 0
+  for i := 0; i < len(alliances)*5; i++ {
+    alliance := alliances[i % len(alliances)]
+    for true {
+      idx := rand.Intn(len(alliances))
+      if idx != i {
+        alliance2 := alliances[idx]
+        if alliance.Children()[0] == alliance2.Children()[0] || alliance.Children()[0] == alliance2.Children()[1] || alliance.Children()[1] == alliance2.Children()[0] || alliance.Children()[1] == alliance2.Children()[1] {
+        } else {
+          match := NewMatch(alliance, alliance2, arenas[arena_idx])
+          log.Printf("Adding %s", match.Name())
+          err := event_manager.AddEvent(root_event, match, NewEventQueueInfo(i))
+          if err != nil {
+            log.Printf("Error adding %s: %s", match.Name(), err)
+          }
+          arena_idx += 1
+          if arena_idx >= len(arenas) {
+            arena_idx = 0
+          }
+        }
+        break
       }
     }
   }
-
-
 
   return event_manager
 }

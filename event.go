@@ -6,17 +6,19 @@ import (
   "errors"
   "reflect"
   "sort"
+  "sync"
 )
 
 // Update the events listeners, and notify the parent to do the same
-func (event * BaseEvent) Update() error {
-  err := event.UpdateListeners()
+func (event * BaseEvent) Update(reason string) error {
+  log.Printf("UPDATE BaseEvent %s: %s", event.Name(), reason)
+  err := event.UpdateListeners(reason)
   if err != nil {
     return err
   }
 
   if event.parent != nil{
-    return event.parent.Update()
+    return event.parent.Update("update parent")
   }
   return nil
 }
@@ -79,8 +81,19 @@ type BaseEvent struct {
   abort chan string
 }
 
+func (queue * EventQueue) Abort() error {
+  for _, event := range(queue.children) {
+    event.Abort()
+  }
+  for _, c := range(queue.resource_aborts) {
+    c <- "event abort"
+  }
+  queue.signal <- "abort"
+  return nil
+}
+
 func (event * BaseEvent) Abort() error {
-  for _, event := range(event.Children()) {
+  for _, event := range(event.children) {
     event.Abort()
   }
   event.signal <- "abort"
@@ -94,21 +107,28 @@ func (event * BaseEvent) Signal(action string) error {
 
 func (event * BaseEvent) LockResources() error {
   locked_resources := []Resource{}
-  lock_err := false
+  var lock_err error = nil
   for _, resource := range(event.RequiredResources()) {
     err := resource.Lock(event)
     if err != nil {
-      lock_err = true
+      lock_err = err
+      break
     }
     locked_resources = append(locked_resources, resource)
   }
 
-  if lock_err == true {
+  if lock_err != nil {
     for _, resource := range(locked_resources) {
       resource.Unlock(event)
     }
-    return errors.New("failed to lock required resources")
+    return lock_err
+  } else {
+    for _, resource := range(locked_resources) {
+      log.Printf("NOTIFYING %s that it's locked", resource.Name())
+      resource.NotifyLocked()
+    }
   }
+
   return nil
 }
 
@@ -118,6 +138,7 @@ func (event * BaseEvent) Finish() error {
     if err != nil {
       panic(err)
     }
+    resource.Update("unlocking after event finish")
   }
   return event.DoneResource().Unlock(event)
 }
@@ -131,6 +152,7 @@ func (event * BaseEvent) Run() error {
   var err error = nil
   for next_action != "" {
     // Check if the edge exists
+    cur_action := next_action
     action, exists := event.actions[next_action]
     if exists == false {
       error_str := fmt.Sprintf("%s is not a valid action", next_action)
@@ -154,7 +176,8 @@ func (event * BaseEvent) Run() error {
     }
 
     // Update the event after running the edge
-    event.Update()
+    update_str := fmt.Sprintf("ACTION %s: NEXT %s", cur_action, next_action)
+    event.Update(update_str)
   }
 
   err = event.DoneResource().Unlock(event)
@@ -168,6 +191,8 @@ func (event * BaseEvent) Run() error {
 // On start, it attempts to start it's children from the highest 'priority'
 type EventQueue struct {
   BaseEvent
+  resource_aborts map[string]chan string
+  resource_lock sync.Mutex
 }
 
 func NewBaseEvent(name string, description string, required_resources []Resource) (BaseEvent) {
@@ -177,7 +202,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
       name: name,
       description: description,
       id: randid(),
-      listeners: []chan error{},
+      listeners: []chan string{},
     },
     parent: nil,
     children: []Event{},
@@ -209,18 +234,17 @@ func NewEvent(name string, description string, required_resources []Resource) (*
 func NewEventQueue(name string, description string, required_resources []Resource) (* EventQueue) {
   queue := &EventQueue{
     BaseEvent: NewBaseEvent(name, description, []Resource{}),
+    resource_aborts: map[string]chan string{},
   }
 
   // Need to lock it with th BaseEvent since Unlock is implemented on the BaseEvent
   queue.LockDone()
 
   queue.actions["start"] = func() (string, error) {
-    log.Printf("Starting Event Queue")
     return "queue_event", nil
   }
 
   queue.actions["queue_event"] = func() (string, error) {
-    log.Printf("Queueing events")
     // Copy the events to sort the list
     copied_events := make([]Event, len(queue.Children()))
     copy(copied_events, queue.Children())
@@ -233,6 +257,43 @@ func NewEventQueue(name string, description string, required_resources []Resourc
 
     wait := false
     for _, event := range(copied_events) {
+      // Update the resource_chans
+      for _, resource := range(event.RequiredResources()) {
+        queue.resource_lock.Lock()
+        _, exists := queue.resource_aborts[resource.ID()]
+        if exists == false {
+          log.Printf("RESOURCE_LISTENER_START: %s", resource.Name())
+          abort := make(chan string, 1)
+          queue.resource_aborts[resource.ID()] = abort
+          go func(queue *EventQueue, resource Resource, abort chan string) {
+            log.Printf("RESOURCE_LISTENER_GOROUTINE: %s", resource.Name())
+            resource_chan := resource.UpdateChannel()
+            for true {
+              select {
+              case <- abort:
+                queue.resource_lock.Lock()
+                delete(queue.resource_aborts, resource.ID())
+                queue.resource_lock.Unlock()
+                log.Printf("RESORCE_LISTENER_ABORT: %s", resource.Name())
+                break
+              case msg, ok := <- resource_chan:
+                if ok == false {
+                  queue.resource_lock.Lock()
+                  delete(queue.resource_aborts, resource.ID())
+                  queue.resource_lock.Unlock()
+                  log.Printf("RESOURCE_LISTENER_CLOSED: %s : %s", resource.Name(), msg)
+                  break
+                }
+                log.Printf("RESOURCE_LISTENER_UPDATED: %s : %s", resource.Name(), msg)
+                queue.signal <- "resource_update"
+              }
+            }
+            log.Printf("RESOURCE_LISTENER_DYING: %s", resource.Name())
+          }(queue, resource, abort)
+        }
+        queue.resource_lock.Unlock()
+      }
+
       info := queue.ChildInfo(event).(*EventQueueInfo)
       if info.state == "queued" {
         wait = true
@@ -240,11 +301,15 @@ func NewEventQueue(name string, description string, required_resources []Resourc
         err := event.LockResources()
         // start in new goroutine
         if err != nil {
-
         } else {
           info.state = "running"
+          log.Printf("EVENT_START: %s", event.Name())
           go func(event Event, info * EventQueueInfo, queue Event) {
-            event.Run()
+            log.Printf("EVENT_GOROUTINE: %s", event.Name())
+            err := event.Run()
+            if err != nil {
+              log.Printf("EVENT_ERROR: %s", err)
+            }
             info.state = "done"
             event.Finish()
             queue.Signal("event_done")
@@ -263,17 +328,14 @@ func NewEventQueue(name string, description string, required_resources []Resourc
   }
 
   queue.actions["event_done"] = func() (string, error) {
-    log.Printf("event_done")
     return "queue_event", nil
   }
 
-  queue.actions["resource_available"] = func() (string, error) {
-    log.Printf("resources_available")
+  queue.actions["resource_update"] = func() (string, error) {
     return "queue_event", nil
   }
 
   queue.actions["event_added"] = func() (string, error) {
-    log.Printf("event_added")
     return "queue_event", nil
   }
 
@@ -347,7 +409,7 @@ func (event * BaseEvent) addChild(child Event, info EventInfo) error {
 
   event.children = append(event.children, child)
   event.child_info[child] = info
-  event.Update()
+  event.Update("child added")
   return nil
 }
 
