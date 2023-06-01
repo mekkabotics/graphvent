@@ -38,6 +38,7 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
 
 // Connect to all resources(in a thread to handle reconnections), and start the first event
 func (manager * EventManager) Run() error {
+  log.Printf("MANAGER_START")
   aborts := []chan error{}
   for _, resource := range(manager.dag_nodes) {
     abort := make(chan error, 1)
@@ -54,11 +55,22 @@ func (manager * EventManager) Run() error {
       c <- nil
     }
   }(abort, aborts)
-  err := manager.root_event.Run()
+  err := manager.root_event.LockResources()
+  if err != nil {
+    return err
+  }
+
+  err = manager.root_event.Run()
   abort <- nil
   if err != nil {
     return err
   }
+
+  err = manager.root_event.Finish()
+  if err != nil {
+    return err
+  }
+  log.Printf("MANAGER_DONE")
 
   return nil
 }

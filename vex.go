@@ -200,15 +200,13 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
   match.LockDone()
 
   match.actions["start"] = func() (string, error) {
-    log.Printf("Starting match %s", match.Name())
-    log.Printf("%s", match.RequiredResources()[2].Owner().Name())
+    log.Printf("STARTING_MATCH %s", match.Name())
     match.control = "none"
     match.state = "scheduled"
     return "wait", nil
   }
 
   match.actions["queue_autonomous"] = func() (string, error) {
-    log.Printf("queue_autonomous")
     match.control = "none"
     match.state = "autonomous_queued"
     match.control_start = time.Now().Add(start_slack)
@@ -216,7 +214,6 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
   }
 
   match.actions["start_autonomous"] = func() (string, error) {
-    log.Printf("start_autonomous")
     match.control = "autonomous"
     match.state = "autonomous_running"
     return "wait", nil

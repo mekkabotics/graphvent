@@ -37,6 +37,7 @@ type Resource interface {
   Parents() []Resource
   Lock(event Event) error
   NotifyLocked() error
+  NotifyUnlocked() error
   Unlock(event Event) error
   Owner() Event
   Connect(abort chan error) bool
@@ -60,6 +61,22 @@ func (resource * BaseResource) Owner() Event {
   return resource.lock_holder
 }
 
+func (resource * BaseResource) NotifyUnlocked() error {
+  err := resource.Update("finalize_unlock")
+  if err != nil {
+    return err
+  }
+
+  for _, child := range(resource.children) {
+    err = child.NotifyUnlocked()
+    if err != nil {
+      return err
+    }
+  }
+
+  return nil
+}
+
 func (resource * BaseResource) NotifyLocked() error {
   err := resource.Update("finalize_lock")
   if err != nil {
@@ -72,6 +89,8 @@ func (resource * BaseResource) NotifyLocked() error {
       return err
     }
   }
+
+  resource.lock_holder.Update("finalize_lock")
 
   return nil
 }

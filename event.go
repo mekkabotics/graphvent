@@ -133,14 +133,19 @@ func (event * BaseEvent) LockResources() error {
 }
 
 func (event * BaseEvent) Finish() error {
+  log.Printf("EVENT_FINISH: %s", event.Name())
   for _, resource := range(event.RequiredResources()) {
     err := resource.Unlock(event)
     if err != nil {
       panic(err)
     }
-    resource.Update("unlocking after event finish")
+    resource.NotifyUnlocked()
   }
-  return event.DoneResource().Unlock(event)
+  err := event.DoneResource().Unlock(event)
+  if err != nil {
+    return err
+  }
+  return event.DoneResource().NotifyUnlocked()
 }
 
 func (event * BaseEvent) LockDone() {
@@ -180,10 +185,6 @@ func (event * BaseEvent) Run() error {
     event.Update(update_str)
   }
 
-  err = event.DoneResource().Unlock(event)
-  if err != nil {
-    return err
-  }
   return nil
 }
 

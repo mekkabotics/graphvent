@@ -9,39 +9,21 @@ import (
 type graph_tester testing.T
 const listner_timeout = 100 * time.Millisecond
 
-func (t * graph_tester) CheckForNil(listener chan error) {
-  timeout := time.After(listner_timeout)
-  select {
-    case msg := <-listener:
-      if msg == nil {
-        return
-      } else {
-        t.Fatal("non-nil message on channel")
-      }
-    case <-timeout:
-      t.Fatal("timeout waiting for message on channel")
-  }
-}
-
-func (t * graph_tester) CheckForNonNil(listener chan error) {
-  timeout := time.After(listner_timeout)
-  select {
-    case msg := <- listener:
-      if msg != nil {
-        return
-      } else {
-        t.Fatal("nil message on channel")
-      }
-    case <-timeout:
-      t.Fatal("timeout waiting for message on channel")
-  }
-}
-
-func (t * graph_tester) CheckForNone(listener chan error) {
+func (t * graph_tester) CheckForValue(listener chan string, str string) {
   timeout := time.After(listner_timeout)
   select {
     case <- listener:
-      t.Fatal("message on channel")
+      return
+    case <-timeout:
+      t.Fatal(str)
+  }
+}
+
+func (t * graph_tester) CheckForNone(listener chan string, str string) {
+  timeout := time.After(listner_timeout)
+  select {
+    case <- listener:
+      t.Fatal(str)
     case <-timeout:
   }
 }
@@ -117,25 +99,25 @@ func TestResourceUpdate(t * testing.T) {
   r4_l := r4.UpdateChannel()
 
   // Calling Update() on the parent with no other parents should only notify node listeners
-  r3.Update()
-  (*graph_tester)(t).CheckForNone(r1_l)
-  (*graph_tester)(t).CheckForNone(r2_l)
-  (*graph_tester)(t).CheckForNil(r3_l)
-  (*graph_tester)(t).CheckForNil(r4_l)
+  r3.Update("test")
+  (*graph_tester)(t).CheckForNone(r1_l, "Update on r1 after updating r3")
+  (*graph_tester)(t).CheckForNone(r2_l, "Update on r2 after updating r3")
+  (*graph_tester)(t).CheckForValue(r3_l, "No update on r3 after updating r3")
+  (*graph_tester)(t).CheckForValue(r4_l, "No update on r4 after updating r3")
 
   // Calling Update() on a child should notify listeners of the parent and child, but not siblings
-  r2.Update()
-  (*graph_tester)(t).CheckForNone(r1_l)
-  (*graph_tester)(t).CheckForNil(r2_l)
-  (*graph_tester)(t).CheckForNil(r3_l)
-  (*graph_tester)(t).CheckForNil(r4_l)
+  r2.Update("test")
+  (*graph_tester)(t).CheckForNone(r1_l, "Update on r1 after updating r2")
+  (*graph_tester)(t).CheckForValue(r2_l, "No update on r2 after updating r2")
+  (*graph_tester)(t).CheckForValue(r3_l, "No update on r3 after updating r2")
+  (*graph_tester)(t).CheckForValue(r4_l, "No update on r4 after updating r2")
 
   // Calling Update() on a child should notify listeners of the parent and child, but not siblings
-  r1.Update()
-  (*graph_tester)(t).CheckForNil(r1_l)
-  (*graph_tester)(t).CheckForNone(r2_l)
-  (*graph_tester)(t).CheckForNil(r3_l)
-  (*graph_tester)(t).CheckForNil(r4_l)
+  r1.Update("test")
+  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after updating r1")
+  (*graph_tester)(t).CheckForNone(r2_l, "Update on r2 after updating r1")
+  (*graph_tester)(t).CheckForValue(r3_l, "No update on r3 after updating r1")
+  (*graph_tester)(t).CheckForValue(r4_l, "No update on r4 after updating r1")
 }
 
 func TestAddEvent(t * testing.T) {
@@ -197,8 +179,14 @@ func TestLockResource(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to lock r3")
   }
-  (*graph_tester)(t).CheckForNil(r1_l)
-  (*graph_tester)(t).CheckForNil(rel)
+
+  err = r3.NotifyLocked()
+  if err != nil {
+    t.Fatal("Failed to notify r3 of lock")
+  }
+
+  (*graph_tester)(t).CheckForValue(r1_l, "No value on r1 update channel")
+  (*graph_tester)(t).CheckForValue(rel, "No value on root_event update channel")
 
   err = r3.Lock(root_event)
   if err == nil {
@@ -224,22 +212,38 @@ func TestLockResource(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to unlock r3")
   }
-  (*graph_tester)(t).CheckForNil(r1_l)
-  (*graph_tester)(t).CheckForNil(rel)
+
+  err = r3.NotifyUnlocked()
+  if err != nil {
+    t.Fatal("Failed to notify r3 it was unlocked")
+  }
+
+  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after unlocking r3")
+  (*graph_tester)(t).CheckForValue(rel, "No update on rel after unlocking r3")
 
   err = r4.Lock(root_event)
   if err != nil {
     t.Fatal("Failed to lock r4 after unlocking r3")
   }
-  (*graph_tester)(t).CheckForNil(r1_l)
-  (*graph_tester)(t).CheckForNil(rel)
+
+  err = r4.NotifyLocked()
+  if err != nil {
+    t.Fatal("Failed to notify r4 it was locked")
+  }
+  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after locking r4")
+  (*graph_tester)(t).CheckForValue(rel, "No update on rel after locking r4")
 
   err = r4.Unlock(root_event)
   if err != nil {
     t.Fatal("Failed to unlock r4")
   }
-  (*graph_tester)(t).CheckForNil(r1_l)
-  (*graph_tester)(t).CheckForNil(rel)
+
+  err = r4.NotifyUnlocked()
+  if err != nil {
+    t.Fatal("Failed to notify r4 it was unlocked")
+  }
+  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after unlocking r4")
+  (*graph_tester)(t).CheckForValue(rel, "No update on rel after unlocking r4")
 }
 
 func TestAddToEventQueue(t * testing.T) {
@@ -270,8 +274,8 @@ func TestStartBaseEvent(t * testing.T) {
 
   e_l := event_1.UpdateChannel()
   r_l := r.UpdateChannel()
-  (*graph_tester)(t).CheckForNone(e_l)
-  (*graph_tester)(t).CheckForNone(r_l)
+  (*graph_tester)(t).CheckForNone(e_l, "Update on event_1 before starting")
+  (*graph_tester)(t).CheckForNone(r_l, "Update on r_1 before starting")
 
   if r.Owner() != event_1 {
     t.Fatal("r is not owned by event_1")
@@ -282,8 +286,8 @@ func TestStartBaseEvent(t * testing.T) {
     t.Fatal(err)
   }
   // Check that the update channels for the event and resource have updates
-  (*graph_tester)(t).CheckForNil(e_l)
-  (*graph_tester)(t).CheckForNil(r_l)
+  (*graph_tester)(t).CheckForValue(e_l, "No update on event_1 after starting")
+  (*graph_tester)(t).CheckForValue(r_l, "No update on r_l after starting")
 
   if r.Owner() != nil {
     t.Fatal("r still owned after event completed")
@@ -342,7 +346,7 @@ func TestStartEventQueue(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to add e1 to manager")
   }
-  (*graph_tester)(t).CheckForNil(rel)
+  (*graph_tester)(t).CheckForValue(rel, "No update on root_event after adding e1")
 
   e2 := NewEvent("1", "", []Resource{res_1})
   e2_r := e2.DoneResource()
@@ -351,7 +355,7 @@ func TestStartEventQueue(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to add e2 to manager")
   }
-  (*graph_tester)(t).CheckForNil(rel)
+  (*graph_tester)(t).CheckForValue(rel, "No update on root_event after adding e2")
 
   e3 := NewEvent("1", "", []Resource{res_2})
   e3_r := e3.DoneResource()
@@ -360,7 +364,7 @@ func TestStartEventQueue(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to add e3 to manager")
   }
-  (*graph_tester)(t).CheckForNil(rel)
+  (*graph_tester)(t).CheckForValue(rel, "No update on root_event after adding e3")
 
   e1_l := e1.UpdateChannel();
   e2_l := e2.UpdateChannel();
@@ -387,15 +391,15 @@ func TestStartEventQueue(t * testing.T) {
   if e1_r.Owner() != nil {
     t.Fatal("e1 was not completed")
   }
-  (*graph_tester)(t).CheckForNil(e1_l)
+  (*graph_tester)(t).CheckForValue(e1_l, "No update on e1 after running")
 
   if e2_r.Owner() != nil {
     t.Fatal("e2 was not completed")
   }
-  (*graph_tester)(t).CheckForNil(e2_l)
+  (*graph_tester)(t).CheckForValue(e2_l, "No update on e2 after running")
 
   if e3_r.Owner() != nil {
     t.Fatal("e3 was not completed")
   }
-  (*graph_tester)(t).CheckForNil(e3_l)
+  (*graph_tester)(t).CheckForValue(e3_l, "No update on e3 after running")
 }
