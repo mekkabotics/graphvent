@@ -104,11 +104,6 @@ func UnlockResource(resource Resource, event Event) error {
   }
 
   resource.UnlockState()
-
-  signal := NewSignal(event, "lock_changed")
-  signal.description = "unlock"
-
-  SendUpdate(resource, signal)
   return nil
 }
 
