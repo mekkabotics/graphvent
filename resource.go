@@ -69,7 +69,6 @@ func AddParent(resource Resource, parent Resource) error {
 }
 
 func UnlockResource(resource Resource, event Event) error {
-  log.Printf("RESOURCE_UNLOCK: %s", resource.Name())
   var err error = nil
   resource.LockState()
   if resource.Owner() == nil {
@@ -115,7 +114,6 @@ func UnlockResource(resource Resource, event Event) error {
 }
 
 func LockResource(resource Resource, event Event) error {
-  log.Printf("RESOURCE_LOCK: %s", resource.Name())
   resource.LockState()
   if resource.Owner() != nil {
     resource.UnlockState()
