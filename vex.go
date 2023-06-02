@@ -85,36 +85,29 @@ func NewVirtualArena(name string) * Arena {
   return arena
 }
 
-func (arena * Arena) Lock(event Event) error {
+func (arena * Arena) lock(event Event) error {
   if arena.connected == false {
     log.Printf("ARENA NOT CONNECTED: %s", arena.Name())
     error_str := fmt.Sprintf("%s is not connected, cannot lock", arena.Name())
     return errors.New(error_str)
   }
-  return arena.lock(event)
+  return nil
 }
 
-func (arena * Arena) Update(signal GraphSignal) error {
-  log.Printf("UPDATE Arena %s: %+v", arena.Name(), signal)
-
-  arena.BaseResource.Update(signal)
-
-  if arena.connected == true {
-    arena.signal <- signal
-  }
-
-  return nil
+func (arena * Arena) update(signal GraphSignal) {
+  log.Printf("ARENA_UPDATE: %s", arena.Name())
+  arena.signal <- signal
 }
 
 func (arena * Arena) Connect(abort chan error) bool {
   log.Printf("Connecting %s", arena.Name())
   go func(arena * Arena, abort chan error) {
     owner := arena.Owner()
-    arena.connected = true
     update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
     signal := NewSignal(arena, "arena_connected")
     signal.description = update_str
-    arena.Update(signal)
+    arena.connected = true
+    go arena.update(signal)
     log.Printf("VIRTUAL_ARENA goroutine starting: %s", arena.Name())
     for true {
       select {
@@ -161,7 +154,6 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     control: "init",
     control_start: time.UnixMilli(0),
   }
-  match.LockDone()
 
   match.actions["start"] = func() (string, error) {
     log.Printf("STARTING_MATCH %s", match.Name())

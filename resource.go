@@ -9,19 +9,20 @@ import (
 
 // Resources propagate update up to multiple parents, and not downwards
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
-func (resource * BaseResource) Update(signal GraphSignal) error {
-  log.Printf("UPDATE BaseResource %s: %+v", resource.Name(), signal)
-
-  resource.BaseNode.Update(signal)
-
-  for _, parent := range resource.Parents() {
-    err := parent.Update(signal)
-    if err != nil {
-      return err
+func (resource * BaseResource) update(signal GraphSignal) {
+  if signal.Type() == "lock_changed" {
+    for _, child := range resource.Children() {
+      SendUpdate(child, signal)
+    }
+  } else {
+    for _, parent := range resource.Parents() {
+      SendUpdate(parent, signal)
     }
   }
 
-  return nil
+  if resource.lock_holder != nil {
+    SendUpdate(resource.lock_holder, signal)
+  }
 }
 
 // Resource is the interface that DAG nodes are made from
@@ -30,15 +31,137 @@ func (resource * BaseResource) Update(signal GraphSignal) error {
 // The device connection should be maintained as much as possible(requiring some reconnection behaviour in the background)
 type Resource interface {
   GraphNode
-  AddParent(parent Resource) error
+  Owner() Event
   Children() []Resource
   Parents() []Resource
-  Lock(event Event) error
-  NotifyLocked() error
-  NotifyUnlocked() error
-  Unlock(event Event) error
-  Owner() Event
+
+  AddParent(parent Resource) error
+  LockParents()
+  UnlockParents()
+
+  SetOwner(owner Event)
+  LockState()
+  UnlockState()
+
+  lock(event Event) error
+  unlock(event Event) error
   Connect(abort chan error) bool
+}
+
+func AddParent(resource Resource, parent Resource) error {
+  if parent.ID() == resource.ID() {
+    error_str := fmt.Sprintf("Will not add %s as parent of itself", parent.Name())
+    return errors.New(error_str)
+  }
+
+  resource.LockParents()
+  for _, p := range resource.Parents() {
+    if p.ID() == parent.ID() {
+      error_str := fmt.Sprintf("%s is already a parent of %s, will not double-bond", p.Name(), resource.Name())
+      return errors.New(error_str)
+    }
+  }
+
+  err := resource.AddParent(parent)
+  resource.UnlockParents()
+
+  return err
+}
+
+func UnlockResource(resource Resource, event Event) error {
+  log.Printf("RESOURCE_UNLOCK: %s", resource.Name())
+  var err error = nil
+  resource.LockState()
+  if resource.Owner() == nil {
+    resource.UnlockState()
+    return errors.New("Resource already unlocked")
+  }
+
+  if resource.Owner().ID() != event.ID() {
+    resource.UnlockState()
+    return errors.New("Resource not locked by parent, unlock failed")
+  }
+
+  var lock_err error = nil
+  for _, child := range resource.Children() {
+    err := UnlockResource(child, event)
+    if err != nil {
+      lock_err = err
+      break
+    }
+  }
+
+  if lock_err != nil {
+    resource.UnlockState()
+    err_str := fmt.Sprintf("Resource failed to unlock: %s", lock_err)
+    return errors.New(err_str)
+  }
+
+  resource.SetOwner(nil)
+
+  err = resource.unlock(event)
+  if err != nil {
+    resource.UnlockState()
+    return errors.New("Failed to unlock resource")
+  }
+
+  resource.UnlockState()
+
+  signal := NewSignal(event, "lock_changed")
+  signal.description = "unlock"
+
+  SendUpdate(resource, signal)
+  return nil
+}
+
+func LockResource(resource Resource, event Event) error {
+  log.Printf("RESOURCE_LOCK: %s", resource.Name())
+  resource.LockState()
+  if resource.Owner() != nil {
+    resource.UnlockState()
+    err_str := fmt.Sprintf("Resource already locked: %s", resource.Name())
+    return errors.New(err_str)
+  }
+
+  var lock_err error = nil
+  for _, child := range resource.Children() {
+    err := LockResource(child, event)
+    if err != nil{
+      lock_err = err
+      break
+    }
+  }
+
+  if lock_err != nil {
+    resource.UnlockState()
+    err_str := fmt.Sprintf("Resource failed to lock: %s", lock_err)
+    return errors.New(err_str)
+  }
+
+  resource.SetOwner(event)
+
+  err := resource.lock(event)
+  if err != nil {
+    resource.UnlockState()
+    return errors.New("Failed to lock resource")
+  }
+
+  resource.UnlockState()
+  return nil
+}
+
+func NotifyResourceLocked(resource Resource) {
+  signal := NewSignal(resource, "lock_changed")
+  signal.description = "lock"
+
+  go SendUpdate(resource, signal)
+}
+
+func NotifyResourceUnlocked(resource Resource) {
+  signal := NewSignal(resource, "lock_changed")
+  signal.description = "unlock"
+
+  go SendUpdate(resource, signal)
 }
 
 // BaseResource is the most basic resource that can exist in the DAG
@@ -46,9 +169,23 @@ type Resource interface {
 type BaseResource struct {
   BaseNode
   parents []Resource
+  parents_lock sync.Mutex
   children []Resource
+  children_lock sync.Mutex
   lock_holder Event
   state_lock sync.Mutex
+}
+
+func (resource * BaseResource) SetOwner(owner Event) {
+  resource.lock_holder = owner
+}
+
+func (resource * BaseResource) LockState() {
+  resource.state_lock.Lock()
+}
+
+func (resource * BaseResource) UnlockState() {
+  resource.state_lock.Unlock()
 }
 
 func (resource * BaseResource) Connect(abort chan error) bool {
@@ -59,99 +196,13 @@ func (resource * BaseResource) Owner() Event {
   return resource.lock_holder
 }
 
-func (resource * BaseResource) NotifyUnlocked() error {
-  err := resource.Update(NewSignal(resource, "lock_change"))
-  if err != nil {
-    return err
-  }
-
-  for _, child := range(resource.children) {
-    err = child.NotifyUnlocked()
-    if err != nil {
-      return err
-    }
-  }
-
-  return nil
-}
-
-func (resource * BaseResource) NotifyLocked() error {
-  err := resource.Update(NewSignal(resource, "lock_change"))
-  if err != nil {
-    return err
-  }
-
-  for _, child := range(resource.children) {
-    err = child.NotifyLocked()
-    if err != nil {
-      return err
-    }
-  }
-
-  resource.lock_holder.Update(NewSignal(resource, "lock_change"))
-
-  return nil
-}
-
-// Grab the state mutex and check the state, if unlocked continue to hold the mutex while doing the same for children
-// When the bottom of a tree is reached(no more children) go back up and set the lock state
-func (resource * BaseResource) Lock(event Event) error {
-  return resource.lock(event)
-}
-
+//BaseResources don't check anything special when locking/unlocking
 func (resource * BaseResource) lock(event Event) error {
-  var err error = nil
-
-  resource.state_lock.Lock()
-  if resource.lock_holder != nil {
-    err_str := fmt.Sprintf("Resource already locked: %s", resource.Name())
-    err = errors.New(err_str)
-  } else {
-    all_children_locked := true
-    for _, child := range resource.Children() {
-      err = child.Lock(event)
-      if err != nil {
-        all_children_locked = false
-        break
-      }
-    }
-    if all_children_locked == true {
-      resource.lock_holder = event
-    }
-  }
-  resource.state_lock.Unlock()
-
-  return err
+  return nil
 }
 
-// Recurse through children, unlocking until no more children
-// If the child isn't locked by the unlocker
-func (resource * BaseResource) Unlock(event Event) error {
-  var err error = nil
-  //unlocked := false
-
-  resource.state_lock.Lock()
-  if resource.lock_holder == nil {
-    err = errors.New("Resource already unlocked")
-  } else if resource.lock_holder != event {
-    err = errors.New("Resource not locked by parent, can't unlock")
-  } else {
-    all_children_unlocked := true
-    for _, child := range resource.Children() {
-      err = child.Unlock(event)
-      if err != nil {
-        all_children_unlocked = false
-        break
-      }
-    }
-    if all_children_unlocked == true{
-      resource.lock_holder = nil
-      //unlocked = true
-    }
-  }
-  resource.state_lock.Unlock()
-
-  return err
+func (resource * BaseResource) unlock(event Event) error {
+  return nil
 }
 
 func (resource * BaseResource) Children() []Resource {
@@ -162,23 +213,15 @@ func (resource * BaseResource) Parents() []Resource {
   return resource.parents
 }
 
-// Add a parent to a DAG node
+func (resource * BaseResource) LockParents() {
+  resource.parents_lock.Lock()
+}
+
+func (resource * BaseResource) UnlockParents() {
+  resource.parents_lock.Unlock()
+}
+
 func (resource * BaseResource) AddParent(parent Resource) error {
-  // Don't add self as parent
-  if parent.ID() == resource.ID() {
-    error_str := fmt.Sprintf("Will not add %s as parent of itself", parent.ID())
-    return errors.New(error_str)
-  }
-
-  // Don't add parent if it's already a parent
-  for _, p := range resource.parents {
-    if p.ID() == parent.ID() {
-      error_str := fmt.Sprintf("%s is already a parent of %s, will not double-bond", p.ID(), resource.ID())
-      return errors.New(error_str)
-    }
-  }
-
-  // Add the parent
   resource.parents = append(resource.parents, parent)
   return nil
 }
@@ -190,6 +233,7 @@ func NewBaseResource(name string, description string, children []Resource) BaseR
       description: description,
       id: randid(),
       listeners: map[chan GraphSignal]chan GraphSignal{},
+      signal: make(chan GraphSignal, 100),
     },
     parents: []Resource{},
     children: children,

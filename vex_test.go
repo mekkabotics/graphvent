@@ -132,13 +132,16 @@ func TestNewMatch(t *testing.T) {
 
   match := NewMatch(alliance_1, alliance_2, arena)
   root_event := NewEventQueue("root_event", "", []Resource{})
+  r := root_event.DoneResource()
 
   event_manager := NewEventManager(root_event, []Resource{member_1, member_2, member_3, member_4, team_1, team_2, team_3, team_4, alliance_1, alliance_2, arena})
   event_manager.AddEvent(root_event, match, NewEventQueueInfo(1))
 
   go func() {
-    time.Sleep(time.Second * 2)
-    root_event.Abort()
+    time.Sleep(time.Second * 5)
+    if r.Owner() != nil {
+      AbortEvent(root_event)
+    }
   }()
 
   err := event_manager.Run()

@@ -6,20 +6,20 @@ import (
   "errors"
   "reflect"
   "sort"
+  "sync"
 )
 
 // Update the events listeners, and notify the parent to do the same
-func (event * BaseEvent) Update(signal GraphSignal) error {
-  log.Printf("UPDATE BaseEvent %s: %+v", event.Name(), signal)
-
+func (event * BaseEvent) update(signal GraphSignal) {
   event.signal <- signal
 
-  event.BaseNode.Update(signal)
-
-  if event.parent != nil{
-    return event.parent.Update(signal)
+  if event.parent != nil && signal.Type() != "abort"{
+    event.parent.update(signal)
+  } else if signal.Type() == "abort" {
+    for _, child := range(event.Children()) {
+      child.update(signal)
+    }
   }
-  return nil
 }
 
 type EventInfo interface {
@@ -48,17 +48,168 @@ func NewEventQueueInfo(priority int) * EventQueueInfo {
 type Event interface {
   GraphNode
   Children() []Event
+  LockChildren()
+  UnlockChildren()
+  InfoType() reflect.Type
   ChildInfo(event Event) EventInfo
   Parent() Event
-  RegisterParent(parent Event) error
+  LockParent()
+  UnlockParent()
+  Action(action string) (func()(string, error), bool)
+  Handler(signal_type string) (func() (string, error), bool)
   RequiredResources() []Resource
   DoneResource() Resource
-  AddChild(child Event, info EventInfo) error
-  FindChild(id string) Event
-  Run() error
-  Abort() error
-  LockResources() error
-  Finish() error
+
+  finish() error
+
+  addChild(child Event, info EventInfo)
+  setParent(parent Event)
+}
+
+func (event * BaseEvent) Handler(signal_type string) (func()(string, error), bool) {
+  handler, exists := event.handlers[signal_type]
+  return handler, exists
+}
+
+func FindChild(event Event, id string) Event {
+  if id == event.ID() {
+    return event
+  }
+
+  for _, child := range event.Children() {
+    result := FindChild(child, id)
+    if result != nil {
+      return result
+    }
+  }
+
+  return nil
+}
+
+func CheckInfoType(event Event, info EventInfo) bool {
+  if event.InfoType() == nil || info == nil {
+    if event.InfoType() == nil && info == nil {
+      return true
+    } else {
+      return false
+    }
+  }
+
+  return event.InfoType() == reflect.TypeOf(info)
+}
+
+func AddChild(event Event, child Event, info EventInfo) error {
+  if CheckInfoType(event, info) == false {
+    return errors.New("AddChild got wrong type")
+  }
+
+  event.LockParent()
+  if event.Parent() != nil {
+    event.UnlockParent()
+    return errors.New("Parent already registered")
+  }
+
+  event.LockChildren()
+
+  for _, c := range(event.Children()) {
+    if c.ID() == child.ID() {
+      event.UnlockChildren()
+      event.UnlockParent()
+      return errors.New("Child already in event")
+    }
+  }
+
+  // After all the checks are done, update the state of child + parent, then unlock and update
+  child.setParent(event)
+  event.addChild(child, info)
+
+  event.UnlockChildren()
+  event.UnlockParent()
+
+  SendUpdate(event, NewSignal(event, "child_added"))
+  return nil
+}
+
+func RunEvent(event Event) error {
+  log.Printf("EVENT_RUN: %s", event.Name())
+  next_action := "start"
+  var err error = nil
+  for next_action != "" {
+    action, exists := event.Action(next_action)
+    if exists == false {
+      error_str := fmt.Sprintf("%s is not a valid action", next_action)
+      return errors.New(error_str)
+    }
+
+    log.Printf("EVENT_ACTION: %s - %s", event.Name(), next_action)
+    next_action, err = action()
+    if err != nil {
+      return err
+    }
+  }
+
+  log.Printf("EVENT_RUN_DONE: %s", event.Name())
+
+  return nil
+}
+
+func AbortEvent(event Event) error {
+  signal := NewSignal(event, "abort")
+  SendUpdate(event, signal)
+  return nil
+}
+
+func LockResources(event Event) error {
+  locked_resources := []Resource{}
+  var lock_err error = nil
+  for _, resource := range(event.RequiredResources()) {
+    err := LockResource(resource, event)
+    if err != nil {
+      lock_err = err
+      break
+    }
+    locked_resources = append(locked_resources, resource)
+  }
+
+  if lock_err != nil {
+    for _, resource := range(locked_resources) {
+      UnlockResource(resource, event)
+    }
+    return lock_err
+  }
+
+  for _, resource := range(locked_resources) {
+    NotifyResourceLocked(resource)
+  }
+
+  return nil
+}
+
+func FinishEvent(event Event) error {
+  // TODO make more 'safe' like LockResources, or make UnlockResource not return errors
+  log.Printf("EVENT_FINISH: %s", event.Name())
+  for _, resource := range(event.RequiredResources()) {
+    err := UnlockResource(resource, event)
+    if err != nil {
+      panic(err)
+    }
+    NotifyResourceUnlocked(resource)
+  }
+
+  err := UnlockResource(event.DoneResource(), event)
+  if err != nil {
+    return err
+  }
+
+  NotifyResourceUnlocked(event.DoneResource())
+
+  err = event.finish()
+  if err != nil {
+    return err
+  }
+
+  SendUpdate(event, NewSignal(event, "event_done"))
+  return nil
 }
 
 // BaseEvent is the most basic event that can exist in the event tree.
@@ -72,96 +223,18 @@ type BaseEvent struct {
   done_resource Resource
   required_resources []Resource
   children []Event
-  child_info map[Event]EventInfo
+  child_info map[string]EventInfo
+  child_lock sync.Mutex
   actions map[string]func() (string, error)
   handlers map[string]func() (string, error)
   parent Event
+  parent_lock sync.Mutex
   abort chan string
 }
 
-func (event * BaseEvent) Abort() error {
-  for _, event := range(event.children) {
-    event.Abort()
-  }
-  event.signal <- NewSignal(event, "abort")
-  return nil
-}
-
-func (event * BaseEvent) LockResources() error {
-  locked_resources := []Resource{}
-  var lock_err error = nil
-  for _, resource := range(event.RequiredResources()) {
-    err := resource.Lock(event)
-    if err != nil {
-      lock_err = err
-      break
-    }
-    locked_resources = append(locked_resources, resource)
-  }
-
-  if lock_err != nil {
-    for _, resource := range(locked_resources) {
-      resource.Unlock(event)
-    }
-    return lock_err
-  } else {
-    for _, resource := range(locked_resources) {
-      log.Printf("NOTIFYING %s that it's locked", resource.Name())
-      resource.NotifyLocked()
-    }
-  }
-
-  return nil
-}
-
-func (event * BaseEvent) Finish() error {
-  log.Printf("EVENT_FINISH: %s", event.Name())
-  for _, resource := range(event.RequiredResources()) {
-    err := resource.Unlock(event)
-    if err != nil {
-      panic(err)
-    }
-    resource.NotifyUnlocked()
-  }
-
-  err := event.DoneResource().Unlock(event)
-  if err != nil {
-    return err
-  }
-
-  err = event.DoneResource().NotifyUnlocked()
-
-  event.Update(NewSignal(event, "event_done"))
-
-  return err
-}
-
-func (event * BaseEvent) LockDone() {
-  event.DoneResource().Lock(event)
-}
-
-func (event * BaseEvent) Run() error {
-  log.Printf("EVENT_RUN: %s", event.Name())
-  next_action := "start"
-  var err error = nil
-  for next_action != "" {
-    // Check if the edge exists
-    action, exists := event.actions[next_action]
-    if exists == false {
-      error_str := fmt.Sprintf("%s is not a valid action", next_action)
-      return errors.New(error_str)
-    }
-
-    // Run the edge function
-    update_str := fmt.Sprintf("EVENT_ACTION: %s", next_action)
-    log.Printf(update_str)
-    next_action, err = action()
-    if err != nil {
-      return err
-    }
-  }
-
-  return nil
+func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
+  action_fn, exists := event.actions[action]
+  return action_fn, exists
 }
 
 func NewBaseEvent(name string, description string, required_resources []Resource) (BaseEvent) {
@@ -171,18 +244,20 @@ func NewBaseEvent(name string, description string, required_resources []Resource
       name: name,
       description: description,
       id: randid(),
-      signal: make(chan GraphSignal, 10),
+      signal: make(chan GraphSignal, 100),
       listeners: map[chan GraphSignal] chan GraphSignal{},
     },
     parent: nil,
     children: []Event{},
-    child_info: map[Event]EventInfo{},
+    child_info: map[string]EventInfo{},
     done_resource: done_resource,
     required_resources: required_resources,
     actions: map[string]func()(string, error){},
     handlers: map[string]func()(string, error){},
     abort: make(chan string, 1),
   }
+
+  LockResource(event.done_resource, &event)
 
   event.actions["wait"] = func() (string, error) {
     signal := <- event.signal
@@ -191,7 +266,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     } else if signal.Type() == "do_action" {
       return signal.Description(), nil
     } else {
-      signal_fn, exists := event.handlers[signal.Type()]
+      signal_fn, exists := event.Handler(signal.Type())
       if exists == true {
         return signal_fn()
       }
@@ -207,9 +282,6 @@ func NewEvent(name string, description string, required_resources []Resource) (*
   event := NewBaseEvent(name, description, required_resources)
   event_ptr := &event
 
-  // Lock the done_resource by default
-  event.LockDone()
-
   event_ptr.actions["start"] = func() (string, error) {
     return "", nil
   }
@@ -217,21 +289,32 @@ func NewEvent(name string, description string, required_resources []Resource) (*
   return event_ptr
 }
 
+func (event * BaseEvent) finish() error {
+  return nil
+}
+
+func (event * BaseEvent) InfoType() reflect.Type {
+  return nil
+}
+
 // EventQueue is a basic event that can have children.
 // On start, it attempts to start it's children from the highest 'priority'
 type EventQueue struct {
   BaseEvent
   listened_resources map[string]Resource
+  queue_lock sync.Mutex
 }
 
-func (queue * EventQueue) Finish() error {
+func (queue * EventQueue) finish() error {
   for _, resource := range(queue.listened_resources) {
     resource.UnregisterChannel(queue.signal)
   }
-  return queue.BaseEvent.Finish()
+  return nil
 }
 
-
+func (queue * EventQueue) InfoType() reflect.Type {
+  return reflect.TypeOf((*EventQueueInfo)(nil))
+}
 
 func NewEventQueue(name string, description string, required_resources []Resource) (* EventQueue) {
   queue := &EventQueue{
@@ -239,15 +322,13 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     listened_resources: map[string]Resource{},
   }
 
-  // Need to lock it with th BaseEvent since Unlock is implemented on the BaseEvent
-  queue.LockDone()
-
   queue.actions["start"] = func() (string, error) {
     return "queue_event", nil
   }
 
   queue.actions["queue_event"] = func() (string, error) {
     // Copy the events to sort the list
+    queue.LockChildren()
     copied_events := make([]Event, len(queue.Children()))
     copy(copied_events, queue.Children())
     less := func(i int, j int) bool {
@@ -269,20 +350,21 @@ func NewEventQueue(name string, description string, required_resources []Resourc
       if info.state == "queued" {
         wait = true
         // Try to lock it
-        err := event.LockResources()
+        err := LockResources(event)
         // start in new goroutine
         if err != nil {
+          //log.Printf("Failed to lock %s: %s", event.Name(), err)
         } else {
           info.state = "running"
           log.Printf("EVENT_START: %s", event.Name())
           go func(event Event, info * EventQueueInfo, queue Event) {
             log.Printf("EVENT_GOROUTINE: %s", event.Name())
-            err := event.Run()
+            err := RunEvent(event)
             if err != nil {
               log.Printf("EVENT_ERROR: %s", err)
             }
             info.state = "done"
-            event.Finish()
+            FinishEvent(event)
           }(event, info, queue)
         }
       } else if info.state == "running" {
@@ -290,10 +372,13 @@ func NewEventQueue(name string, description string, required_resources []Resourc
       }
     }
 
+
     for _, resource := range(needed_resources) {
       queue.listened_resources[resource.ID()] = resource
       resource.RegisterChannel(queue.signal)
     }
+
+    queue.UnlockChildren()
 
     if wait == true {
       return "wait", nil
@@ -310,7 +395,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     return "queue_event", nil
   }
 
-  queue.actions["event_added"] = func() (string, error) {
+  queue.handlers["child_added"] = func() (string, error) {
     return "queue_event", nil
   }
 
@@ -323,16 +408,6 @@ func NewEventQueue(name string, description string, required_resources []Resourc
   }
 
   return queue
-}
-
-// Store the nodes parent for upwards propagation of changes
-func (event * BaseEvent) RegisterParent(parent Event) error{
-  if event.parent != nil {
-    return errors.New("Parent already registered")
-  }
-
-  event.parent = parent
-  return nil
 }
 
 func (event * BaseEvent) Parent() Event {
@@ -352,70 +427,35 @@ func (event * BaseEvent) Children() []Event {
 }
 
 func (event * BaseEvent) ChildInfo(idx Event) EventInfo {
-  val, ok := event.child_info[idx]
+  val, ok := event.child_info[idx.ID()]
   if ok == false {
     return nil
   }
   return val
 }
 
-func (event * BaseEvent) FindChild(id string) Event {
-  if id == event.ID() {
-    return event
-  }
-
-  for _, child := range event.Children() {
-    result := child.FindChild(id)
-    if result != nil {
-      return result
-    }
-  }
-
-  return nil
+func (event * BaseEvent) LockChildren() {
+  log.Printf("LOCKING CHILDREN OF %s", event.Name())
+  event.child_lock.Lock()
 }
 
-// Checks that the type of info is equal to EventQueueInfo
-func (event * EventQueue) AddChild(child Event, info EventInfo) error {
-  if checkType(info, (*EventQueueInfo)(nil)) == false {
-    return errors.New("EventQueue.AddChild passed invalid type for info")
-  }
-
-  return event.addChild(child, info)
+func (event * BaseEvent) UnlockChildren() {
+  event.child_lock.Unlock()
 }
 
-func (event * BaseEvent) addChild(child Event, info EventInfo) error {
-  err := child.RegisterParent(event)
-  if err != nil {
-    error_str := fmt.Sprintf("Failed to register %s as a parent of %s, cancelling AddChild", event.ID(), child.ID())
-    return errors.New(error_str)
-  }
+func (event * BaseEvent) LockParent() {
+  event.parent_lock.Lock()
+}
 
+func (event * BaseEvent) UnlockParent() {
+  event.parent_lock.Unlock()
+}
+
+func (event * BaseEvent) setParent(parent Event) {
+  event.parent = parent
+}
+
+func (event * BaseEvent) addChild(child Event, info EventInfo) {
   event.children = append(event.children, child)
-  event.child_info[child] = info
-  event.Update(NewSignal(event, "child_added"))
-  return nil
-}
-
-// Overloaded function AddChild checks the info passed and calls the BaseEvent.addChild
-func (event * BaseEvent) AddChild(child Event, info EventInfo) error {
-  if info != nil {
-    return errors.New("info must be nil for BaseEvent children")
-  }
-
-  return event.addChild(child, info)
-}
-
-func checkType(first interface{}, second interface{}) bool {
-  if first == nil || second == nil {
-    if first == nil && second == nil {
-      return true
-    } else {
-      return false
-    }
-  }
-
-  first_type := reflect.TypeOf(first)
-  second_type := reflect.TypeOf(second)
-
-  return first_type == second_type
+  event.child_info[child.ID()] = info
 }

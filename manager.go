@@ -9,6 +9,7 @@ import (
 type EventManager struct {
   dag_nodes map[string]Resource
   root_event Event
+  aborts []chan error
 }
 
 // root_event's requirements must be in dag_nodes, and dag_nodes must be ordered by dependency(children first)
@@ -17,6 +18,7 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
   manager := &EventManager{
     dag_nodes: map[string]Resource{},
     root_event: nil,
+    aborts: []chan error{},
   }
 
   // Construct the DAG
@@ -39,37 +41,32 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
 // Connect to all resources(in a thread to handle reconnections), and start the first event
 func (manager * EventManager) Run() error {
   log.Printf("MANAGER_START")
-  aborts := []chan error{}
-  for _, resource := range(manager.dag_nodes) {
-    abort := make(chan error, 1)
-    abort_used := resource.Connect(abort)
-    if abort_used == true {
-      aborts = append(aborts, abort)
-    }
-  }
 
   abort := make(chan error, 1)
-  go func(abort chan error, aborts []chan error) {
+  go func(abort chan error, manager * EventManager) {
     <- abort
-    for _, c := range(aborts) {
+    for _, c := range(manager.aborts) {
       c <- nil
     }
-  }(abort, aborts)
+  }(abort, manager)
 
-  err := manager.root_event.LockResources()
+  err := LockResources(manager.root_event)
   if err != nil {
+    log.Printf("MANAGER_LOCK_ERR: %s", err)
     abort <- nil
     return err
   }
 
-  err = manager.root_event.Run()
+  err = RunEvent(manager.root_event)
   abort <- nil
   if err != nil {
+    log.Printf("MANAGER_RUN_ERR: %s", err)
     return err
   }
 
-  err = manager.root_event.Finish()
+  err = FinishEvent(manager.root_event)
   if err != nil {
+    log.Printf("MANAGER_FINISH_ERR: %s", err)
     return err
   }
   log.Printf("MANAGER_DONE")
@@ -87,12 +84,13 @@ func (manager * EventManager) FindResource(id string) Resource {
 }
 
 func (manager * EventManager) FindEvent(id string) Event {
-  event := manager.root_event.FindChild(id)
+  event := FindChild(manager.root_event, id)
 
   return event
 }
 
 func (manager * EventManager) AddResource(resource Resource) error {
+  log.Printf("Adding resource %s", resource.Name())
   _, exists := manager.dag_nodes[resource.ID()]
   if exists == true {
     error_str := fmt.Sprintf("%s is already in the resource DAG, cannot add again", resource.Name())
@@ -107,8 +105,13 @@ func (manager * EventManager) AddResource(resource Resource) error {
     }
   }
   manager.dag_nodes[resource.ID()] = resource
+  abort := make(chan error, 1)
+  abort_used := resource.Connect(abort)
+  if abort_used == true {
+    manager.aborts = append(manager.aborts, abort)
+  }
   for _, child := range resource.Children() {
-    child.AddParent(resource)
+    AddParent(child, resource)
   }
   return nil
 }
@@ -152,16 +155,16 @@ func (manager * EventManager) AddEvent(parent Event, child Event, info EventInfo
     manager.root_event = child
     return nil;
   } else {
-    if manager.root_event.FindChild(parent.ID()) == nil {
+    if FindChild(manager.root_event, parent.ID()) == nil {
       error_str := fmt.Sprintf("Event %s is not present in the event tree, cannot add %s as child", parent.ID(), child.ID())
       return errors.New(error_str)
     }
 
-    if manager.root_event.FindChild(child.ID()) != nil {
+    if FindChild(manager.root_event, child.ID()) != nil {
       error_str := fmt.Sprintf("Event %s already exists in the event tree, can not add again", child.ID())
       return errors.New(error_str)
     }
-    return parent.AddChild(child, info)
+    return AddChild(parent, child, info)
   }
 }
 
