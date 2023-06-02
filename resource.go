@@ -4,7 +4,6 @@ import (
   "fmt"
   "errors"
   "sync"
-  "log"
 )
 
 // Resources propagate update up to multiple parents, and not downwards
