@@ -301,7 +301,7 @@ func TestAbortEventQueue(t * testing.T) {
   // Now that an event manager is constructed with a queue and 3 basic events
   // start the queue and check that all the events are executed
   go func() {
-    time.Sleep(time.Second)
+    time.Sleep(100 * time.Millisecond)
     AbortEvent(root_event)
   }()
 
