@@ -1,7 +1,6 @@
 package main
 
 import (
-  "errors"
   "log"
   "sync"
   "github.com/google/uuid"
@@ -13,14 +12,47 @@ func randid() string{
   return uuid_str
 }
 
+type GraphSignal interface {
+  Source() GraphNode
+  Type() string
+  Description() string
+}
+
+type BaseSignal struct {
+  source GraphNode
+  signal_type string
+  description string
+}
+
+func (signal BaseSignal) Source() GraphNode {
+  return signal.source
+}
+
+func (signal BaseSignal) Type() string {
+  return signal.signal_type
+}
+
+func (signal BaseSignal) Description() string {
+  return signal.description
+}
+
+func NewSignal(source GraphNode, signal_type string) (BaseSignal) {
+  signal := BaseSignal{
+    source: source,
+    signal_type: signal_type,
+  }
+  return signal
+}
+
 // GraphNode is the interface common to both DAG nodes and Event tree nodes
 type GraphNode interface {
   Name() string
   Description() string
   ID() string
-  UpdateListeners(info string) error
-  UpdateChannel() chan string
-  Update(reason string) error
+  Update(update GraphSignal) error
+  RegisterChannel(listener chan GraphSignal)
+  UnregisterChannel(listener chan GraphSignal)
+  UpdateChannel() chan GraphSignal
 }
 
 // BaseNode is the most basic implementation of the GraphNode interface
@@ -29,8 +61,9 @@ type BaseNode struct {
   name string
   description string
   id string
-  listeners []chan string
+  signal chan GraphSignal
   listeners_lock sync.Mutex
+  listeners map[chan GraphSignal]chan GraphSignal
 }
 
 func (node * BaseNode) Name() string {
@@ -47,58 +80,47 @@ func (node * BaseNode) ID() string {
 
 // Create a new listener channel for the node, add it to the nodes listener list, and return the new channel
 const listener_buffer = 10
-func (node * BaseNode) UpdateChannel() chan string{
-  new_listener := make(chan string, listener_buffer)
-  node.listeners_lock.Lock()
-  node.listeners = append(node.listeners, new_listener)
-  node.listeners_lock.Unlock()
+func (node * BaseNode) UpdateChannel() chan GraphSignal {
+  new_listener := make(chan GraphSignal, listener_buffer)
+  node.RegisterChannel(new_listener)
   return new_listener
 }
 
-// Send the update to listener channels
-func (node * BaseNode) UpdateListeners(info string) error {
-  closed_listeners := []int{}
-  listeners_closed := false
-
-  // Send each listener nil to signal it to check for new content
-  // if the first attempt to send it fails close the listener
+func (node * BaseNode) RegisterChannel(listener chan GraphSignal) {
   node.listeners_lock.Lock()
-  for i, listener := range node.listeners {
-    select {
-      case listener <- info:
-      default:
-        close(listener)
-        closed_listeners = append(closed_listeners, i)
-        listeners_closed = true
-    }
-  }
-
-  // If any listeners have been closed, loop over the listeners
-  // Add listeners to the "remaining" list if i insn't in closed_listeners
-  if listeners_closed == true {
-    remaining_listeners := []chan string{}
-    for i, listener := range node.listeners {
-      listener_closed := false
-      for _, index := range closed_listeners {
-        if index == i {
-          listener_closed = true
-          break
-        }
-      }
-      if listener_closed == false {
-        remaining_listeners = append(remaining_listeners, listener)
-      }
-    }
-
-    node.listeners = remaining_listeners
+  _, exists := node.listeners[listener]
+  if exists == false {
+    node.listeners[listener] = listener
   }
   node.listeners_lock.Unlock()
-
-  return nil
 }
 
-// Basic implementation must be overwritten to do anything useful
-func (node * BaseNode) Update(reason string) error {
-  log.Printf("UPDATE: BaseNode %s: %s", node.Name(), reason)
-  return errors.New("Cannot Update a BaseNode")
+func (node * BaseNode) UnregisterChannel(listener chan GraphSignal) {
+  node.listeners_lock.Lock()
+  _, exists := node.listeners[listener]
+  if exists == false {
+    panic("Attempting to unregister non-registered listener")
+  } else {
+    delete(node.listeners, listener)
+  }
+  node.listeners_lock.Unlock()
+}
+
+// Send the update to listener channels
+func (node * BaseNode) UpdateListeners(update GraphSignal) {
+  node.listeners_lock.Lock()
+
+  for _, listener := range node.listeners {
+    log.Printf("UPDATE_LISTENER %s: %p", node.Name(), listener)
+    listener <- update
+  }
+
+  node.listeners_lock.Unlock()
+}
+
+// Basic implementation that sends the signal to the nodes channel
+func (node * BaseNode) Update(signal GraphSignal) error {
+  log.Printf("UPDATE: BaseNode %s: %+v", node.Name(), signal)
+  node.UpdateListeners(signal)
+  return nil
 }

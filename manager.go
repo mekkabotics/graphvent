@@ -55,8 +55,10 @@ func (manager * EventManager) Run() error {
       c <- nil
     }
   }(abort, aborts)
+
   err := manager.root_event.LockResources()
   if err != nil {
+    abort <- nil
     return err
   }
 

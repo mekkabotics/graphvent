@@ -130,9 +130,11 @@ func TestNewMatch(t *testing.T) {
 
   arena := NewVirtualArena(arena_name)
 
-  root_event := NewMatch(alliance_1, alliance_2, arena)
+  match := NewMatch(alliance_1, alliance_2, arena)
+  root_event := NewEventQueue("root_event", "", []Resource{})
 
   event_manager := NewEventManager(root_event, []Resource{member_1, member_2, member_3, member_4, team_1, team_2, team_3, team_4, alliance_1, alliance_2, arena})
+  event_manager.AddEvent(root_event, match, NewEventQueueInfo(1))
 
   go func() {
     time.Sleep(time.Second * 2)
@@ -140,7 +142,7 @@ func TestNewMatch(t *testing.T) {
   }()
 
   err := event_manager.Run()
-  if err == nil {
+  if err != nil {
     t.Fatal(err)
   }
 }

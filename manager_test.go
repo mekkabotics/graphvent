@@ -9,7 +9,7 @@ import (
 type graph_tester testing.T
 const listner_timeout = 100 * time.Millisecond
 
-func (t * graph_tester) CheckForValue(listener chan string, str string) {
+func (t * graph_tester) CheckForValue(listener chan GraphSignal, str string) {
   timeout := time.After(listner_timeout)
   select {
     case <- listener:
@@ -19,7 +19,7 @@ func (t * graph_tester) CheckForValue(listener chan string, str string) {
   }
 }
 
-func (t * graph_tester) CheckForNone(listener chan string, str string) {
+func (t * graph_tester) CheckForNone(listener chan GraphSignal, str string) {
   timeout := time.After(listner_timeout)
   select {
     case <- listener:
@@ -99,21 +99,23 @@ func TestResourceUpdate(t * testing.T) {
   r4_l := r4.UpdateChannel()
 
   // Calling Update() on the parent with no other parents should only notify node listeners
-  r3.Update("test")
+  println("UPDATE_START")
+  r3.Update(NewSignal(nil, "test"))
+  println("UPDATE_DONE")
   (*graph_tester)(t).CheckForNone(r1_l, "Update on r1 after updating r3")
   (*graph_tester)(t).CheckForNone(r2_l, "Update on r2 after updating r3")
   (*graph_tester)(t).CheckForValue(r3_l, "No update on r3 after updating r3")
   (*graph_tester)(t).CheckForValue(r4_l, "No update on r4 after updating r3")
 
   // Calling Update() on a child should notify listeners of the parent and child, but not siblings
-  r2.Update("test")
+  r2.Update(NewSignal(nil, "test"))
   (*graph_tester)(t).CheckForNone(r1_l, "Update on r1 after updating r2")
   (*graph_tester)(t).CheckForValue(r2_l, "No update on r2 after updating r2")
   (*graph_tester)(t).CheckForValue(r3_l, "No update on r3 after updating r2")
   (*graph_tester)(t).CheckForValue(r4_l, "No update on r4 after updating r2")
 
   // Calling Update() on a child should notify listeners of the parent and child, but not siblings
-  r1.Update("test")
+  r1.Update(NewSignal(nil, "test"))
   (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after updating r1")
   (*graph_tester)(t).CheckForNone(r2_l, "Update on r2 after updating r1")
   (*graph_tester)(t).CheckForValue(r3_l, "No update on r3 after updating r1")
@@ -268,7 +270,7 @@ func TestAddToEventQueue(t * testing.T) {
 }
 
 func TestStartBaseEvent(t * testing.T) {
-  event_1 := NewEvent("1", "", []Resource{})
+  event_1 := NewEvent("TestStartBaseEvent event_1", "", []Resource{})
   r := event_1.DoneResource()
   manager := NewEventManager(event_1, []Resource{})
 
@@ -331,7 +333,7 @@ func TestAbortEventQueue(t * testing.T) {
 }
 
 func TestStartEventQueue(t * testing.T) {
-  root_event := NewEventQueue("", "", []Resource{})
+  root_event := NewEventQueue("root_event", "", []Resource{})
   r := root_event.DoneResource()
   rel := root_event.UpdateChannel();
   res_1 := NewResource("test_resource", "", []Resource{})

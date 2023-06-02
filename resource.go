@@ -9,15 +9,13 @@ import (
 
 // Resources propagate update up to multiple parents, and not downwards
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
-func (resource * BaseResource) Update(reason string) error {
-  log.Printf("UPDATE BaseResource %s: %s", resource.Name(), reason)
-  err := resource.UpdateListeners(reason)
-  if err != nil {
-    return err
-  }
+func (resource * BaseResource) Update(signal GraphSignal) error {
+  log.Printf("UPDATE BaseResource %s: %+v", resource.Name(), signal)
+
+  resource.BaseNode.Update(signal)
 
   for _, parent := range resource.Parents() {
-    err := parent.Update("update parents")
+    err := parent.Update(signal)
     if err != nil {
       return err
     }
@@ -62,7 +60,7 @@ func (resource * BaseResource) Owner() Event {
 }
 
 func (resource * BaseResource) NotifyUnlocked() error {
-  err := resource.Update("finalize_unlock")
+  err := resource.Update(NewSignal(resource, "lock_change"))
   if err != nil {
     return err
   }
@@ -78,7 +76,7 @@ func (resource * BaseResource) NotifyUnlocked() error {
 }
 
 func (resource * BaseResource) NotifyLocked() error {
-  err := resource.Update("finalize_lock")
+  err := resource.Update(NewSignal(resource, "lock_change"))
   if err != nil {
     return err
   }
@@ -90,7 +88,7 @@ func (resource * BaseResource) NotifyLocked() error {
     }
   }
 
-  resource.lock_holder.Update("finalize_lock")
+  resource.lock_holder.Update(NewSignal(resource, "lock_change"))
 
   return nil
 }
@@ -153,10 +151,6 @@ func (resource * BaseResource) Unlock(event Event) error {
   }
   resource.state_lock.Unlock()
 
-  /*if unlocked == true {
-    resource.Update("unlocking resource")
-  }*/
-
   return err
 }
 
@@ -189,17 +183,22 @@ func (resource * BaseResource) AddParent(parent Resource) error {
   return nil
 }
 
-func NewResource(name string, description string, children []Resource) * BaseResource {
-  resource := &BaseResource{
+func NewBaseResource(name string, description string, children []Resource) BaseResource {
+  resource := BaseResource{
     BaseNode: BaseNode{
       name: name,
       description: description,
       id: randid(),
-      listeners: []chan string{},
+      listeners: map[chan GraphSignal]chan GraphSignal{},
     },
     parents: []Resource{},
     children: children,
   }
 
   return resource
+}
+
+func NewResource(name string, description string, children []Resource) * BaseResource {
+  resource := NewBaseResource(name, description, children)
+  return &resource
 }
