@@ -4,6 +4,7 @@ import (
   "log"
   "sync"
   "github.com/google/uuid"
+  "time"
 )
 
 // Generate a random graphql id
@@ -16,12 +17,18 @@ type GraphSignal interface {
   Source() GraphNode
   Type() string
   Description() string
+  Time() time.Time
 }
 
 type BaseSignal struct {
   source GraphNode
   signal_type string
   description string
+  time time.Time
+}
+
+func (signal BaseSignal) Time() time.Time {
+  return signal.time
 }
 
 func (signal BaseSignal) Source() GraphNode {
@@ -134,7 +141,12 @@ func (node * BaseNode) update(signal GraphSignal) {
 }
 
 func SendUpdate(node GraphNode, signal GraphSignal) {
-  log.Printf("UPDATE %s: %+v", node.Name(), signal)
+  if signal.Source() != nil {
+    log.Printf("UPDATE %s -> %s: %+v", signal.Source().Name(), node.Name(), signal)
+  } else {
+    log.Printf("UPDATE %s: %+v", node.Name(), signal)
+
+  }
   node.UpdateListeners(signal)
   node.update(signal)
 }

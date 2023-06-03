@@ -3,6 +3,8 @@ package main
 import (
   "testing"
   "fmt"
+  "runtime/pprof"
+  "os"
   "time"
 )
 
@@ -131,6 +133,7 @@ func TestNewMatch(t *testing.T) {
   arena := NewVirtualArena(arena_name)
 
   match := NewMatch(alliance_1, alliance_2, arena)
+  match_c := match.UpdateChannel()
   root_event := NewEventQueue("root_event", "", []Resource{})
   r := root_event.DoneResource()
 
@@ -138,11 +141,46 @@ func TestNewMatch(t *testing.T) {
   event_manager.AddEvent(root_event, match, NewEventQueueInfo(1))
 
   go func() {
-    time.Sleep(time.Second * 5)
+    time.Sleep(time.Second * 20)
     if r.Owner() != nil {
+      pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
       AbortEvent(root_event)
     }
   }()
+
+  go func(match_c chan GraphSignal) {
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after starting 1")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after starting 2")
+    SendUpdate(match, NewSignal(nil, "queue_autonomous"))
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after queueing autonomous 1")
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after queueing autonomous 2")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after queueing autonomous 3")
+    auton_signal := NewSignal(nil, "start_autonomous")
+    auton_signal.time = time.Now()
+    SendUpdate(match, auton_signal)
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after starting autonomous 1")
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after starting autonomous 2")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after starting autonomous 3")
+    time.Sleep(TEMP_AUTON_TIME)
+    time.Sleep(time.Millisecond * 100)
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after ending autonomous 1")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after ending autonomous 2")
+    SendUpdate(match, NewSignal(nil, "queue_driver"))
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after queueing driver 1")
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after queueing driver 2")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after queueing driver 3")
+    driver_signal := NewSignal(nil, "start_driver")
+    driver_signal.time = time.Now()
+    SendUpdate(match, driver_signal)
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after starting driver 1")
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after starting driver 2")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after starting driver 3")
+    time.Sleep(TEMP_DRIVE_TIME)
+    time.Sleep(time.Millisecond * 100)
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after game done 1")
+    (*graph_tester)(t).CheckForValue(match_c, "no update to match after game done 2")
+    (*graph_tester)(t).CheckForNone(match_c, "update to match after game done 3")
+  }(match_c)
 
   err := event_manager.Run()
   if err != nil {

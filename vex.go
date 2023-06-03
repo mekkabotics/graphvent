@@ -107,7 +107,7 @@ func (arena * Arena) Connect(abort chan error) bool {
     signal := NewSignal(arena, "arena_connected")
     signal.description = update_str
     arena.connected = true
-    go arena.update(signal)
+    go SendUpdate(arena, signal)
     log.Printf("VIRTUAL_ARENA goroutine starting: %s", arena.Name())
     for true {
       select {
@@ -115,7 +115,7 @@ func (arena * Arena) Connect(abort chan error) bool {
         log.Printf("Virtual arena %s aborting", arena.Name())
         break
       case update := <- arena.signal:
-        log.Printf("%s update: %s", arena.Name(), update)
+        log.Printf("%s update: %+v", arena.Name(), update)
         new_owner := arena.Owner()
         if new_owner != owner {
           log.Printf("NEW_OWNER for %s", arena.Name())
@@ -143,6 +143,8 @@ func (arena * Arena) Connect(abort chan error) bool {
 }
 
 const start_slack = 3000 * time.Millisecond
+const TEMP_AUTON_TIME = time.Second * 3
+const TEMP_DRIVE_TIME = time.Second * 5
 
 func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match {
   name := fmt.Sprintf("Match: %s vs. %s on %s", alliance0.Name(), alliance1.Name(), arena.Name())
@@ -162,17 +164,86 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     return "wait", nil
   }
 
-  match.actions["queue_autonomous"] = func() (string, error) {
+  match.handlers["queue_autonomous"] = func(signal GraphSignal) (string, error) {
+    if match.state != "scheduled" {
+      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      return "wait", nil
+    }
     match.control = "none"
     match.state = "autonomous_queued"
     match.control_start = time.Now().Add(start_slack)
+    go SendUpdate(match, NewSignal(match, "autonomous_queued"))
     return "wait", nil
   }
 
-  match.actions["start_autonomous"] = func() (string, error) {
-    match.control = "autonomous"
+  match.handlers["start_autonomous"] = func(signal GraphSignal) (string, error) {
+    if match.state != "autonomous_queued" {
+      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      return "wait", nil
+    }
+    match.control = "program"
     match.state = "autonomous_running"
+    // TODO replace with typed protobuf
+    match.control_start = signal.Time()
+    go SendUpdate(match, NewSignal(match, "autonomous_running"))
+    go func(match * Match) {
+      control_wait := time.Until(match.control_start.Add(TEMP_AUTON_TIME))
+      time.Sleep(control_wait)
+      SendUpdate(match, NewSignal(match, "autonomous_done"))
+    }(match)
     return "wait", nil
+  }
+
+  match.handlers["autonomous_done"] = func(signal GraphSignal) (string, error) {
+    if match.state != "autonomous_running" {
+      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      return "wait", nil
+    }
+    match.control = "none"
+    match.state = "autonomous_done"
+
+    return "wait", nil
+  }
+
+  match.handlers["queue_driver"] = func(signal GraphSignal) (string, error) {
+    if match.state != "autonomous_done"{
+      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      return "wait", nil
+    }
+    match.control = "none"
+    match.state = "driver_queued"
+    match.control_start = time.Now().Add(start_slack)
+    go SendUpdate(match, NewSignal(match, "driver_queued"))
+    return "wait", nil
+  }
+
+  match.handlers["start_driver"] = func(signal GraphSignal) (string, error) {
+    if match.state != "driver_queued" {
+      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      return "wait", nil
+    }
+    match.control = "driver"
+    match.state = "driver_running"
+    match.control_start = signal.Time()
+
+    go SendUpdate(match, NewSignal(match, "driver_running"))
+    go func(match * Match) {
+      control_wait := time.Until(match.control_start.Add(TEMP_DRIVE_TIME))
+      time.Sleep(control_wait)
+      SendUpdate(match, NewSignal(match, "driver_done"))
+    }(match)
+    return "wait", nil
+  }
+
+  match.handlers["driver_done"] = func(signal GraphSignal) (string, error) {
+    if match.state != "driver_running" {
+      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      return "wait", nil
+    }
+    match.control = "none"
+    match.state = "driver_done"
+
+    return "", nil
   }
 
   return match

@@ -14,10 +14,10 @@ func (event * BaseEvent) update(signal GraphSignal) {
   event.signal <- signal
 
   if event.parent != nil && signal.Type() != "abort"{
-    event.parent.update(signal)
+    SendUpdate(event.parent, signal)
   } else if signal.Type() == "abort" {
     for _, child := range(event.Children()) {
-      child.update(signal)
+      SendUpdate(child, signal)
     }
   }
 }
@@ -56,7 +56,7 @@ type Event interface {
   LockParent()
   UnlockParent()
   Action(action string) (func()(string, error), bool)
-  Handler(signal_type string) (func() (string, error), bool)
+  Handler(signal_type string) (func(GraphSignal) (string, error), bool)
   RequiredResources() []Resource
   DoneResource() Resource
 
@@ -66,7 +66,7 @@ type Event interface {
   setParent(parent Event)
 }
 
-func (event * BaseEvent) Handler(signal_type string) (func()(string, error), bool) {
+func (event * BaseEvent) Handler(signal_type string) (func(GraphSignal)(string, error), bool) {
   handler, exists := event.handlers[signal_type]
   return handler, exists
 }
@@ -126,12 +126,15 @@ func AddChild(event Event, child Event, info EventInfo) error {
   event.UnlockChildren()
   event.UnlockParent()
 
+  update := NewSignal(event, "child_added")
+  update.description = child.Name()
   SendUpdate(event, NewSignal(event, "child_added"))
   return nil
 }
 
 func RunEvent(event Event) error {
   log.Printf("EVENT_RUN: %s", event.Name())
+  go SendUpdate(event, NewSignal(event, "event_start"))
   next_action := "start"
   var err error = nil
   for next_action != "" {
@@ -226,7 +229,7 @@ type BaseEvent struct {
   child_info map[string]EventInfo
   child_lock sync.Mutex
   actions map[string]func() (string, error)
-  handlers map[string]func() (string, error)
+  handlers map[string]func(GraphSignal) (string, error)
   parent Event
   parent_lock sync.Mutex
   abort chan string
@@ -253,7 +256,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     done_resource: done_resource,
     required_resources: required_resources,
     actions: map[string]func()(string, error){},
-    handlers: map[string]func()(string, error){},
+    handlers: map[string]func(GraphSignal)(string, error){},
     abort: make(chan string, 1),
   }
 
@@ -268,7 +271,7 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     } else {
       signal_fn, exists := event.Handler(signal.Type())
       if exists == true {
-        return signal_fn()
+        return signal_fn(signal)
       }
     }
     // ignore signals other than "abort" and "do_action"
@@ -353,7 +356,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
         err := LockResources(event)
         // start in new goroutine
         if err != nil {
-          //log.Printf("Failed to lock %s: %s", event.Name(), err)
+          log.Printf("Failed to lock %s: %s", event.Name(), err)
         } else {
           info.state = "running"
           log.Printf("EVENT_START: %s", event.Name())
@@ -374,8 +377,12 @@ func NewEventQueue(name string, description string, required_resources []Resourc
 
 
     for _, resource := range(needed_resources) {
-      queue.listened_resources[resource.ID()] = resource
-      resource.RegisterChannel(queue.signal)
+      _, exists := queue.listened_resources[resource.ID()]
+      if exists == false {
+        log.Printf("REGISTER_RESOURCE: %s - %s", queue.Name(), resource.Name())
+        queue.listened_resources[resource.ID()] = resource
+        resource.RegisterChannel(queue.signal)
+      }
     }
 
     queue.UnlockChildren()
@@ -395,15 +402,19 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     return "queue_event", nil
   }
 
-  queue.handlers["child_added"] = func() (string, error) {
+  queue.handlers["arena_connected"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
-  queue.handlers["lock_change"] = func() (string, error) {
+  queue.handlers["child_added"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
-  queue.handlers["event_done"] = func() (string, error) {
+  queue.handlers["lock_changed"] = func(signal GraphSignal) (string, error) {
+    return "queue_event", nil
+  }
+
+  queue.handlers["event_done"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
@@ -435,7 +446,6 @@ func (event * BaseEvent) ChildInfo(idx Event) EventInfo {
 }
 
 func (event * BaseEvent) LockChildren() {
-  log.Printf("LOCKING CHILDREN OF %s", event.Name())
   event.child_lock.Lock()
 }
 

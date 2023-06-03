@@ -11,3 +11,6 @@ clean:
 
 run: build
 	${BINARY_PATH}
+
+test:
+	go test

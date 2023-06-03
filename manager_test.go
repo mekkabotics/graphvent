@@ -22,9 +22,9 @@ func (t * graph_tester) CheckForValue(listener chan GraphSignal, str string) {
 func (t * graph_tester) CheckForNone(listener chan GraphSignal, str string) {
   timeout := time.After(listner_timeout)
   select {
-    case <- listener:
-      t.Fatal(str)
-    case <-timeout:
+  case sig := <- listener:
+    t.Fatal(fmt.Printf("%s : %+v", str, sig))
+  case <-timeout:
   }
 }
 
@@ -182,7 +182,7 @@ func TestLockResource(t * testing.T) {
   NotifyResourceLocked(r3)
 
   (*graph_tester)(t).CheckForValue(r1_l, "No value on r1 update channel")
-  (*graph_tester)(t).CheckForValue(rel, "No value on root_event update channel")
+  (*graph_tester)(t).CheckForNone(rel, "Value on root_event update channel")
 
   err = LockResource(r3, root_event)
   if err == nil {
@@ -211,7 +211,7 @@ func TestLockResource(t * testing.T) {
   NotifyResourceUnlocked(r3)
 
   (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after unlocking r3")
-  (*graph_tester)(t).CheckForValue(rel, "No update on rel after unlocking r3")
+  (*graph_tester)(t).CheckForNone(rel, "Update on rel after unlocking r3")
 
   err = LockResource(r4, root_event)
   if err != nil {
@@ -220,7 +220,7 @@ func TestLockResource(t * testing.T) {
   NotifyResourceLocked(r4)
 
   (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after locking r4")
-  (*graph_tester)(t).CheckForValue(rel, "No update on rel after locking r4")
+  (*graph_tester)(t).CheckForNone(rel, "Update on rel after locking r4")
 
   err = UnlockResource(r4, root_event)
   if err != nil {

@@ -17,11 +17,11 @@ func (resource * BaseResource) update(signal GraphSignal) {
     for _, parent := range resource.Parents() {
       SendUpdate(parent, signal)
     }
+    if resource.lock_holder != nil {
+      SendUpdate(resource.lock_holder, signal)
+    }
   }
 
-  if resource.lock_holder != nil {
-    SendUpdate(resource.lock_holder, signal)
-  }
 }
 
 // Resource is the interface that DAG nodes are made from
@@ -115,13 +115,22 @@ func LockResource(resource Resource, event Event) error {
     return errors.New(err_str)
   }
 
+  err := resource.lock(event)
+  if err != nil {
+    resource.UnlockState()
+    err_str := fmt.Sprintf("Failed to lock resource: %s", err)
+    return errors.New(err_str)
+  }
+
   var lock_err error = nil
+  locked_resources := []Resource{}
   for _, child := range resource.Children() {
     err := LockResource(child, event)
     if err != nil{
       lock_err = err
       break
     }
+    locked_resources = append(locked_resources, child)
   }
 
   if lock_err != nil {
@@ -132,11 +141,6 @@ func LockResource(resource Resource, event Event) error {
 
   resource.SetOwner(event)
 
-  err := resource.lock(event)
-  if err != nil {
-    resource.UnlockState()
-    return errors.New("Failed to lock resource")
-  }
 
   resource.UnlockState()
   return nil
