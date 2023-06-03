@@ -64,13 +64,6 @@ func NewAlliance(team0 * Team, team1 * Team) * Alliance {
   return resource
 }
 
-type Match struct {
-  BaseEvent
-  state string
-  control string
-  control_start time.Time
-}
-
 type Arena struct {
   BaseResource
   connected bool
@@ -96,8 +89,9 @@ func (arena * Arena) lock(event Event) error {
 
 func (arena * Arena) update(signal GraphSignal) {
   log.Printf("ARENA_UPDATE: %s", arena.Name())
-  arena.BaseResource.update(signal)
   arena.signal <- signal
+  new_signal := signal.Trace(arena.ID())
+  arena.BaseResource.update(new_signal)
 }
 
 func (arena * Arena) Connect(abort chan error) bool {
@@ -147,6 +141,22 @@ const start_slack = 3000 * time.Millisecond
 const TEMP_AUTON_TIME = time.Second * 3
 const TEMP_DRIVE_TIME = time.Second * 5
 
+type Match struct {
+  BaseEvent
+  arena * Arena
+  state string
+  control string
+  control_start time.Time
+}
+
+func (match * Match) update(signal GraphSignal) {
+  new_signal := signal.Trace(match.ID())
+  match.BaseEvent.update(new_signal)
+  if match.arena.ID() != signal.Last() {
+    SendUpdate(match.arena, new_signal)
+  }
+}
+
 func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match {
   name := fmt.Sprintf("Match: %s vs. %s on %s", alliance0.Name(), alliance1.Name(), arena.Name())
   description := "A vex match"
@@ -156,6 +166,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     state: "init",
     control: "init",
     control_start: time.UnixMilli(0),
+    arena: arena,
   }
 
   match.actions["start"] = func() (string, error) {

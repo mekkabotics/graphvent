@@ -12,12 +12,12 @@ import (
 // Update the events listeners, and notify the parent to do the same
 func (event * BaseEvent) update(signal GraphSignal) {
   event.signal <- signal
-
+  new_signal := signal.Trace(event.ID())
   if event.parent != nil && signal.Type() != "abort"{
-    SendUpdate(event.parent, signal)
+    SendUpdate(event.parent, new_signal)
   } else if signal.Type() == "abort" {
     for _, child := range(event.Children()) {
-      SendUpdate(child, signal)
+      SendUpdate(child, new_signal)
     }
   }
 }

@@ -18,6 +18,8 @@ type GraphSignal interface {
   Type() string
   Description() string
   Time() time.Time
+  Last() string
+  Trace(id string) GraphSignal
 }
 
 type BaseSignal struct {
@@ -25,6 +27,7 @@ type BaseSignal struct {
   signal_type string
   description string
   time time.Time
+  last_id string
 }
 
 func (signal BaseSignal) Time() time.Time {
@@ -41,6 +44,16 @@ func (signal BaseSignal) Type() string {
 
 func (signal BaseSignal) Description() string {
   return signal.description
+}
+
+func (signal BaseSignal) Trace(id string) GraphSignal {
+  new_signal := signal
+  new_signal.last_id = id
+  return new_signal
+}
+
+func (signal BaseSignal) Last() string {
+  return signal.last_id
 }
 
 func NewSignal(source GraphNode, signal_type string) (BaseSignal) {

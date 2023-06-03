@@ -9,19 +9,21 @@ import (
 // Resources propagate update up to multiple parents, and not downwards
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
 func (resource * BaseResource) update(signal GraphSignal) {
+  new_signal := signal.Trace(resource.ID())
   if signal.Type() == "lock_changed" {
     for _, child := range resource.Children() {
-      SendUpdate(child, signal)
+      SendUpdate(child, new_signal)
     }
   } else {
     for _, parent := range resource.Parents() {
-      SendUpdate(parent, signal)
+      SendUpdate(parent, new_signal)
     }
     if resource.lock_holder != nil {
-      SendUpdate(resource.lock_holder, signal)
+      if resource.lock_holder.ID() != signal.Last() {
+        SendUpdate(resource.lock_holder, new_signal)
+      }
     }
   }
-
 }
 
 // Resource is the interface that DAG nodes are made from
