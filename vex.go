@@ -99,7 +99,7 @@ func (arena * Arena) Connect(abort chan error) bool {
   go func(arena * Arena, abort chan error) {
     owner := arena.Owner()
     update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
-    signal := NewSignal(arena, "arena_connected")
+    signal := NewSignal(arena, "resource_connected")
     signal.description = update_str
     arena.connected = true
     go SendUpdate(arena, signal)

@@ -128,9 +128,7 @@ func fake_data() * EventManager {
 func main() {
   go func() {
     time.Sleep(5 * time.Second)
-    if false {
-      pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
-    }
+    pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
   }()
 
   event_manager := fake_data()

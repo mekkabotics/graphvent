@@ -274,7 +274,6 @@ func NewBaseEvent(name string, description string, required_resources []Resource
         return signal_fn(signal)
       }
     }
-    // ignore signals other than "abort" and "do_action"
     return "wait", nil
   }
 
@@ -394,15 +393,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     }
   }
 
-  queue.actions["event_done"] = func() (string, error) {
-    return "queue_event", nil
-  }
-
-  queue.actions["resource_update"] = func() (string, error) {
-    return "queue_event", nil
-  }
-
-  queue.handlers["arena_connected"] = func(signal GraphSignal) (string, error) {
+  queue.handlers["resource_connected"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
