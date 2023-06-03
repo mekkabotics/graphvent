@@ -356,7 +356,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
         err := LockResources(event)
         // start in new goroutine
         if err != nil {
-          log.Printf("Failed to lock %s: %s", event.Name(), err)
+          //log.Printf("Failed to lock %s: %s", event.Name(), err)
         } else {
           info.state = "running"
           log.Printf("EVENT_START: %s", event.Name())

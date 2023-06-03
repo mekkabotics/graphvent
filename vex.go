@@ -96,6 +96,7 @@ func (arena * Arena) lock(event Event) error {
 
 func (arena * Arena) update(signal GraphSignal) {
   log.Printf("ARENA_UPDATE: %s", arena.Name())
+  arena.BaseResource.update(signal)
   arena.signal <- signal
 }
 
