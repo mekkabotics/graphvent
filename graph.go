@@ -1,11 +1,66 @@
 package main
 
 import (
-  "log"
   "sync"
   "github.com/google/uuid"
   "time"
+  "os"
+  "github.com/rs/zerolog"
+  "fmt"
+  "io"
 )
+
+type Logger interface {
+  Init() error
+  Logf(component string, format string, items ... interface{})
+}
+
+type DefaultLogger struct {
+  init bool
+  init_lock sync.Mutex
+  loggers map[string]zerolog.Logger
+}
+
+var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}}
+var all_components = []string{"update", "graph", "event", "resource", "manager", "test"}
+
+func (logger * DefaultLogger) Init(components []string) error {
+  file, err := os.OpenFile("test.log", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
+  if err != nil {
+    return err
+  }
+
+  component_enabled := func (component string) bool {
+    for _, c := range(components) {
+      if c == component {
+        return true
+      }
+    }
+    return false
+  }
+
+  writer := io.MultiWriter(file, os.Stdout)
+  for _, c := range(all_components) {
+    if component_enabled(c) == true {
+      logger.loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
+    }
+  }
+  return nil
+}
+
+func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
+  logger.init_lock.Lock()
+  if logger.init == false {
+    logger.Init(all_components)
+    logger.init = true
+  }
+  logger.init_lock.Unlock()
+
+  l, exists := logger.loggers[component]
+  if exists == true {
+    l.Log().Msg(fmt.Sprintf(format, items...))
+  }
+}
 
 // Generate a random graphql id
 func randid() string{
@@ -84,7 +139,7 @@ func NewBaseNode(name string, description string, id string) BaseNode {
     signal: make(chan GraphSignal, 1000),
     listeners: map[chan GraphSignal]chan GraphSignal{},
   }
-  log.Printf("NEW_NODE: %s - %s", node.ID(), node.Name())
+  log.Logf("graph", "NEW_NODE: %s - %s", node.ID(), node.Name())
   return node
 }
 
@@ -146,11 +201,11 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
   closed := []chan GraphSignal{}
 
   for _, listener := range node.listeners {
-    log.Printf("UPDATE_LISTENER %s: %p", node.Name(), listener)
+    log.Logf("update", "UPDATE_LISTENER %s: %p", node.Name(), listener)
     select {
     case listener <- update:
     default:
-      log.Printf("CLOSED_LISTENER: %s: %p", node.Name(), listener)
+      log.Logf("update", "CLOSED_LISTENER: %s: %p", node.Name(), listener)
       go func(node GraphNode, listener chan GraphSignal) {
         listener <- NewSignal(node, "listener_closed")
         close(listener)
@@ -171,9 +226,9 @@ func (node * BaseNode) update(signal GraphSignal) {
 
 func SendUpdate(node GraphNode, signal GraphSignal) {
   if signal.Source() != nil {
-    log.Printf("UPDATE %s -> %s: %+v", signal.Source().Name(), node.Name(), signal)
+    log.Logf("update", "UPDATE %s -> %s: %+v", signal.Source().Name(), node.Name(), signal)
   } else {
-    log.Printf("UPDATE %s: %+v", node.Name(), signal)
+    log.Logf("update", "UPDATE %s: %+v", node.Name(), signal)
 
   }
   node.UpdateListeners(signal)

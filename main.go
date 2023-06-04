@@ -1,7 +1,6 @@
 package main
 
 import (
-  "log"
   "runtime/pprof"
   "time"
   "os"
@@ -95,32 +94,25 @@ func fake_data() (* EventManager, *Arena, *Arena) {
 
 
   root_event := NewEventQueue("root_event", "", []Resource{})
-  stay_resource := NewResource("stay_resource", "", []Resource{})
-  resources = append(resources, stay_resource)
-  stay_event := NewEvent("stay_event", "", []Resource{stay_resource})
-  LockResource(stay_resource, stay_event)
   event_manager := NewEventManager(root_event, resources)
-  event_manager.AddEvent(root_event, stay_event, NewEventQueueInfo(1))
 
-  go func(alliances []*Alliance, arenas []*Arena, event_manager * EventManager) {
-    for i, alliance := range(alliances) {
-      for j, alliance2 := range(alliances) {
-        if j != i {
-          if alliance.Children()[0] == alliance2.Children()[0] || alliance.Children()[0] == alliance2.Children()[1] || alliance.Children()[1] == alliance2.Children()[0] || alliance.Children()[1] == alliance2.Children()[1] {
-          } else {
-            for arena_idx := 0; arena_idx < len(arenas); arena_idx++ {
-              match := NewMatch(alliance, alliance2, arenas[arena_idx])
-              log.Printf("Adding %s", match.Name())
-              err := event_manager.AddEvent(root_event, match, NewEventQueueInfo(i))
-              if err != nil {
-                log.Printf("Error adding %s: %s", match.Name(), err)
-              }
+  for i, alliance := range(alliances) {
+    for j, alliance2 := range(alliances) {
+      if j != i {
+        if alliance.Children()[0] == alliance2.Children()[0] || alliance.Children()[0] == alliance2.Children()[1] || alliance.Children()[1] == alliance2.Children()[0] || alliance.Children()[1] == alliance2.Children()[1] {
+        } else {
+          for arena_idx := 0; arena_idx < len(arenas); arena_idx++ {
+            match := NewMatch(alliance, alliance2, arenas[arena_idx])
+            log.Logf("test", "Adding %s", match.Name())
+            err := event_manager.AddEvent(root_event, match, NewEventQueueInfo(i))
+            if err != nil {
+              log.Logf("test", "Error adding %s: %s", match.Name(), err)
             }
           }
         }
       }
     }
-  }(alliances, arenas, event_manager)
+  }
 
   return event_manager, arenas[0], arenas[1]
 }
@@ -146,49 +138,49 @@ func NewFakeClient(arena *Arena) * FakeClient {
 func (client * FakeClient) process_update(update GraphSignal) {
   arena := client.arena
   if update.Source() != nil {
-    log.Printf("FAKE_CLIENT_UPDATE: %s -> %+v", update.Source().ID(), update)
+    log.Logf("test", "FAKE_CLIENT_UPDATE: %s -> %+v", update.Source().ID(), update)
   } else {
-    log.Printf("FAKE_CLIENT_UPDATE: nil -> %+v", update)
+    log.Logf("test", "FAKE_CLIENT_UPDATE: nil -> %+v", update)
   }
   if update.Type() == "event_start" {
     if client.state != "init" {
-      log.Printf("BAD_CLIENT_STATE: event_start when match not in init: %s %s", arena.Name(), client.state)
+      log.Logf("test", "BAD_CLIENT_STATE: event_start when match not in init: %s %s", arena.Name(), client.state)
     }
     client.state = "autonomous_queued"
-    log.Printf("FAKE_CLIENT_ACTION: Match started on %s, queuing autonomous automatically", arena.Name())
+    log.Logf("test", "FAKE_CLIENT_ACTION: Match started on %s, queuing autonomous automatically", arena.Name())
     SendUpdate(arena, NewSignal(nil, "queue_autonomous"))
   } else if update.Type() == "autonomous_queued" {
     if client.state != "autonomous_queued" {
-      log.Printf("BAD_CLIENT_STATE: autonomous_queued when match not in autonomous_queued: %s %s", arena.Name(), client.state)
+      log.Logf("test", "BAD_CLIENT_STATE: autonomous_queued when match not in autonomous_queued: %s %s", arena.Name(), client.state)
     }
     client.state = "autonomous_started"
-    log.Printf("FAKE_CLIENT_ACTION: Autonomous queued on %s for %s, starting automatically at requested time", arena.Name(), update.Time())
+    log.Logf("test", "FAKE_CLIENT_ACTION: Autonomous queued on %s for %s, starting automatically at requested time", arena.Name(), update.Time())
     signal := NewSignal(nil, "start_autonomous")
     signal.time = update.Time()
     SendUpdate(arena, signal)
   } else if update.Type() == "autonomous_done" {
     if client.state != "autonomous_started" {
-      log.Printf("BAD_CLIENT_STATE: autonomous_done when match not in autonomous_started: %s %s", arena.Name(), client.state)
+      log.Logf("test", "BAD_CLIENT_STATE: autonomous_done when match not in autonomous_started: %s %s", arena.Name(), client.state)
     }
     client.state = "driver_queued"
-    log.Printf("FAKE_CLIENT_ACTION: Autonomous done on %s for %s, queueing driver automatically", arena.Name(), update.Time())
+    log.Logf("test", "FAKE_CLIENT_ACTION: Autonomous done on %s for %s, queueing driver automatically", arena.Name(), update.Time())
     signal := NewSignal(nil, "queue_driver")
     SendUpdate(arena, signal)
   } else if update.Type() == "driver_queued" {
     if client.state != "driver_queued" {
-      log.Printf("BAD_CLIENT_STATE: driver_queued when match not in autonomous_done: %s %s", arena.Name(), client.state)
+      log.Logf("test", "BAD_CLIENT_STATE: driver_queued when match not in autonomous_done: %s %s", arena.Name(), client.state)
     }
     client.state = "driver_started"
-    log.Printf("FAKE_CLIENT_ACTION: Driver queueud on %s for %s, starting driver automatically at requested time", arena.Name(), update.Time())
+    log.Logf("test", "FAKE_CLIENT_ACTION: Driver queueud on %s for %s, starting driver automatically at requested time", arena.Name(), update.Time())
     signal := NewSignal(nil, "start_driver")
     signal.time = update.Time()
     SendUpdate(arena, signal)
   } else if update.Type() == "driver_done" {
     if client.state != "driver_started" {
-      log.Printf("BAD_CLIENT_STATE: driver_done when match not in driver_started: %s %s", arena.Name(), client.state)
+      log.Logf("test", "BAD_CLIENT_STATE: driver_done when match not in driver_started: %s %s", arena.Name(), client.state)
     }
     client.state = "init"
-    log.Printf("FAKE_CLIENT_ACTION: Driver done on %s for %s", arena.Name(), update.Time())
+    log.Logf("test", "FAKE_CLIENT_ACTION: Driver done on %s for %s", arena.Name(), update.Time())
   }
 }
 
@@ -214,11 +206,11 @@ func main() {
       }
     }
   }()
-  log.Printf("Starting event_manager")
+  log.Logf("test", "Starting event_manager")
   err := event_manager.Run()
   if err != nil {
-    log.Printf("Error running event_manager: %s", err)
+    log.Logf("test", "Error running event_manager: %s", err)
   } else {
-    log.Printf("Finished event_manager")
+    log.Logf("test", "Finished event_manager")
   }
 }

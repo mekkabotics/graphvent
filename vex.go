@@ -2,7 +2,6 @@ package main
 
 import (
   "fmt"
-  "log"
   "time"
   "errors"
 )
@@ -80,7 +79,7 @@ func NewVirtualArena(name string) * Arena {
 
 func (arena * Arena) lock(event Event) error {
   if arena.connected == false {
-    log.Printf("ARENA NOT CONNECTED: %s", arena.Name())
+    log.Logf("vex", "ARENA NOT CONNECTED: %s", arena.Name())
     error_str := fmt.Sprintf("%s is not connected, cannot lock", arena.Name())
     return errors.New(error_str)
   }
@@ -88,36 +87,36 @@ func (arena * Arena) lock(event Event) error {
 }
 
 func (arena * Arena) update(signal GraphSignal) {
-  log.Printf("ARENA_UPDATE: %s", arena.Name())
+  log.Logf("vex", "ARENA_UPDATE: %s", arena.Name())
   arena.signal <- signal
   arena.BaseResource.update(signal)
 }
 
 func (arena * Arena) Connect(abort chan error) bool {
-  log.Printf("Connecting %s", arena.Name())
+  log.Logf("vex", "Connecting %s", arena.Name())
   go func(arena * Arena, abort chan error) {
     update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
     signal := NewSignal(arena, "resource_connected")
     signal.description = update_str
     arena.connected = true
     go SendUpdate(arena, signal)
-    log.Printf("VIRTUAL_ARENA goroutine starting: %s", arena.Name())
+    log.Logf("vex", "VIRTUAL_ARENA goroutine starting: %s", arena.Name())
     for true {
       select {
       case <- abort:
-        log.Printf("Virtual arena %s aborting", arena.Name())
+        log.Logf("vex", "Virtual arena %s aborting", arena.Name())
         break
       case update := <- arena.signal:
-        log.Printf("VIRTUAL_ARENA_ACTION: %s : %+v", arena.Name(), update)
+        log.Logf("vex", "VIRTUAL_ARENA_ACTION: %s : %+v", arena.Name(), update)
       }
     }
   }(arena, abort)
   return true
 }
 
-const start_slack = 3000 * time.Millisecond
-const TEMP_AUTON_TIME = time.Second * 3
-const TEMP_DRIVE_TIME = time.Second * 5
+const start_slack = 250 * time.Millisecond
+const TEMP_AUTON_TIME = time.Second * 1
+const TEMP_DRIVE_TIME = time.Second * 1
 
 type Match struct {
   BaseEvent
@@ -147,7 +146,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
   match.actions["wait"] = EventWait(match)
 
   match.actions["start"] = func() (string, error) {
-    log.Printf("STARTING_MATCH %s", match.Name())
+    log.Logf("vex", "STARTING_MATCH %s", match.Name())
     match.control = "none"
     match.state = "scheduled"
     return "wait", nil
@@ -155,10 +154,10 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["queue_autonomous"] = func(signal GraphSignal) (string, error) {
     if match.state != "scheduled" {
-      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
+      log.Logf("vex", "BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
-    log.Printf("AUTONOMOUS_QUEUED: %s", match.Name())
+    log.Logf("vex", "AUTONOMOUS_QUEUED: %s", match.Name())
     match.control = "none"
     match.state = "autonomous_queued"
     match.control_start = time.Now().Add(start_slack)
@@ -170,10 +169,10 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["start_autonomous"] = func(signal GraphSignal) (string, error) {
     if match.state != "autonomous_queued" {
-      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
+      log.Logf("vex", "BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
-    log.Printf("AUTONOMOUS_RUNNING: %s", match.Name())
+    log.Logf("vex", "AUTONOMOUS_RUNNING: %s", match.Name())
     match.control = "program"
     match.state = "autonomous_running"
     match.control_start = signal.Time()
@@ -181,16 +180,16 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
     end_time := match.control_start.Add(TEMP_AUTON_TIME)
     match.SetTimeout(end_time, "autonomous_done")
-    log.Printf("AUTONOMOUS_END_TIME: %s %+v", end_time, match.timeout)
+    log.Logf("vex", "AUTONOMOUS_END_TIME: %s %+v", end_time, match.timeout)
     return "wait", nil
   }
 
   match.handlers["autonomous_done"] = func(signal GraphSignal) (string, error) {
     if match.state != "autonomous_running" {
-      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
+      log.Logf("vex", "BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
-    log.Printf("AUTONOMOUS_DONE: %s", match.Name())
+    log.Logf("vex", "AUTONOMOUS_DONE: %s", match.Name())
     match.control = "none"
     match.state = "autonomous_done"
 
@@ -199,7 +198,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["queue_driver"] = func(signal GraphSignal) (string, error) {
     if match.state != "autonomous_done"{
-      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
+      log.Logf("vex", "BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     match.control = "none"
@@ -213,7 +212,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["start_driver"] = func(signal GraphSignal) (string, error) {
     if match.state != "driver_queued" {
-      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
+      log.Logf("vex", "BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     match.control = "driver"
@@ -230,7 +229,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["driver_done"] = func(signal GraphSignal) (string, error) {
     if match.state != "driver_running" {
-      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
+      log.Logf("vex", "BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     match.control = "none"

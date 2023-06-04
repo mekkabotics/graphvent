@@ -2,7 +2,6 @@ package main
 
 import (
   "fmt"
-  "log"
   "errors"
 )
 
@@ -25,14 +24,14 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
   for _, resource := range dag_nodes {
     err := manager.AddResource(resource)
     if err != nil {
-      log.Printf("Failed to add %s to EventManager: %s", resource.Name(), err)
+      log.Logf("manager", "Failed to add %s to EventManager: %s", resource.Name(), err)
       return nil
     }
   }
 
   err := manager.AddEvent(nil, root_event, nil)
   if err != nil {
-    log.Printf("Failed to add %s to EventManager as root_event: %s", root_event.Name(), err)
+    log.Logf("manager", "Failed to add %s to EventManager as root_event: %s", root_event.Name(), err)
   }
 
   return manager;
@@ -40,7 +39,7 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
 
 // Connect to all resources(in a thread to handle reconnections), and start the first event
 func (manager * EventManager) Run() error {
-  log.Printf("MANAGER_START")
+  log.Logf("manager", "MANAGER_START")
 
   abort := make(chan error, 1)
   go func(abort chan error, manager * EventManager) {
@@ -52,7 +51,7 @@ func (manager * EventManager) Run() error {
 
   err := LockResources(manager.root_event)
   if err != nil {
-    log.Printf("MANAGER_LOCK_ERR: %s", err)
+    log.Logf("manager", "MANAGER_LOCK_ERR: %s", err)
     abort <- nil
     return err
   }
@@ -60,16 +59,16 @@ func (manager * EventManager) Run() error {
   err = RunEvent(manager.root_event)
   abort <- nil
   if err != nil {
-    log.Printf("MANAGER_RUN_ERR: %s", err)
+    log.Logf("manager", "MANAGER_RUN_ERR: %s", err)
     return err
   }
 
   err = FinishEvent(manager.root_event)
   if err != nil {
-    log.Printf("MANAGER_FINISH_ERR: %s", err)
+    log.Logf("manager", "MANAGER_FINISH_ERR: %s", err)
     return err
   }
-  log.Printf("MANAGER_DONE")
+  log.Logf("manager", "MANAGER_DONE")
 
   return nil
 }
@@ -90,7 +89,7 @@ func (manager * EventManager) FindEvent(id string) Event {
 }
 
 func (manager * EventManager) AddResource(resource Resource) error {
-  log.Printf("Adding resource %s", resource.Name())
+  log.Logf("manager", "Adding resource %s", resource.Name())
   _, exists := manager.dag_nodes[resource.ID()]
   if exists == true {
     error_str := fmt.Sprintf("%s is already in the resource DAG, cannot add again", resource.Name())

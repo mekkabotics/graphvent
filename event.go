@@ -3,7 +3,6 @@ package main
 import (
   "fmt"
   "time"
-  "log"
   "errors"
   "reflect"
   "sort"
@@ -162,7 +161,7 @@ func AddChild(event Event, child Event, info EventInfo) error {
 }
 
 func RunEvent(event Event) error {
-  log.Printf("EVENT_RUN: %s", event.Name())
+  log.Logf("event", "EVENT_RUN: %s", event.Name())
   go SendUpdate(event, NewSignal(event, "event_start"))
   next_action := "start"
   var err error = nil
@@ -173,14 +172,14 @@ func RunEvent(event Event) error {
       return errors.New(error_str)
     }
 
-    log.Printf("EVENT_ACTION: %s - %s", event.Name(), next_action)
+    log.Logf("event", "EVENT_ACTION: %s - %s", event.Name(), next_action)
     next_action, err = action()
     if err != nil {
       return err
     }
   }
 
-  log.Printf("EVENT_RUN_DONE: %s", event.Name())
+  log.Logf("event", "EVENT_RUN_DONE: %s", event.Name())
 
   return nil
 }
@@ -224,7 +223,7 @@ func LockResources(event Event) error {
 
 func FinishEvent(event Event) error {
   // TODO make more 'safe' like LockResources, or make UnlockResource not return errors
-  log.Printf("EVENT_FINISH: %s", event.Name())
+  log.Logf("event", "EVENT_FINISH: %s", event.Name())
   for _, resource := range(event.RequiredResources()) {
     err := UnlockResource(resource, event)
     if err != nil {
@@ -278,26 +277,26 @@ func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
 
 func EventWait(event Event) (func() (string, error)) {
   return func() (string, error) {
-    log.Printf("EVENT_WAIT: %s TIMEOUT: %+v", event.Name(), event.Timeout())
+    log.Logf("event", "EVENT_WAIT: %s TIMEOUT: %+v", event.Name(), event.Timeout())
     select {
     case signal := <- event.Signal():
       if signal.Source() != nil {
-        log.Printf("EVENT_SIGNAL: %s %s %s -> %+v", event.Name(), signal.Last(), signal.Source().Name(), signal)
+        log.Logf("event", "EVENT_SIGNAL: %s %s %s -> %+v", event.Name(), signal.Last(), signal.Source().Name(), signal)
       } else {
-        log.Printf("EVENT_SIGNAL: %s %s nil -> %+v", event.Name(), signal.Last(), signal)
+        log.Logf("event", "EVENT_SIGNAL: %s %s nil -> %+v", event.Name(), signal.Last(), signal)
       }
       if signal.Type() == "abort" {
         return "", errors.New("State machine aborted by signal")
       } else {
         signal_fn, exists := event.Handler(signal.Type())
         if exists == true {
-          log.Printf("EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
+          log.Logf("event", "EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
           return signal_fn(signal)
         }
       }
       return "wait", nil
     case <- event.Timeout():
-      log.Printf("EVENT_TIMEOUT %s - NEXT_STATE: %s", event.Name(), event.TimeoutAction())
+      log.Logf("event", "EVENT_TIMEOUT %s - NEXT_STATE: %s", event.Name(), event.TimeoutAction())
       return event.TimeoutAction(), nil
     }
   }
@@ -403,15 +402,15 @@ func NewEventQueue(name string, description string, required_resources []Resourc
         err := LockResources(event)
         // start in new goroutine
         if err != nil {
-          //log.Printf("Failed to lock %s: %s", event.Name(), err)
+          //log.Logf("event", "Failed to lock %s: %s", event.Name(), err)
         } else {
           info.state = "running"
-          log.Printf("EVENT_START: %s", event.Name())
+          log.Logf("event", "EVENT_START: %s", event.Name())
           go func(event Event, info * EventQueueInfo, queue Event) {
-            log.Printf("EVENT_GOROUTINE: %s", event.Name())
+            log.Logf("event", "EVENT_GOROUTINE: %s", event.Name())
             err := RunEvent(event)
             if err != nil {
-              log.Printf("EVENT_ERROR: %s", err)
+              log.Logf("event", "EVENT_ERROR: %s", err)
             }
             info.state = "done"
             FinishEvent(event)
@@ -426,7 +425,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     for _, resource := range(needed_resources) {
       _, exists := queue.listened_resources[resource.ID()]
       if exists == false {
-        log.Printf("REGISTER_RESOURCE: %s - %s", queue.Name(), resource.Name())
+        log.Logf("event", "REGISTER_RESOURCE: %s - %s", queue.Name(), resource.Name())
         queue.listened_resources[resource.ID()] = resource
         resource.RegisterChannel(queue.signal)
       }

@@ -20,6 +20,7 @@ func (resource * BaseResource) update(signal GraphSignal) {
       SendUpdate(resource.lock_holder, new_signal)
     }
   }
+
 }
 
 // Resource is the interface that DAG nodes are made from
