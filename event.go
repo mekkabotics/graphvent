@@ -2,6 +2,7 @@ package main
 
 import (
   "fmt"
+  "time"
   "log"
   "errors"
   "reflect"
@@ -66,11 +67,32 @@ type Event interface {
   Handler(signal_type string) (func(GraphSignal) (string, error), bool)
   RequiredResources() []Resource
   DoneResource() Resource
+  SetTimeout(end_time time.Time, action string)
+  Timeout() <-chan time.Time
+  TimeoutAction() string
+  Signal() chan GraphSignal
 
   finish() error
 
   addChild(child Event, info EventInfo)
   setParent(parent Event)
+}
+
+func (event * BaseEvent) Signal() chan GraphSignal {
+  return event.signal
+}
+
+func (event * BaseEvent) TimeoutAction() string {
+  return event.timeout_action
+}
+
+func (event * BaseEvent) Timeout() <-chan time.Time {
+  return event.timeout
+}
+
+func (event * BaseEvent) SetTimeout(end_time time.Time, action string) {
+  event.timeout_action = action
+  event.timeout = time.After(time.Until(end_time))
 }
 
 func (event * BaseEvent) Handler(signal_type string) (func(GraphSignal)(string, error), bool) {
@@ -245,11 +267,40 @@ type BaseEvent struct {
   parent Event
   parent_lock sync.Mutex
   abort chan string
+  timeout <-chan time.Time
+  timeout_action string
 }
 
 func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
   action_fn, exists := event.actions[action]
   return action_fn, exists
+}
+
+func EventWait(event Event) (func() (string, error)) {
+  return func() (string, error) {
+    log.Printf("EVENT_WAIT: %s TIMEOUT: %+v", event.Name(), event.Timeout())
+    select {
+    case signal := <- event.Signal():
+      if signal.Source() != nil {
+        log.Printf("EVENT_SIGNAL: %s %s %s -> %+v", event.Name(), signal.Last(), signal.Source().Name(), signal)
+      } else {
+        log.Printf("EVENT_SIGNAL: %s %s nil -> %+v", event.Name(), signal.Last(), signal)
+      }
+      if signal.Type() == "abort" {
+        return "", errors.New("State machine aborted by signal")
+      } else {
+        signal_fn, exists := event.Handler(signal.Type())
+        if exists == true {
+          log.Printf("EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
+          return signal_fn(signal)
+        }
+      }
+      return "wait", nil
+    case <- event.Timeout():
+      log.Printf("EVENT_TIMEOUT %s - NEXT_STATE: %s", event.Name(), event.TimeoutAction())
+      return event.TimeoutAction(), nil
+    }
+  }
 }
 
 func NewBaseEvent(name string, description string, required_resources []Resource) (BaseEvent) {
@@ -264,30 +315,11 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     actions: map[string]func()(string, error){},
     handlers: map[string]func(GraphSignal)(string, error){},
     abort: make(chan string, 1),
+    timeout: nil,
+    timeout_action: "",
   }
 
   LockResource(event.done_resource, &event)
-
-  event.actions["wait"] = func() (string, error) {
-    signal := <- event.signal
-    if signal.Type() == "abort" {
-      return "", errors.New("State machine aborted by signal")
-    } else if signal.Type() == "do_action" {
-      return signal.Description(), nil
-    } else {
-      signal_fn, exists := event.Handler(signal.Type())
-      if exists == true {
-        log.Printf("EVENT_HANDLER: %s - %s", event.name, signal.Type())
-        if signal.Source() != nil {
-          log.Printf("SIGNAL: %s %s -> %+v", signal.Last(), signal.Source().Name(), signal)
-        } else {
-          log.Printf("SIGNAL: %s nil -> %+v", signal.Last(), signal)
-        }
-        return signal_fn(signal)
-      }
-    }
-    return "wait", nil
-  }
 
   return event
 }
@@ -295,6 +327,8 @@ func NewBaseEvent(name string, description string, required_resources []Resource
 func NewEvent(name string, description string, required_resources []Resource) (* BaseEvent) {
   event := NewBaseEvent(name, description, required_resources)
   event_ptr := &event
+
+  event_ptr.actions["wait"] = EventWait(event_ptr)
 
   event_ptr.actions["start"] = func() (string, error) {
     return "", nil
@@ -335,6 +369,8 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     BaseEvent: NewBaseEvent(name, description, []Resource{}),
     listened_resources: map[string]Resource{},
   }
+
+  queue.actions["wait"] = EventWait(queue)
 
   queue.actions["start"] = func() (string, error) {
     return "queue_event", nil

@@ -144,6 +144,8 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     arena: arena,
   }
 
+  match.actions["wait"] = EventWait(match)
+
   match.actions["start"] = func() (string, error) {
     log.Printf("STARTING_MATCH %s", match.Name())
     match.control = "none"
@@ -174,20 +176,18 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     log.Printf("AUTONOMOUS_RUNNING: %s", match.Name())
     match.control = "program"
     match.state = "autonomous_running"
-    // TODO replace with typed protobuf
     match.control_start = signal.Time()
     go SendUpdate(match, NewSignal(match, "autonomous_running"))
-    go func(match * Match) {
-      control_wait := time.Until(match.control_start.Add(TEMP_AUTON_TIME))
-      time.Sleep(control_wait)
-      SendUpdate(match, NewSignal(match, "autonomous_done"))
-    }(match)
+
+    end_time := match.control_start.Add(TEMP_AUTON_TIME)
+    match.SetTimeout(end_time, "autonomous_done")
+    log.Printf("AUTONOMOUS_END_TIME: %s %+v", end_time, match.timeout)
     return "wait", nil
   }
 
   match.handlers["autonomous_done"] = func(signal GraphSignal) (string, error) {
     if match.state != "autonomous_running" {
-      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     log.Printf("AUTONOMOUS_DONE: %s", match.Name())
@@ -199,7 +199,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["queue_driver"] = func(signal GraphSignal) (string, error) {
     if match.state != "autonomous_done"{
-      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     match.control = "none"
@@ -213,7 +213,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["start_driver"] = func(signal GraphSignal) (string, error) {
     if match.state != "driver_queued" {
-      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     match.control = "driver"
@@ -221,23 +221,31 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     match.control_start = signal.Time()
 
     go SendUpdate(match, NewSignal(match, "driver_running"))
-    go func(match * Match) {
-      control_wait := time.Until(match.control_start.Add(TEMP_DRIVE_TIME))
-      time.Sleep(control_wait)
-      SendUpdate(match, NewSignal(match, "driver_done"))
-    }(match)
+
+    end_time := match.control_start.Add(TEMP_DRIVE_TIME)
+    match.SetTimeout(end_time, "driver_done")
+
     return "wait", nil
   }
 
   match.handlers["driver_done"] = func(signal GraphSignal) (string, error) {
     if match.state != "driver_running" {
-      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
     match.control = "none"
     match.state = "driver_done"
 
     return "", nil
+  }
+
+  match.actions["driver_done"] = func() (string, error) {
+    SendUpdate(match, NewSignal(match, "driver_done"))
+    return "wait", nil
+  }
+  match.actions["autonomous_done"] = func() (string, error) {
+    SendUpdate(match, NewSignal(match, "autonomous_done"))
+    return "wait", nil
   }
 
   return match
