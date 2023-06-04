@@ -14,11 +14,17 @@ func (resource * BaseResource) update(signal GraphSignal) {
   for _, parent := range resource.Parents() {
     SendUpdate(parent, new_signal)
   }
-
+  resource.lock_holder_lock.Lock()
   if resource.lock_holder != nil {
     if resource.lock_holder.ID() != signal.Last() {
-      SendUpdate(resource.lock_holder, new_signal)
+      lock_holder := resource.lock_holder
+      resource.lock_holder_lock.Unlock()
+      SendUpdate(lock_holder, new_signal)
+    } else {
+      resource.lock_holder_lock.Unlock()
     }
+  } else {
+    resource.lock_holder_lock.Unlock()
   }
 
 }
@@ -29,7 +35,7 @@ func (resource * BaseResource) update(signal GraphSignal) {
 // The device connection should be maintained as much as possible(requiring some reconnection behaviour in the background)
 type Resource interface {
   GraphNode
-  Owner() Event
+  Owner() GraphNode
   Children() []Resource
   Parents() []Resource
 
@@ -37,12 +43,12 @@ type Resource interface {
   LockParents()
   UnlockParents()
 
-  SetOwner(owner Event)
+  SetOwner(owner GraphNode)
   LockState()
   UnlockState()
 
-  lock(event Event) error
-  unlock(event Event) error
+  lock(node GraphNode) error
+  unlock(node GraphNode) error
   Connect(abort chan error) bool
 }
 
@@ -106,7 +112,7 @@ func UnlockResource(resource Resource, event Event) error {
   return nil
 }
 
-func LockResource(resource Resource, event Event) error {
+func LockResource(resource Resource, node GraphNode) error {
   resource.LockState()
   if resource.Owner() != nil {
     resource.UnlockState()
@@ -114,7 +120,7 @@ func LockResource(resource Resource, event Event) error {
     return errors.New(err_str)
   }
 
-  err := resource.lock(event)
+  err := resource.lock(node)
   if err != nil {
     resource.UnlockState()
     err_str := fmt.Sprintf("Failed to lock resource: %s", err)
@@ -124,7 +130,7 @@ func LockResource(resource Resource, event Event) error {
   var lock_err error = nil
   locked_resources := []Resource{}
   for _, child := range resource.Children() {
-    err := LockResource(child, event)
+    err := LockResource(child, node)
     if err != nil{
       lock_err = err
       break
@@ -138,7 +144,7 @@ func LockResource(resource Resource, event Event) error {
     return errors.New(err_str)
   }
 
-  resource.SetOwner(event)
+  resource.SetOwner(node)
 
 
   resource.UnlockState()
@@ -175,12 +181,15 @@ type BaseResource struct {
   parents_lock sync.Mutex
   children []Resource
   children_lock sync.Mutex
-  lock_holder Event
+  lock_holder GraphNode
+  lock_holder_lock sync.Mutex
   state_lock sync.Mutex
 }
 
-func (resource * BaseResource) SetOwner(owner Event) {
+func (resource * BaseResource) SetOwner(owner GraphNode) {
+  resource.lock_holder_lock.Lock()
   resource.lock_holder = owner
+  resource.lock_holder_lock.Unlock()
 }
 
 func (resource * BaseResource) LockState() {
@@ -195,16 +204,16 @@ func (resource * BaseResource) Connect(abort chan error) bool {
   return false
 }
 
-func (resource * BaseResource) Owner() Event {
+func (resource * BaseResource) Owner() GraphNode {
   return resource.lock_holder
 }
 
 //BaseResources don't check anything special when locking/unlocking
-func (resource * BaseResource) lock(event Event) error {
+func (resource * BaseResource) lock(node GraphNode) error {
   return nil
 }
 
-func (resource * BaseResource) unlock(event Event) error {
+func (resource * BaseResource) unlock(node GraphNode) error {
   return nil
 }
 

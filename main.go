@@ -2,6 +2,8 @@ package main
 
 import (
   "time"
+  "runtime/pprof"
+  "os"
 )
 
 func fake_team(org string, id string, names []string) (*Team, []*Member) {
@@ -13,7 +15,7 @@ func fake_team(org string, id string, names []string) (*Team, []*Member) {
   return team, members
 }
 
-func fake_data() (* EventManager, []*Arena, []*Arena) {
+func fake_data() (* EventManager, []Arena, []Arena) {
   resources := []Resource{}
 
   teams_div1 := []*Team{}
@@ -69,10 +71,10 @@ func fake_data() (* EventManager, []*Arena, []*Arena) {
   resources = append(resources, m15[0])
   resources = append(resources, m16[0])
 
-  arenas_div1 := []*Arena{}
+  arenas_div1 := []Arena{}
   arenas_div1 = append(arenas_div1, NewVirtualArena("Arena 1"))
   arenas_div1 = append(arenas_div1, NewVirtualArena("Arena 2"))
-  arenas_div2 := []*Arena{}
+  arenas_div2 := []Arena{}
   arenas_div2 = append(arenas_div2, NewVirtualArena("Arena 3"))
   arenas_div2 = append(arenas_div2, NewVirtualArena("Arena 4"))
 
@@ -167,12 +169,12 @@ func fake_data() (* EventManager, []*Arena, []*Arena) {
 type FakeClient struct {
   state string
   start time.Time
-  arena * Arena
+  arena Arena
   update chan GraphSignal
   games_done int
 }
 
-func NewFakeClient(arena *Arena) * FakeClient {
+func NewFakeClient(arena Arena) * FakeClient {
   client := &FakeClient{
     state: "init",
     start: time.Now(),
@@ -187,7 +189,7 @@ func NewFakeClient(arena *Arena) * FakeClient {
 func (client * FakeClient) process_update(update GraphSignal) {
   arena := client.arena
   if update.Source() != nil {
-    log.Logf("test", "FAKE_CLIENT_UPDATE: %s -> %+v", update.Source().ID(), update)
+    log.Logf("test", "FAKE_CLIENT_UPDATE: %s -> %+v", update.Source().Name(), update)
   } else {
     log.Logf("test", "FAKE_CLIENT_UPDATE: nil -> %+v", update)
   }
@@ -236,12 +238,27 @@ func (client * FakeClient) process_update(update GraphSignal) {
 
 func main() {
   event_manager, arenas_div1, arenas_div2 := fake_data()
+
+  go func() {
+    cpufile, err := os.OpenFile("graphvent.cpu", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
+    if err != nil {
+      panic("Failed to open cpu profile file")
+    }
+    memfile, err := os.OpenFile("graphvent.mem", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
+    if err != nil {
+      panic("Failed to open mem profile file")
+    }
+
+    pprof.StartCPUProfile(cpufile)
+    time.Sleep(3000 * time.Millisecond)
+    pprof.WriteHeapProfile(memfile)
+  }()
+
   // Fake arena clients
   arena_1_client := NewFakeClient(arenas_div1[0])
   arena_2_client := NewFakeClient(arenas_div1[1])
   arena_3_client := NewFakeClient(arenas_div2[0])
   arena_4_client := NewFakeClient(arenas_div2[1])
-
   go func() {
     for true {
       select {
@@ -267,4 +284,5 @@ func main() {
     log.Logf("test", "Client 3 games: %d", arena_3_client.games_done)
     log.Logf("test", "Client 4 games: %d", arena_4_client.games_done)
   }
+  pprof.StopCPUProfile()
 }

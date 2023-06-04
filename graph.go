@@ -75,6 +75,7 @@ type GraphSignal interface {
   Time() time.Time
   Last() string
   Trace(id string) GraphSignal
+  String() string
 }
 
 type BaseSignal struct {
@@ -83,6 +84,15 @@ type BaseSignal struct {
   description string
   time time.Time
   last_id string
+}
+
+func (signal BaseSignal) String() string {
+  source_name := "nil"
+  source := signal.source
+  if source != nil {
+    source_name = source.Name()
+  }
+  return fmt.Sprintf("{type: %s, description: %s, source: %s, last: %s}", signal.signal_type, signal.description, source_name, signal.last_id)
 }
 
 func (signal BaseSignal) Time() time.Time {
@@ -136,7 +146,7 @@ func NewBaseNode(name string, description string, id string) BaseNode {
     name: name,
     description: description,
     id: id,
-    signal: make(chan GraphSignal, 1000),
+    signal: make(chan GraphSignal, 512),
     listeners: map[chan GraphSignal]chan GraphSignal{},
   }
   log.Logf("graph", "NEW_NODE: %s - %s", node.ID(), node.Name())
@@ -225,12 +235,17 @@ func (node * BaseNode) update(signal GraphSignal) {
 }
 
 func SendUpdate(node GraphNode, signal GraphSignal) {
-  if signal.Source() != nil {
-    log.Logf("update", "UPDATE %s -> %s: %+v", signal.Source().Name(), node.Name(), signal)
-  } else {
-    log.Logf("update", "UPDATE %s: %+v", node.Name(), signal)
-
+  source := signal.Source()
+  source_name := "nil"
+  if source != nil {
+    source_name = source.Name()
   }
+
+  node_name := "nil"
+  if node != nil {
+    node_name = node.Name()
+  }
+  log.Logf("update", "UPDATE %s -> %s: %+v", source_name, node_name, signal)
   node.UpdateListeners(signal)
   node.update(signal)
 }

@@ -63,13 +63,17 @@ func NewAlliance(team0 * Team, team1 * Team) * Alliance {
   return resource
 }
 
-type Arena struct {
+type Arena interface {
+  Resource
+}
+
+type VirtualArena struct {
   BaseResource
   connected bool
 }
 
-func NewVirtualArena(name string) * Arena {
-  arena := &Arena{
+func NewVirtualArena(name string) * VirtualArena {
+  arena := &VirtualArena{
     BaseResource: NewBaseResource(name, "A virtual vex arena", []Resource{}),
     connected: false,
   }
@@ -77,7 +81,7 @@ func NewVirtualArena(name string) * Arena {
   return arena
 }
 
-func (arena * Arena) lock(event Event) error {
+func (arena * VirtualArena) lock(node GraphNode) error {
   if arena.connected == false {
     log.Logf("vex", "ARENA NOT CONNECTED: %s", arena.Name())
     error_str := fmt.Sprintf("%s is not connected, cannot lock", arena.Name())
@@ -86,15 +90,15 @@ func (arena * Arena) lock(event Event) error {
   return nil
 }
 
-func (arena * Arena) update(signal GraphSignal) {
+func (arena * VirtualArena) update(signal GraphSignal) {
   log.Logf("vex", "ARENA_UPDATE: %s", arena.Name())
   arena.signal <- signal
   arena.BaseResource.update(signal)
 }
 
-func (arena * Arena) Connect(abort chan error) bool {
+func (arena * VirtualArena) Connect(abort chan error) bool {
   log.Logf("vex", "Connecting %s", arena.Name())
-  go func(arena * Arena, abort chan error) {
+  go func(arena * VirtualArena, abort chan error) {
     update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
     signal := NewSignal(arena, "resource_connected")
     signal.description = update_str
@@ -114,13 +118,31 @@ func (arena * Arena) Connect(abort chan error) bool {
   return true
 }
 
+type VexEvent struct {
+  BaseEvent
+}
+
+func NewVexEvent(name string, description string) * VexEvent {
+  event := &VexEvent{
+    BaseEvent: NewBaseEvent(name, description, []Resource{}),
+  }
+
+  event.actions["wait"] = EventWait(event)
+  event.actions["start"] = func() (string, error) {
+    log.Logf("vex", "STARTING_VEX_TOURNAMENT %s", event.Name())
+    return "wait", nil
+  }
+
+  return event
+}
+
 const start_slack = 250 * time.Millisecond
-const TEMP_AUTON_TIME = time.Second * 1
-const TEMP_DRIVE_TIME = time.Second * 1
+const TEMP_AUTON_TIME = 250 * time.Millisecond
+const TEMP_DRIVE_TIME = 250 * time.Millisecond
 
 type Match struct {
   BaseEvent
-  arena * Arena
+  arena Arena
   state string
   control string
   control_start time.Time
@@ -131,7 +153,7 @@ func (match * Match) update(signal GraphSignal) {
   match.BaseEvent.update(new_signal)
 }
 
-func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match {
+func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
   name := fmt.Sprintf("Match: %s vs. %s on %s", alliance0.Name(), alliance1.Name(), arena.Name())
   description := "A vex match"
 
@@ -239,6 +261,8 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
   }
 
   match.actions["driver_done"] = func() (string, error) {
+    new_signal := NewSignal(match, "driver_done")
+    new_signal.time = time.Now()
     SendUpdate(match, NewSignal(match, "driver_done"))
     return "wait", nil
   }
