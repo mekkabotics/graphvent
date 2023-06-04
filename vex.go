@@ -108,7 +108,7 @@ func (arena * Arena) Connect(abort chan error) bool {
         log.Printf("Virtual arena %s aborting", arena.Name())
         break
       case update := <- arena.signal:
-        log.Printf("FAKE_ARENA_ACTION: %s : %+v", arena.Name(), update)
+        log.Printf("VIRTUAL_ARENA_ACTION: %s : %+v", arena.Name(), update)
       }
     }
   }(arena, abort)
@@ -130,9 +130,6 @@ type Match struct {
 func (match * Match) update(signal GraphSignal) {
   new_signal := signal.Trace(match.ID())
   match.BaseEvent.update(new_signal)
-  if match.arena.ID() != signal.Last() {
-    SendUpdate(match.arena, new_signal)
-  }
 }
 
 func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match {
@@ -156,9 +153,10 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["queue_autonomous"] = func(signal GraphSignal) (string, error) {
     if match.state != "scheduled" {
-      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
+    log.Printf("AUTONOMOUS_QUEUED: %s", match.Name())
     match.control = "none"
     match.state = "autonomous_queued"
     match.control_start = time.Now().Add(start_slack)
@@ -170,9 +168,10 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
 
   match.handlers["start_autonomous"] = func(signal GraphSignal) (string, error) {
     if match.state != "autonomous_queued" {
-      log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
+      log.Printf("BAD_STATE: %s: %s - %s", signal.Type(), match.state, match.Name())
       return "wait", nil
     }
+    log.Printf("AUTONOMOUS_RUNNING: %s", match.Name())
     match.control = "program"
     match.state = "autonomous_running"
     // TODO replace with typed protobuf
@@ -191,6 +190,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
       log.Printf("BAD_STATE: %s: %s", signal.Type(), match.state)
       return "wait", nil
     }
+    log.Printf("AUTONOMOUS_DONE: %s", match.Name())
     match.control = "none"
     match.state = "autonomous_done"
 

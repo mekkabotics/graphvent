@@ -81,7 +81,7 @@ func NewBaseNode(name string, description string, id string) BaseNode {
     name: name,
     description: description,
     id: id,
-    signal: make(chan GraphSignal, 100),
+    signal: make(chan GraphSignal, 1000),
     listeners: map[chan GraphSignal]chan GraphSignal{},
   }
   log.Printf("NEW_NODE: %s - %s", node.ID(), node.Name())
@@ -112,7 +112,7 @@ func (node * BaseNode) ID() string {
 }
 
 // Create a new listener channel for the node, add it to the nodes listener list, and return the new channel
-const listener_buffer = 100
+const listener_buffer = 1000
 func (node * BaseNode) UpdateChannel() chan GraphSignal {
   new_listener := make(chan GraphSignal, listener_buffer)
   node.RegisterChannel(new_listener)
@@ -151,7 +151,10 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
     case listener <- update:
     default:
       log.Printf("CLOSED_LISTENER: %s: %p", node.Name(), listener)
-      close(listener)
+      go func(node GraphNode, listener chan GraphSignal) {
+        listener <- NewSignal(node, "listener_closed")
+        close(listener)
+      }(node, listener)
       closed = append(closed, listener)
     }
   }

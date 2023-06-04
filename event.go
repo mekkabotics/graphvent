@@ -13,11 +13,18 @@ import (
 func (event * BaseEvent) update(signal GraphSignal) {
   event.signal <- signal
   new_signal := signal.Trace(event.ID())
-  if event.parent != nil && signal.Type() != "abort"{
+
+  if event.parent != nil {
     SendUpdate(event.parent, new_signal)
-  } else if signal.Type() == "abort" {
-    for _, child := range(event.Children()) {
-      SendUpdate(child, new_signal)
+  }
+
+  for _, resource := range(event.RequiredResources()) {
+    source_id := ""
+    if signal.Source() != nil {
+      source_id = signal.Source().ID()
+    }
+    if source_id != resource.ID() {
+      SendUpdate(resource, new_signal)
     }
   }
 }
@@ -159,6 +166,11 @@ func RunEvent(event Event) error {
 func AbortEvent(event Event) error {
   signal := NewSignal(event, "abort")
   SendUpdate(event, signal)
+  event.LockChildren()
+  for _, child := range(event.Children()) {
+    AbortEvent(child)
+  }
+  event.UnlockChildren()
   return nil
 }
 

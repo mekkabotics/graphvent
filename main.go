@@ -126,14 +126,30 @@ func fake_data() (* EventManager, *Arena, *Arena) {
 }
 
 func process_fake_arena(update GraphSignal, arena * Arena) {
+  if update.Source() != nil {
+    log.Printf("FAKE_CLIENT_UPDATE: %s -> %+v", update.Source().ID(), update)
+  } else {
+    log.Printf("FAKE_CLIENT_UPDATE: %s -> %+v", update.Source(), update)
+  }
   if update.Type() == "event_start" {
-    log.Printf("FAKE_ARENA_ACTION: Match started on %s, queuing autonomous automatically", arena.Name())
+    log.Printf("FAKE_CLIENT_ACTION: Match started on %s, queuing autonomous automatically", arena.Name())
     SendUpdate(arena, NewSignal(nil, "queue_autonomous"))
   } else if update.Type() == "autonomous_queued" {
-    log.Printf("FAKE_ARENA_ACTION: Autonomous queued on %s for %s, starting automatically at requested time", arena.Name(), update.Time())
+    log.Printf("FAKE_CLIENT_ACTION: Autonomous queued on %s for %s, starting automatically at requested time", arena.Name(), update.Time())
     signal := NewSignal(nil, "start_autonomous")
     signal.time = update.Time()
     SendUpdate(arena, signal)
+  } else if update.Type() == "autonomous_done" {
+    log.Printf("FAKE_CLIENT_ACTION: Autonomous done on %s for %s, queueing driver automatically", arena.Name(), update.Time())
+    signal := NewSignal(nil, "queue_driver")
+    SendUpdate(arena, signal)
+  } else if update.Type() == "driver_queued" {
+    log.Printf("FAKE_CLIENT_ACTION: Driver queueud on %s for %s, starting driver automatically at requested time", arena.Name(), update.Time())
+    signal := NewSignal(nil, "start_driver")
+    signal.time = update.Time()
+    SendUpdate(arena, signal)
+  } else if update.Type() == "driver_done" {
+    log.Printf("FAKE_CLIENT_ACTION: Driver done on %s for %s", arena.Name(), update.Time())
   }
 }
 
