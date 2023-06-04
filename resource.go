@@ -10,18 +10,14 @@ import (
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
 func (resource * BaseResource) update(signal GraphSignal) {
   new_signal := signal.Trace(resource.ID())
-  if signal.Type() == "lock_changed" {
-    for _, child := range resource.Children() {
-      SendUpdate(child, new_signal)
-    }
-  } else {
-    for _, parent := range resource.Parents() {
-      SendUpdate(parent, new_signal)
-    }
-    if resource.lock_holder != nil {
-      if resource.lock_holder.ID() != signal.Last() {
-        SendUpdate(resource.lock_holder, new_signal)
-      }
+
+  for _, parent := range resource.Parents() {
+    SendUpdate(parent, new_signal)
+  }
+
+  if resource.lock_holder != nil {
+    if resource.lock_holder.ID() != signal.Last() {
+      SendUpdate(resource.lock_holder, new_signal)
     }
   }
 }
@@ -152,12 +148,20 @@ func NotifyResourceLocked(resource Resource) {
   signal := NewSignal(resource, "lock_changed")
   signal.description = "lock"
 
+  for _, child := range resource.Children() {
+    NotifyResourceLocked(child)
+  }
+
   go SendUpdate(resource, signal)
 }
 
 func NotifyResourceUnlocked(resource Resource) {
   signal := NewSignal(resource, "lock_changed")
   signal.description = "unlock"
+
+  for _, child := range(resource.Children()) {
+    NotifyResourceUnlocked(child)
+  }
 
   go SendUpdate(resource, signal)
 }
@@ -226,13 +230,7 @@ func (resource * BaseResource) AddParent(parent Resource) error {
 
 func NewBaseResource(name string, description string, children []Resource) BaseResource {
   resource := BaseResource{
-    BaseNode: BaseNode{
-      name: name,
-      description: description,
-      id: randid(),
-      listeners: map[chan GraphSignal]chan GraphSignal{},
-      signal: make(chan GraphSignal, 100),
-    },
+    BaseNode: NewBaseNode(name, description, randid()),
     parents: []Resource{},
     children: children,
   }

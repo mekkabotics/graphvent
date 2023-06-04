@@ -4,20 +4,33 @@ import (
   "testing"
   "time"
   "fmt"
+  "os"
+  "runtime/pprof"
 )
 
 type graph_tester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * graph_tester) WaitForValue(listener chan GraphSignal, signal_type string, timeout time.Duration, str string) GraphSignal {
+func (t * graph_tester) WaitForValue(listener chan GraphSignal, signal_type string, source GraphNode, timeout time.Duration, str string) GraphSignal {
   timeout_channel := time.After(timeout)
   for true {
     select {
     case signal := <- listener:
       if signal.Type() == signal_type {
-        return signal
+        if signal.Source() == nil || source == nil {
+          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s", signal.Type(), signal.Source())
+          if source == nil && signal.Source() == nil{
+            return signal
+          }
+        } else {
+          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s", signal.Type(), signal.Source().Name())
+          if signal.Source().ID() == source.ID() {
+            return signal
+          }
+        }
       }
     case <-timeout_channel:
+      pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
       t.Fatal(str)
       return nil
     }
@@ -31,6 +44,7 @@ func (t * graph_tester) CheckForValue(listener chan GraphSignal, str string) Gra
     case signal := <- listener:
       return signal
     case <-timeout:
+      pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
       t.Fatal(str)
       return nil
   }
@@ -40,7 +54,8 @@ func (t * graph_tester) CheckForNone(listener chan GraphSignal, str string) {
   timeout := time.After(listner_timeout)
   select {
   case sig := <- listener:
-    t.Fatal(fmt.Printf("%s : %+v", str, sig))
+    pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+    t.Fatal(fmt.Sprintf("%s : %+v", str, sig))
   case <-timeout:
   }
 }
@@ -198,8 +213,8 @@ func TestLockResource(t * testing.T) {
   }
   NotifyResourceLocked(r3)
 
-  (*graph_tester)(t).CheckForValue(r1_l, "No value on r1 update channel")
-  (*graph_tester)(t).CheckForNone(rel, "Value on root_event update channel")
+  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second, "Wasn't notified of r1 lock on r1 after r3 lock")
+  (*graph_tester)(t).WaitForValue(rel, "lock_changed", r1, time.Second, "Wasn't notified of r1 lock on rel after r3 lock")
 
   err = LockResource(r3, root_event)
   if err == nil {
@@ -226,26 +241,22 @@ func TestLockResource(t * testing.T) {
     t.Fatal("Failed to unlock r3")
   }
   NotifyResourceUnlocked(r3)
-
-  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after unlocking r3")
-  (*graph_tester)(t).CheckForNone(rel, "Update on rel after unlocking r3")
+  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 unlock on r1 after r3 unlock")
 
   err = LockResource(r4, root_event)
   if err != nil {
     t.Fatal("Failed to lock r4 after unlocking r3")
   }
   NotifyResourceLocked(r4)
-
-  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after locking r4")
-  (*graph_tester)(t).CheckForNone(rel, "Update on rel after locking r4")
+  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 lock on r1 after r4 lock")
+  (*graph_tester)(t).WaitForValue(rel, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 lock on r1 after r4 lock")
 
   err = UnlockResource(r4, root_event)
   if err != nil {
     t.Fatal("Failed to unlock r4")
   }
   NotifyResourceUnlocked(r4)
-
-  (*graph_tester)(t).CheckForValue(r1_l, "No update on r1 after unlocking r4")
+  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 unlock on r1 after r4 lock")
 }
 
 func TestAddToEventQueue(t * testing.T) {
@@ -392,18 +403,18 @@ func TestStartEventQueue(t * testing.T) {
     t.Fatal("root event was not finished after starting")
   }
 
+  (*graph_tester)(t).WaitForValue(e1_l, "event_done", e1, time.Second, "no e1 event_done")
   if e1_r.Owner() != nil {
     t.Fatal("e1 was not completed")
   }
-  (*graph_tester)(t).CheckForValue(e1_l, "No update on e1 after running")
 
+  (*graph_tester)(t).WaitForValue(e2_l, "event_done", e2, time.Second, "no e2 event_done")
   if e2_r.Owner() != nil {
-    t.Fatal("e2 was not completed")
+    t.Fatal(fmt.Sprintf("e2 was not completed"))
   }
-  (*graph_tester)(t).CheckForValue(e2_l, "No update on e2 after running")
 
+  (*graph_tester)(t).WaitForValue(e3_l, "event_done", e3, time.Second, "no e3 event_done")
   if e3_r.Owner() != nil {
     t.Fatal("e3 was not completed")
   }
-  (*graph_tester)(t).CheckForValue(e3_l, "No update on e3 after running")
 }

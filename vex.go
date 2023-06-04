@@ -90,14 +90,12 @@ func (arena * Arena) lock(event Event) error {
 func (arena * Arena) update(signal GraphSignal) {
   log.Printf("ARENA_UPDATE: %s", arena.Name())
   arena.signal <- signal
-  new_signal := signal.Trace(arena.ID())
-  arena.BaseResource.update(new_signal)
+  arena.BaseResource.update(signal)
 }
 
 func (arena * Arena) Connect(abort chan error) bool {
   log.Printf("Connecting %s", arena.Name())
   go func(arena * Arena, abort chan error) {
-    owner := arena.Owner()
     update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
     signal := NewSignal(arena, "resource_connected")
     signal.description = update_str
@@ -110,27 +108,7 @@ func (arena * Arena) Connect(abort chan error) bool {
         log.Printf("Virtual arena %s aborting", arena.Name())
         break
       case update := <- arena.signal:
-        log.Printf("%s update: %+v", arena.Name(), update)
-        new_owner := arena.Owner()
-        if new_owner != owner {
-          log.Printf("NEW_OWNER for %s", arena.Name())
-          if new_owner != nil {
-            log.Printf("new: %s", new_owner.Name())
-          } else {
-            log.Printf("new: nil")
-          }
-
-          if owner != nil {
-            log.Printf("old: %s", owner.Name())
-          } else {
-            log.Printf("old: nil")
-          }
-
-          owner = new_owner
-          if owner != nil {
-          } else {
-          }
-        }
+        log.Printf("FAKE_ARENA_ACTION: %s : %+v", arena.Name(), update)
       }
     }
   }(arena, abort)
@@ -184,7 +162,9 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     match.control = "none"
     match.state = "autonomous_queued"
     match.control_start = time.Now().Add(start_slack)
-    go SendUpdate(match, NewSignal(match, "autonomous_queued"))
+    new_signal := NewSignal(match, "autonomous_queued")
+    new_signal.time = match.control_start
+    go SendUpdate(match, new_signal)
     return "wait", nil
   }
 
@@ -225,7 +205,9 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena * Arena) * Match
     match.control = "none"
     match.state = "driver_queued"
     match.control_start = time.Now().Add(start_slack)
-    go SendUpdate(match, NewSignal(match, "driver_queued"))
+    new_signal := NewSignal(match, "driver_queued")
+    new_signal.time = match.control_start
+    go SendUpdate(match, new_signal)
     return "wait", nil
   }
 

@@ -76,6 +76,18 @@ type GraphNode interface {
   UpdateChannel() chan GraphSignal
 }
 
+func NewBaseNode(name string, description string, id string) BaseNode {
+  node := BaseNode{
+    name: name,
+    description: description,
+    id: id,
+    signal: make(chan GraphSignal, 100),
+    listeners: map[chan GraphSignal]chan GraphSignal{},
+  }
+  log.Printf("NEW_NODE: %s - %s", node.ID(), node.Name())
+  return node
+}
+
 // BaseNode is the most basic implementation of the GraphNode interface
 // It is used to implement functions common to Events and Resources
 type BaseNode struct {
@@ -138,6 +150,7 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
     select {
     case listener <- update:
     default:
+      log.Printf("CLOSED_LISTENER: %s: %p", node.Name(), listener)
       close(listener)
       closed = append(closed, listener)
     }

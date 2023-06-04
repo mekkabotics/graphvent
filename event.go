@@ -243,13 +243,7 @@ func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
 func NewBaseEvent(name string, description string, required_resources []Resource) (BaseEvent) {
   done_resource := NewResource("event_done", "signal that event is done", []Resource{})
   event := BaseEvent{
-    BaseNode: BaseNode{
-      name: name,
-      description: description,
-      id: randid(),
-      signal: make(chan GraphSignal, 100),
-      listeners: map[chan GraphSignal] chan GraphSignal{},
-    },
+    BaseNode: NewBaseNode(name, description, randid()),
     parent: nil,
     children: []Event{},
     child_info: map[string]EventInfo{},
@@ -271,6 +265,12 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     } else {
       signal_fn, exists := event.Handler(signal.Type())
       if exists == true {
+        log.Printf("EVENT_HANDLER: %s - %s", event.name, signal.Type())
+        if signal.Source() != nil {
+          log.Printf("SIGNAL: %s %s -> %+v", signal.Last(), signal.Source().Name(), signal)
+        } else {
+          log.Printf("SIGNAL: %s nil -> %+v", signal.Last(), signal)
+        }
         return signal_fn(signal)
       }
     }

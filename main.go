@@ -16,7 +16,7 @@ func fake_team(org string, id string, names []string) (*Team, []*Member) {
   return team, members
 }
 
-func fake_data() * EventManager {
+func fake_data() (* EventManager, *Arena, *Arena) {
   resources := []Resource{}
 
   teams := []*Team{}
@@ -122,16 +122,43 @@ func fake_data() * EventManager {
     }
   }(alliances, arenas, event_manager)
 
-  return event_manager
+  return event_manager, arenas[0], arenas[1]
+}
+
+func process_fake_arena(update GraphSignal, arena * Arena) {
+  if update.Type() == "event_start" {
+    log.Printf("FAKE_ARENA_ACTION: Match started on %s, queuing autonomous automatically", arena.Name())
+    SendUpdate(arena, NewSignal(nil, "queue_autonomous"))
+  } else if update.Type() == "autonomous_queued" {
+    log.Printf("FAKE_ARENA_ACTION: Autonomous queued on %s for %s, starting automatically at requested time", arena.Name(), update.Time())
+    signal := NewSignal(nil, "start_autonomous")
+    signal.time = update.Time()
+    SendUpdate(arena, signal)
+  }
 }
 
 func main() {
   go func() {
     time.Sleep(5 * time.Second)
-    pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+    if false {
+      pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+    }
   }()
 
-  event_manager := fake_data()
+  event_manager, arena_1, arena_2 := fake_data()
+  // Fake arena clients
+  go func() {
+    arena_1_updates := arena_1.UpdateChannel()
+    arena_2_updates := arena_2.UpdateChannel()
+    for true {
+      select {
+      case update := <- arena_1_updates:
+        process_fake_arena(update, arena_1)
+      case update := <- arena_2_updates:
+        process_fake_arena(update, arena_2)
+      }
+    }
+  }()
   log.Printf("Starting event_manager")
   err := event_manager.Run()
   if err != nil {
