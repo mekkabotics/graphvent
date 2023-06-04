@@ -132,9 +132,11 @@ func AddChild(event Event, child Event, info EventInfo) error {
   }
 
   event.LockParent()
-  if event.Parent() != nil {
+  child.LockParent()
+  if child.Parent() != nil {
+    child.UnlockParent()
     event.UnlockParent()
-    return errors.New("Parent already registered")
+    return errors.New(fmt.Sprintf("Parent already registered: %s->%s already %s", child.Name(), event.Name(), event.Parent().Name()))
   }
 
   event.LockChildren()
@@ -142,6 +144,7 @@ func AddChild(event Event, child Event, info EventInfo) error {
   for _, c := range(event.Children()) {
     if c.ID() == child.ID() {
       event.UnlockChildren()
+      child.UnlockParent()
       event.UnlockParent()
       return errors.New("Child already in event")
     }
@@ -152,6 +155,7 @@ func AddChild(event Event, child Event, info EventInfo) error {
   event.addChild(child, info)
 
   event.UnlockChildren()
+  child.UnlockParent()
   event.UnlockParent()
 
   update := NewSignal(event, "child_added")
