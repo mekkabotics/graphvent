@@ -136,7 +136,7 @@ func AddChild(event Event, child Event, info EventInfo) error {
   if child.Parent() != nil {
     child.UnlockParent()
     event.UnlockParent()
-    return errors.New(fmt.Sprintf("Parent already registered: %s->%s already %s", child.Name(), event.Name(), event.Parent().Name()))
+    return errors.New(fmt.Sprintf("Parent already registered: %s->%s already %s", child.Name(), event.Name(), child.Parent().Name()))
   }
 
   event.LockChildren()
