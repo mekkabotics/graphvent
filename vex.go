@@ -96,8 +96,8 @@ func (arena * VirtualArena) update(signal GraphSignal) {
   arena.BaseResource.update(signal)
 }
 
-func (arena * VirtualArena) Connect(abort chan error) bool {
-  log.Logf("vex", "Connecting %s", arena.Name())
+func (arena * VirtualArena) Init(abort chan error) bool {
+  log.Logf("vex", "Initializing %s", arena.Name())
   go func(arena * VirtualArena, abort chan error) {
     update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
     signal := NewSignal(arena, "resource_connected")
@@ -130,6 +130,9 @@ func NewVexEvent(name string, description string) * VexEvent {
   event.actions["wait"] = EventWait(event)
   event.actions["start"] = func() (string, error) {
     log.Logf("vex", "STARTING_VEX_TOURNAMENT %s", event.Name())
+    go func() {
+      
+    }()
     return "wait", nil
   }
 

@@ -18,11 +18,9 @@ func (event * BaseEvent) update(signal GraphSignal) {
     SendUpdate(event.parent, new_signal)
   }
 
+  source_id := signal.Last()
+
   for _, resource := range(event.RequiredResources()) {
-    source_id := ""
-    if signal.Source() != nil {
-      source_id = signal.Source().ID()
-    }
     if source_id != resource.ID() {
       SendUpdate(resource, new_signal)
     }

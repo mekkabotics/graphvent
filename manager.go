@@ -37,7 +37,7 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
   return manager;
 }
 
-// Connect to all resources(in a thread to handle reconnections), and start the first event
+// Init to all resources(in a thread to handle reconnections), and start the first event
 func (manager * EventManager) Run() error {
   log.Logf("manager", "MANAGER_START")
 
@@ -105,7 +105,7 @@ func (manager * EventManager) AddResource(resource Resource) error {
   }
   manager.dag_nodes[resource.ID()] = resource
   abort := make(chan error, 1)
-  abort_used := resource.Connect(abort)
+  abort_used := resource.Init(abort)
   if abort_used == true {
     manager.aborts = append(manager.aborts, abort)
   }

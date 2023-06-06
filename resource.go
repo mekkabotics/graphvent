@@ -47,9 +47,9 @@ type Resource interface {
   LockState()
   UnlockState()
 
+  Init(abort chan error) bool
   lock(node GraphNode) error
   unlock(node GraphNode) error
-  Connect(abort chan error) bool
 }
 
 func AddParent(resource Resource, parent Resource) error {
@@ -200,7 +200,7 @@ func (resource * BaseResource) UnlockState() {
   resource.state_lock.Unlock()
 }
 
-func (resource * BaseResource) Connect(abort chan error) bool {
+func (resource * BaseResource) Init(abort chan error) bool {
   return false
 }
 
