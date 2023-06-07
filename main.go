@@ -273,6 +273,11 @@ func main() {
       }
     }
   }()
+
+  go func() {
+    event_manager.GQL()
+  }()
+
   log.Logf("test", "Starting event_manager")
   err := event_manager.Run()
   if err != nil {
