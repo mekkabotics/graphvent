@@ -4,6 +4,8 @@ import (
   "time"
   "runtime/pprof"
   "os"
+  "os/signal"
+  "syscall"
 )
 
 func fake_team(org string, id string, names []string) (*Team, []*Member) {
@@ -241,6 +243,9 @@ func (client * FakeClient) process_update(update GraphSignal) {
 func main() {
   event_manager, arenas_div1, arenas_div2 := fake_data()
 
+  sigs := make(chan os.Signal, 1)
+  signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
   go func() {
     cpufile, err := os.OpenFile("graphvent.cpu", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
     if err != nil {
@@ -264,6 +269,11 @@ func main() {
   go func() {
     for true {
       select {
+      case <-sigs:
+        signal := NewSignal(nil, "abort")
+        signal.description = event_manager.root_event.ID()
+        SendUpdate(event_manager.root_event, signal)
+        break
       case update := <- arena_1_client.update:
         arena_1_client.process_update(update)
       case update := <- arena_2_client.update:
@@ -280,6 +290,7 @@ func main() {
         signal := NewSignal(nil, "cancel")
         signal.description = event_manager.root_event.ID()
         SendUpdate(event_manager.root_event, signal)
+        break
       }
     }
   }()
