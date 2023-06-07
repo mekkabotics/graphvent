@@ -22,7 +22,7 @@ type DefaultLogger struct {
 }
 
 var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}}
-var all_components = []string{"update", "graph", "event", "resource", "manager", "test"}
+var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql"}
 
 func (logger * DefaultLogger) Init(components []string) error {
   file, err := os.OpenFile("test.log", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
@@ -40,9 +40,11 @@ func (logger * DefaultLogger) Init(components []string) error {
   }
 
   writer := io.MultiWriter(file, os.Stdout)
-  for _, c := range([]string{"event"}) {
+  for _, c := range(all_components) {
     if component_enabled(c) == true {
       logger.loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
+    } else {
+      panic(fmt.Sprintf("%s is not a component in DefaultLogger", c))
     }
   }
   return nil

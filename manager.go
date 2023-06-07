@@ -16,7 +16,7 @@ type EventManager struct {
   aborts []chan error
 }
 
-graphiql_string := `
+const graphiql_string string = `
 <!--
  *  Copyright (c) 2021 GraphQL Contributors
  *  All rights reserved.
@@ -76,7 +76,7 @@ graphiql_string := `
       root.render(
         React.createElement(GraphiQL, {
           fetcher: GraphiQL.createFetcher({
-            url: 'https://swapi-graphql.netlify.app/.netlify/functions/index',
+            url: 'http://localhost:8080/gql',
           }),
           defaultEditorToolsVisibility: true,
         }),
@@ -87,21 +87,31 @@ graphiql_string := `
 `
 
 func (manager * EventManager) GQL() error {
-  rootQuery := graphql.ObjectConfig{Name: "RootQuery", Field: fields}
+  fields := graphql.Fields{
+    "hello": &graphql.Field{
+      Type: graphql.String,
+      Resolve: func(p graphql.ResolveParams)(interface{}, error) {
+        return "world", nil
+      },
+    },
+  }
+  rootQuery := graphql.ObjectConfig{Name: "RootQuery", Fields: fields}
   schemaConfig := graphql.SchemaConfig{Query: graphql.NewObject(rootQuery)}
   schema, err := graphql.NewSchema(schemaConfig)
   if err != nil {
     return err
   }
 
-  h := handler.New(&handler.Config{Schema: &schema, })
-  server := http.NewServeMux()
-  server.Handle("/graphql", h)
-  server.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
-    w.Header.Set("Content-Type", "text/html; charset=utf-8")
+  h := handler.New(&handler.Config{Schema: &schema, Pretty: true})
+  mux := http.NewServeMux()
+  mux.Handle("/gql", h)
+  mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+    w.Header().Set("Content-Type", "text/html; charset=utf-8")
     w.WriteHeader(http.StatusOK)
     io.WriteString(w, graphiql_string)
   })
+
+  http.ListenAndServe(":8080", mux)
 
   return nil
 }

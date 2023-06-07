@@ -144,7 +144,9 @@ func TestNewMatch(t *testing.T) {
     time.Sleep(time.Second * 20)
     if r.Owner() != nil {
       pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
-      AbortEvent(root_event)
+      abort_signal := NewSignal(root_event, "abort")
+      abort_signal.description = root_event.ID()
+      SendUpdate(root_event, abort_signal)
     }
   }()
 
@@ -164,6 +166,9 @@ func TestNewMatch(t *testing.T) {
     SendUpdate(arena, driver_signal)
     (*graph_tester)(t).WaitForValue(arena_c, "driver_running", match, 1*time.Second, "no driver_running")
     (*graph_tester)(t).WaitForValue(arena_c, "driver_done", match, 6*time.Second, "no driver_done")
+    cancel_signal := NewSignal(nil, "cancel")
+    cancel_signal.description = root_event.ID()
+    SendUpdate(root_event, cancel_signal)
   }(arena_c)
 
   err := event_manager.Run()

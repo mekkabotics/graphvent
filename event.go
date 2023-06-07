@@ -186,15 +186,44 @@ func RunEvent(event Event) error {
   return nil
 }
 
-func AbortEvent(event Event) error {
-  signal := NewSignal(event, "abort")
-  SendUpdate(event, signal)
+func EventAbort(event Event) func(signal GraphSignal) (string, error) {
+  return func(signal GraphSignal) (string, error) {
+    if signal.Description() == event.ID() {
+      AbortChildren(event)
+      return "", errors.New(fmt.Sprintf("%s aborted by signal", event.ID()))
+    }
+    return "wait", nil
+  }
+}
+
+func EventCancel(event Event) func(signal GraphSignal) (string, error) {
+  return func(signal GraphSignal) (string, error) {
+    if signal.Description() == event.ID() {
+      CancelChildren(event)
+      return "", nil
+    }
+    return "wait", nil
+  }
+}
+
+func CancelChildren(event Event) {
   event.LockChildren()
   for _, child := range(event.Children()) {
-    AbortEvent(child)
+    signal := NewSignal(event, "cancel")
+    signal.description = child.ID()
+    SendUpdate(child, signal)
   }
   event.UnlockChildren()
-  return nil
+}
+
+func AbortChildren(event Event) {
+  event.LockChildren()
+  for _, child := range(event.Children()) {
+    signal := NewSignal(event, "abort")
+    signal.description = child.ID()
+    SendUpdate(child, signal)
+  }
+  event.UnlockChildren()
 }
 
 func LockResources(event Event) error {
@@ -287,14 +316,10 @@ func EventWait(event Event) (func() (string, error)) {
       } else {
         log.Logf("event", "EVENT_SIGNAL: %s %s nil -> %+v", event.Name(), signal.Last(), signal)
       }
-      if signal.Type() == "abort" {
-        return "", errors.New("State machine aborted by signal")
-      } else {
-        signal_fn, exists := event.Handler(signal.Type())
-        if exists == true {
-          log.Logf("event", "EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
-          return signal_fn(signal)
-        }
+      signal_fn, exists := event.Handler(signal.Type())
+      if exists == true {
+        log.Logf("event", "EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
+        return signal_fn(signal)
       }
       return "wait", nil
     case <- event.Timeout():
@@ -330,6 +355,8 @@ func NewEvent(name string, description string, required_resources []Resource) (*
   event_ptr := &event
 
   event_ptr.actions["wait"] = EventWait(event_ptr)
+  event_ptr.handlers["abort"] = EventAbort(event_ptr)
+  event_ptr.handlers["cancel"] = EventCancel(event_ptr)
 
   event_ptr.actions["start"] = func() (string, error) {
     return "", nil
@@ -372,6 +399,8 @@ func NewEventQueue(name string, description string, required_resources []Resourc
   }
 
   queue.actions["wait"] = EventWait(queue)
+  queue.handlers["abort"] = EventAbort(queue)
+  queue.handlers["cancel"] = EventCancel(queue)
 
   queue.actions["start"] = func() (string, error) {
     return "queue_event", nil
@@ -389,7 +418,6 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     }
     sort.SliceStable(copied_events, less)
 
-    wait := false
     needed_resources := map[string]Resource{}
     for _, event := range(copied_events) {
       // make sure all the required resources are registered to update the event
@@ -399,7 +427,6 @@ func NewEventQueue(name string, description string, required_resources []Resourc
 
       info := queue.ChildInfo(event).(*EventQueueInfo)
       if info.state == "queued" {
-        wait = true
         // Try to lock it
         err := LockResources(event)
         // start in new goroutine
@@ -418,8 +445,6 @@ func NewEventQueue(name string, description string, required_resources []Resourc
             FinishEvent(event)
           }(event, info, queue)
         }
-      } else if info.state == "running" {
-        wait = true
       }
     }
 
@@ -435,11 +460,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
 
     queue.UnlockChildren()
 
-    if wait == true {
-      return "wait", nil
-    } else {
-      return "", nil
-    }
+    return "wait", nil
   }
 
   queue.handlers["resource_connected"] = func(signal GraphSignal) (string, error) {
@@ -508,4 +529,53 @@ func (event * BaseEvent) setParent(parent Event) {
 func (event * BaseEvent) addChild(child Event, info EventInfo) {
   event.children = append(event.children, child)
   event.child_info[child.ID()] = info
+}
+
+type GQLEvent struct {
+  BaseEvent
+  abort chan error
+}
+
+func NewGQLEvent(listen string, child Event) * GQLEvent {
+  event := &GQLEvent{
+    BaseEvent: NewBaseEvent("GQL Handler", "", []Resource{}),
+    abort: make(chan error, 1),
+  }
+
+  event.actions["wait"] = EventWait(event)
+
+  event.handlers["abort"] = func (signal GraphSignal) (string, error) {
+    if signal.Description() == event.ID() {
+      event.abort <- nil
+      AbortChildren(event)
+      return "", errors.New(fmt.Sprintf("%s aborted by signal", event.ID()))
+    }
+    return "wait", nil
+  }
+
+  event.handlers["cancel"] = func (signal GraphSignal) (string, error) {
+    if signal.Description() == event.ID() {
+      event.abort <- nil
+      CancelChildren(event)
+      return "", nil
+    }
+    return "wait", nil
+  }
+
+  event.actions["start"] = func() (string, error) {
+    // start the gql handler goroutine
+    log.Logf("gql", "Starting GQL thread for %s", event.ID())
+    go func(event * GQLEvent) {
+      for true {
+        select {
+        case <- event.abort:
+          log.Logf("gql", "Stopping GQL thread for %s", event.ID())
+          break
+        }
+      }
+    }(event)
+    return "wait", nil
+  }
+
+  return event
 }

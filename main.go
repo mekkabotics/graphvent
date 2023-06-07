@@ -271,11 +271,15 @@ func main() {
       case update := <- arena_4_client.update:
         arena_4_client.process_update(update)
       }
+      if arena_1_client.games_done == 12 &&
+         arena_2_client.games_done == 12 &&
+         arena_3_client.games_done == 12 &&
+         arena_4_client.games_done == 12 {
+        signal := NewSignal(nil, "cancel")
+        signal.description = event_manager.root_event.ID()
+        SendUpdate(event_manager.root_event, signal)
+      }
     }
-  }()
-
-  go func() {
-    event_manager.GQL()
   }()
 
   log.Logf("test", "Starting event_manager")

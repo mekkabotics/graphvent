@@ -18,12 +18,12 @@ func (t * graph_tester) WaitForValue(listener chan GraphSignal, signal_type stri
     case signal := <- listener:
       if signal.Type() == signal_type {
         if signal.Source() == nil || source == nil {
-          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s", signal.Type(), signal.Source())
+          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s\n", signal.Type(), signal.Source())
           if source == nil && signal.Source() == nil{
             return signal
           }
         } else {
-          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s", signal.Type(), signal.Source().Name())
+          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s\n", signal.Type(), signal.Source().Name())
           if signal.Source().ID() == source.ID() {
             return signal
           }
@@ -308,7 +308,7 @@ func TestStartBaseEvent(t * testing.T) {
 }
 
 func TestAbortEventQueue(t * testing.T) {
-  root_event := NewEventQueue("", "", []Resource{})
+  root_event := NewEventQueue("root_event", "", []Resource{})
   r := root_event.DoneResource()
   manager := NewEventManager(root_event, []Resource{})
 
@@ -318,7 +318,7 @@ func TestAbortEventQueue(t * testing.T) {
     t.Fatal(err)
   }
   LockResource(r1, root_event)
-  e1 := NewEvent("1", "", []Resource{r1})
+  e1 := NewEvent("event_1", "", []Resource{r1})
   e1_info := NewEventQueueInfo(1)
   // Add an event so that the queue doesn't auto complete
   err = manager.AddEvent(root_event, e1, e1_info)
@@ -330,7 +330,9 @@ func TestAbortEventQueue(t * testing.T) {
   // start the queue and check that all the events are executed
   go func() {
     time.Sleep(100 * time.Millisecond)
-    AbortEvent(root_event)
+    abort_signal := NewSignal(nil, "abort")
+    abort_signal.description = root_event.ID()
+    SendUpdate(root_event, abort_signal)
   }()
 
   err = manager.Run()
@@ -359,7 +361,7 @@ func TestStartEventQueue(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to add e1 to manager")
   }
-  (*graph_tester)(t).CheckForValue(rel, "No update on root_event after adding e1")
+  (*graph_tester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e1")
 
   e2 := NewEvent("e2", "", []Resource{res_1})
   e2_r := e2.DoneResource()
@@ -368,7 +370,7 @@ func TestStartEventQueue(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to add e2 to manager")
   }
-  (*graph_tester)(t).CheckForValue(rel, "No update on root_event after adding e2")
+  (*graph_tester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e2")
 
   e3 := NewEvent("e3", "", []Resource{res_2})
   e3_r := e3.DoneResource()
@@ -377,22 +379,27 @@ func TestStartEventQueue(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to add e3 to manager")
   }
-  (*graph_tester)(t).CheckForValue(rel, "No update on root_event after adding e3")
-
-  e1_l := e1.UpdateChannel();
-  e2_l := e2.UpdateChannel();
-  e3_l := e3.UpdateChannel();
+  (*graph_tester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e3")
 
   // Abort the event after 5 seconds just in case
   go func() {
     time.Sleep(5 * time.Second)
     if r.Owner() != nil {
-      AbortEvent(root_event)
+      abort_signal := NewSignal(nil, "abort")
+      abort_signal.description = root_event.ID()
+      SendUpdate(root_event, abort_signal)
     }
   }()
 
   // Now that an event manager is constructed with a queue and 3 basic events
   // start the queue and check that all the events are executed
+  go func() {
+    (*graph_tester)(t).WaitForValue(rel, "event_done", e3, time.Second, "No event_done for e3")
+    signal := NewSignal(nil, "cancel")
+    signal.description = root_event.ID()
+    SendUpdate(root_event, signal)
+  }()
+
   err = manager.Run()
   if err != nil {
     t.Fatal(err)
@@ -403,17 +410,14 @@ func TestStartEventQueue(t * testing.T) {
     t.Fatal("root event was not finished after starting")
   }
 
-  (*graph_tester)(t).WaitForValue(e1_l, "event_done", e1, time.Second, "no e1 event_done")
   if e1_r.Owner() != nil {
     t.Fatal("e1 was not completed")
   }
 
-  (*graph_tester)(t).WaitForValue(e2_l, "event_done", e2, time.Second, "no e2 event_done")
   if e2_r.Owner() != nil {
     t.Fatal(fmt.Sprintf("e2 was not completed"))
   }
 
-  (*graph_tester)(t).WaitForValue(e3_l, "event_done", e3, time.Second, "no e3 event_done")
   if e3_r.Owner() != nil {
     t.Fatal("e3 was not completed")
   }

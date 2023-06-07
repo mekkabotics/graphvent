@@ -128,11 +128,9 @@ func NewVexEvent(name string, description string) * VexEvent {
   }
 
   event.actions["wait"] = EventWait(event)
+  event.handlers["abort"] = EventAbort(event)
   event.actions["start"] = func() (string, error) {
     log.Logf("vex", "STARTING_VEX_TOURNAMENT %s", event.Name())
-    go func() {
-      
-    }()
     return "wait", nil
   }
 
@@ -169,6 +167,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
   }
 
   match.actions["wait"] = EventWait(match)
+  match.handlers["abort"] = EventAbort(match)
 
   match.actions["start"] = func() (string, error) {
     log.Logf("vex", "STARTING_MATCH %s", match.Name())
