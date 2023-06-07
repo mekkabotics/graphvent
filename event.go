@@ -227,6 +227,7 @@ func AbortChildren(event Event) {
 }
 
 func LockResources(event Event) error {
+  log.Logf("event", "RESOURCE_LOCKING for %s - %+v", event.Name(), event.RequiredResources())
   locked_resources := []Resource{}
   var lock_err error = nil
   for _, resource := range(event.RequiredResources()) {
@@ -394,7 +395,7 @@ func (queue * EventQueue) InfoType() reflect.Type {
 
 func NewEventQueue(name string, description string, required_resources []Resource) (* EventQueue) {
   queue := &EventQueue{
-    BaseEvent: NewBaseEvent(name, description, []Resource{}),
+    BaseEvent: NewBaseEvent(name, description, required_resources),
     listened_resources: map[string]Resource{},
   }
 
@@ -534,48 +535,4 @@ func (event * BaseEvent) addChild(child Event, info EventInfo) {
 type GQLEvent struct {
   BaseEvent
   abort chan error
-}
-
-func NewGQLEvent(listen string, child Event) * GQLEvent {
-  event := &GQLEvent{
-    BaseEvent: NewBaseEvent("GQL Handler", "", []Resource{}),
-    abort: make(chan error, 1),
-  }
-
-  event.actions["wait"] = EventWait(event)
-
-  event.handlers["abort"] = func (signal GraphSignal) (string, error) {
-    if signal.Description() == event.ID() {
-      event.abort <- nil
-      AbortChildren(event)
-      return "", errors.New(fmt.Sprintf("%s aborted by signal", event.ID()))
-    }
-    return "wait", nil
-  }
-
-  event.handlers["cancel"] = func (signal GraphSignal) (string, error) {
-    if signal.Description() == event.ID() {
-      event.abort <- nil
-      CancelChildren(event)
-      return "", nil
-    }
-    return "wait", nil
-  }
-
-  event.actions["start"] = func() (string, error) {
-    // start the gql handler goroutine
-    log.Logf("gql", "Starting GQL thread for %s", event.ID())
-    go func(event * GQLEvent) {
-      for true {
-        select {
-        case <- event.abort:
-          log.Logf("gql", "Stopping GQL thread for %s", event.ID())
-          break
-        }
-      }
-    }(event)
-    return "wait", nil
-  }
-
-  return event
 }

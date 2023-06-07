@@ -144,6 +144,7 @@ func LockResource(resource Resource, node GraphNode) error {
     return errors.New(err_str)
   }
 
+  log.Logf("resource", "Locked %s", resource.Name())
   resource.SetOwner(node)
 
 
@@ -251,4 +252,45 @@ func NewBaseResource(name string, description string, children []Resource) BaseR
 func NewResource(name string, description string, children []Resource) * BaseResource {
   resource := NewBaseResource(name, description, children)
   return &resource
+}
+
+type GQLServer struct {
+  BaseResource
+  abort chan error
+  listen string
+  gql_channel chan error
+}
+
+func NewGQLServer(listen string) * GQLServer {
+  server := &GQLServer{
+    BaseResource: NewBaseResource("GQL Connection", "Connection to a GQL server", []Resource{}),
+    listen: listen,
+    abort: make(chan error, 1),
+    gql_channel: make(chan error, 1),
+  }
+
+  return server
+}
+
+func (server * GQLServer) update(signal GraphSignal) {
+  server.signal <- signal
+  server.BaseResource.update(signal)
+}
+
+func (server * GQLServer) Init(abort chan error) bool {
+  go func(abort chan error) {
+    log.Logf("gql", "GOROUTINE_START for %s", server.ID())
+    for true {
+      select {
+      case <-abort:
+        log.Logf("gql", "GOROUTINE_ABORT for %s", server.ID())
+        break
+      case <-server.signal:
+        // Take signals to resource and send to GQL subscriptions
+      case <-server.gql_channel:
+        // Parse GQL query from channel and reply with resolved query
+      }
+    }
+  }(abort)
+  return true
 }

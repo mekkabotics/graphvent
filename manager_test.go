@@ -355,6 +355,7 @@ func TestStartEventQueue(t * testing.T) {
 
 
   e1:= NewEvent("e1", "", []Resource{res_1, res_2})
+  e1_l := e1.UpdateChannel()
   e1_r := e1.DoneResource()
   e1_info := NewEventQueueInfo(1)
   err := manager.AddEvent(root_event, e1, e1_info)
@@ -364,6 +365,7 @@ func TestStartEventQueue(t * testing.T) {
   (*graph_tester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e1")
 
   e2 := NewEvent("e2", "", []Resource{res_1})
+  e2_l := e2.UpdateChannel()
   e2_r := e2.DoneResource()
   e2_info := NewEventQueueInfo(2)
   err = manager.AddEvent(root_event, e2, e2_info)
@@ -373,6 +375,7 @@ func TestStartEventQueue(t * testing.T) {
   (*graph_tester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e2")
 
   e3 := NewEvent("e3", "", []Resource{res_2})
+  e3_l := e3.UpdateChannel()
   e3_r := e3.DoneResource()
   e3_info := NewEventQueueInfo(3)
   err = manager.AddEvent(root_event, e3, e3_info)
@@ -394,7 +397,9 @@ func TestStartEventQueue(t * testing.T) {
   // Now that an event manager is constructed with a queue and 3 basic events
   // start the queue and check that all the events are executed
   go func() {
-    (*graph_tester)(t).WaitForValue(rel, "event_done", e3, time.Second, "No event_done for e3")
+    (*graph_tester)(t).WaitForValue(e1_l, "event_done", e1, time.Second, "No event_done for e3")
+    (*graph_tester)(t).WaitForValue(e2_l, "event_done", e2, time.Second, "No event_done for e3")
+    (*graph_tester)(t).WaitForValue(e3_l, "event_done", e3, time.Second, "No event_done for e3")
     signal := NewSignal(nil, "cancel")
     signal.description = root_event.ID()
     SendUpdate(root_event, signal)

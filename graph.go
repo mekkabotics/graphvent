@@ -40,7 +40,7 @@ func (logger * DefaultLogger) Init(components []string) error {
   }
 
   writer := io.MultiWriter(file, os.Stdout)
-  for _, c := range(all_components) {
+  for _, c := range([]string{"gql"}) {
     if component_enabled(c) == true {
       logger.loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
     } else {
