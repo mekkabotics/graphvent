@@ -147,6 +147,7 @@ type Match struct {
   state string
   control string
   control_start time.Time
+  alliances []*Alliance
 }
 
 func (match * Match) update(signal GraphSignal) {
@@ -164,6 +165,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     control: "init",
     control_start: time.UnixMilli(0),
     arena: arena,
+    alliances: []*Alliance{alliance0, alliance1},
   }
 
   match.actions["wait"] = EventWait(match)

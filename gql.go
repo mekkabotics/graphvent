@@ -147,6 +147,129 @@ func GQLEventChildren(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+var gql_list_resource * graphql.List = nil
+func GQLListResource() * graphql.List {
+  if gql_list_resource == nil {
+    gql_list_resource = graphql.NewList(GQLInterfaceResource())
+  }
+
+  return gql_list_resource
+}
+
+var gql_interface_resource * graphql.Interface = nil
+func GQLInterfaceResource() * graphql.Interface {
+  if gql_interface_resource == nil {
+    gql_interface_resource = graphql.NewInterface(graphql.InterfaceConfig{
+      Name: "Resource",
+      ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+        valid_resources, ok := p.Context.Value("valid_resources").(map[reflect.Type]*graphql.Object)
+        if ok == false {
+          return nil
+        }
+        for key, value := range(valid_resources) {
+          if reflect.TypeOf(p.Value) == key {
+            return value
+          }
+        }
+        return nil
+      },
+      Fields: graphql.Fields{},
+    })
+
+    if gql_list_resource == nil {
+      gql_list_resource = graphql.NewList(gql_interface_resource)
+    }
+
+    gql_interface_resource.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_resource.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_resource.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_resource.AddFieldConfig("Parents", &graphql.Field{
+      Type: GQLListResource(),
+    })
+
+  }
+
+  return gql_interface_resource
+}
+
+func GQLResourceFn(p graphql.ResolveParams, fn func(Resource, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
+    if resource, ok := p.Source.(Resource); ok {
+      return fn(resource, p)
+    }
+    return nil, errors.New(fmt.Sprintf("Failed to cast source to resource, %+v", p.Source))
+}
+
+func GQLResourceID(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.ID(), nil
+  })
+}
+
+func GQLResourceName(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.Name(), nil
+  })
+}
+
+func GQLResourceDescription(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.Description(), nil
+  })
+}
+
+func GQLResourceParents(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.Parents(), nil
+  })
+}
+
+var gql_type_base_resource *graphql.Object = nil
+func GQLTypeBaseResource() * graphql.Object {
+  if gql_type_base_resource == nil {
+    gql_type_base_resource = graphql.NewObject(graphql.ObjectConfig{
+      Name: "BaseResource",
+      Interfaces: []*graphql.Interface{
+        GQLInterfaceResource(),
+      },
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(*BaseResource)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+
+    gql_type_base_resource.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceID,
+    })
+
+    gql_type_base_resource.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceName,
+    })
+
+    gql_type_base_resource.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceDescription,
+    })
+
+    gql_type_base_resource.AddFieldConfig("Parents", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLResourceParents,
+    })
+  }
+
+  return gql_type_base_resource
+}
 
 var gql_list_event * graphql.List = nil
 func GQLListEvent() * graphql.List {
@@ -302,6 +425,9 @@ func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
   valid_events[reflect.TypeOf((*BaseEvent)(nil))] = GQLTypeBaseEvent()
   valid_events[reflect.TypeOf((*EventQueue)(nil))] = GQLTypeEventQueue()
 
+  valid_resources := map[reflect.Type]*graphql.Object{}
+  valid_resources[reflect.TypeOf((*BaseResource)(nil))] = GQLTypeBaseResource()
+
   gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue()}
   for go_t, gql_t := range(server.extended_types) {
     valid_events[go_t] = gql_t
@@ -332,8 +458,10 @@ func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
   if err != nil{
     panic(err)
   }
-
-  return GQLHandler(schema, context.WithValue(context.Background(), "valid_events", valid_events))
+  ctx := context.Background()
+  ctx = context.WithValue(ctx, "valid_events", valid_events)
+  ctx = context.WithValue(ctx, "valid_resources", valid_resources)
+  return GQLHandler(schema, ctx)
 }
 
 func (server * GQLServer) Init(abort chan error) bool {
