@@ -40,6 +40,18 @@ func GQLVexMatchArena(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+func GQLVexMatchControl(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams) (interface{}, error) {
+    return event.(*Match).control, nil
+  })
+}
+
+func GQLVexMatchState(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams) (interface{}, error) {
+    return event.(*Match).state, nil
+  })
+}
+
 func GQLVexAllianceTeams(p graphql.ResolveParams) (interface{}, error) {
   return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
     return resource.(*Alliance).teams, nil
@@ -126,8 +138,18 @@ func GQLVexTypeMatch() * graphql.Object {
     })
 
     gql_vex_type_match.AddFieldConfig("Arena", &graphql.Field{
-      Type: GQLVexTypeArena(),
+      Type: graphql.String,
       Resolve: GQLVexMatchArena,
+    })
+
+    gql_vex_type_match.AddFieldConfig("Control", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLVexMatchControl,
+    })
+
+    gql_vex_type_match.AddFieldConfig("State", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLVexMatchState,
     })
   }
 
