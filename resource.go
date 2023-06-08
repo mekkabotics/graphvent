@@ -2,8 +2,14 @@ package main
 
 import (
   "fmt"
+  "reflect"
   "errors"
   "sync"
+  "net/http"
+  "io"
+  "github.com/graphql-go/graphql"
+  "github.com/graphql-go/handler"
+  "context"
 )
 
 // Resources propagate update up to multiple parents, and not downwards
@@ -254,6 +260,76 @@ func NewResource(name string, description string, children []Resource) * BaseRes
   return &resource
 }
 
+const graphiql_string string = `
+<!--
+ *  Copyright (c) 2021 GraphQL Contributors
+ *  All rights reserved.
+ *
+ *  This source code is licensed under the license found in the
+ *  LICENSE file in the root directory of this source tree.
+-->
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>GraphiQL</title>
+    <style>
+      body {
+        height: 100%;
+        margin: 0;
+        width: 100%;
+        overflow: hidden;
+      }
+
+      #graphiql {
+        height: 100vh;
+      }
+    </style>
+
+    <!--
+      This GraphiQL example depends on Promise and fetch, which are available in
+      modern browsers, but can be "polyfilled" for older browsers.
+      GraphiQL itself depends on React DOM.
+      If you do not want to rely on a CDN, you can host these files locally or
+      include them directly in your favored resource bundler.
+    -->
+    <script
+      crossorigin
+      src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+      crossorigin
+      src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+
+    <!--
+      These two files can be found in the npm module, however you may wish to
+      copy them directly into your environment, or perhaps include them in your
+      favored resource bundler.
+     -->
+    <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
+  </head>
+
+  <body>
+    <div id="graphiql">Loading...</div>
+    <script
+      src="https://unpkg.com/graphiql/graphiql.min.js"
+      type="application/javascript"
+    ></script>
+    <script>
+      const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+      root.render(
+        React.createElement(GraphiQL, {
+          fetcher: GraphiQL.createFetcher({
+            url: 'http://localhost:8080/gql',
+          }),
+          defaultEditorToolsVisibility: true,
+        }),
+      );
+    </script>
+  </body>
+</html>
+`
+
 type GQLServer struct {
   BaseResource
   abort chan error
@@ -277,18 +353,163 @@ func (server * GQLServer) update(signal GraphSignal) {
   server.BaseResource.update(signal)
 }
 
+func GQLEventID(p graphql.ResolveParams) (interface{}, error) {
+  if event, ok := p.Source.(Event); ok {
+    return event.ID(), nil
+  }
+  return nil, errors.New("Failed to cast source to event")
+}
+
+func GQLEventChildren(p graphql.ResolveParams) (interface{}, error) {
+  if event, ok := p.Source.(Event); ok {
+    return event.Children(), nil
+  }
+  return nil, errors.New("Failed to cast source to event")
+}
+
+func (server * GQLServer) Schema() * graphql.Schema {
+  valid_events := map[reflect.Type]*graphql.Object{}
+  gql_interface_event := graphql.NewInterface(graphql.InterfaceConfig{
+    Name: "Event",
+    Fields: graphql.Fields{},
+    ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+      for key, value := range(valid_events) {
+        if reflect.TypeOf(p.Value) == key {
+          return value
+        }
+      }
+      return nil
+    },
+  })
+  gql_type_event_list := graphql.NewList(gql_interface_event)
+  gql_interface_event.AddFieldConfig("ID", &graphql.Field{
+    Type: graphql.String,
+  })
+  gql_interface_event.AddFieldConfig("Children", &graphql.Field{
+    Type: gql_type_event_list,
+  })
+
+  gql_type_base_event := graphql.NewObject(graphql.ObjectConfig{
+    Name: "BaseEvent",
+    Interfaces: []*graphql.Interface{
+      gql_interface_event,
+    },
+    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      _, ok := p.Value.(*BaseEvent)
+      return ok
+    },
+    Fields: graphql.Fields{},
+  })
+  valid_events[reflect.TypeOf((*BaseEvent)(nil))] = gql_type_base_event
+  gql_type_base_event.AddFieldConfig("ID", &graphql.Field{
+    Type: graphql.String,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      if event, ok := p.Source.(Event); ok {
+        return event.ID(), nil
+      }
+      return nil, errors.New("Failed to cast source to event")
+    },
+  })
+  gql_type_base_event.AddFieldConfig("Children", &graphql.Field{
+    Type: gql_type_event_list,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      if event, ok := p.Source.(Event); ok {
+        return event.Children(), nil
+      }
+      return nil, errors.New("Failed to cast source to event")
+    },
+  })
+
+  gql_type_event_queue := graphql.NewObject(graphql.ObjectConfig{
+    Name: "EventQueue",
+    Interfaces: []*graphql.Interface{
+      gql_interface_event,
+    },
+    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      _, ok := p.Value.(*EventQueue)
+      return ok
+    },
+    Fields: graphql.Fields{},
+  })
+  valid_events[reflect.TypeOf((*EventQueue)(nil))] = gql_type_event_queue
+  gql_type_event_queue.AddFieldConfig("ID", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLEventID,
+  })
+  gql_type_event_queue.AddFieldConfig("Children", &graphql.Field{
+    Type: gql_type_event_list,
+    Resolve: GQLEventChildren,
+  })
+
+  schemaConfig  := graphql.SchemaConfig{
+    Types: []graphql.Type{gql_type_base_event, gql_type_event_queue},
+    Query: graphql.NewObject(graphql.ObjectConfig{
+      Name: "Query",
+      Fields: graphql.Fields{
+        "Event": &graphql.Field{
+          Type: gql_interface_event,
+          Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+            server.lock_holder_lock.Lock()
+            defer server.lock_holder_lock.Unlock()
+
+            owner := server.Owner()
+
+            return owner, nil
+          },
+        },
+      },
+    }),
+  }
+
+  schema, err := graphql.NewSchema(schemaConfig)
+  if err != nil{
+    panic(err)
+  }
+
+  return &schema
+}
+
 func (server * GQLServer) Init(abort chan error) bool {
   go func(abort chan error) {
     log.Logf("gql", "GOROUTINE_START for %s", server.ID())
+    h := handler.New(&handler.Config{Schema: server.Schema(), Pretty: true})
+
+    mux := http.NewServeMux()
+    mux.Handle("/gql", h)
+    mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
+      w.Header().Set("Content-Type", "text/html; charset=utf-8")
+      w.WriteHeader(http.StatusOK)
+      io.WriteString(w, graphiql_string)
+    })
+
+    srv := &http.Server{
+      Addr: server.listen,
+      Handler: mux,
+    }
+
+    http_done := &sync.WaitGroup{}
+    http_done.Add(1)
+    go func(srv *http.Server, http_done *sync.WaitGroup) {
+      defer http_done.Done()
+      err := srv.ListenAndServe()
+      if err != http.ErrServerClosed {
+        panic(fmt.Sprintf("Failed to start gql server: %s", err))
+      }
+    }(srv, http_done)
+
     for true {
       select {
       case <-abort:
         log.Logf("gql", "GOROUTINE_ABORT for %s", server.ID())
+        err := srv.Shutdown(context.Background())
+        if err != nil{
+          panic(fmt.Sprintf("Failed to shutdown gql server: %s", err))
+        }
+        http_done.Wait()
         break
-      case <-server.signal:
+      case signal:=<-server.signal:
+        log.Logf("gql", "GOROUTINE_SIGNAL fot %s: %+v", server.ID(), signal)
         // Take signals to resource and send to GQL subscriptions
-      case <-server.gql_channel:
-        // Parse GQL query from channel and reply with resolved query
       }
     }
   }(abort)

@@ -273,6 +273,8 @@ func main() {
         signal := NewSignal(nil, "abort")
         signal.description = event_manager.root_event.ID()
         SendUpdate(event_manager.root_event, signal)
+        time.Sleep(time.Second * 5)
+        pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
         break
       case update := <- arena_1_client.update:
         arena_1_client.process_update(update)
@@ -287,10 +289,9 @@ func main() {
          arena_2_client.games_done == 12 &&
          arena_3_client.games_done == 12 &&
          arena_4_client.games_done == 12 {
-        signal := NewSignal(nil, "cancel")
-        signal.description = event_manager.root_event.ID()
-        SendUpdate(event_manager.root_event, signal)
-        break
+        //signal := NewSignal(nil, "cancel")
+        //signal.description = event_manager.root_event.ID()
+        //SendUpdate(event_manager.root_event, signal)
       }
     }
   }()
