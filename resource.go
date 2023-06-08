@@ -314,6 +314,7 @@ func GQLEventChildren(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+
 var gql_list_event * graphql.List = nil
 func GQLListEvent() * graphql.List {
   if gql_list_event == nil {
@@ -343,7 +344,7 @@ func GQLInterfaceEvent() * graphql.Interface {
     })
 
     if gql_list_event == nil {
-      gql_list_event = graphql.NewList(GQLInterfaceEvent())
+      gql_list_event = graphql.NewList(gql_interface_event)
     }
 
     gql_interface_event.AddFieldConfig("ID", &graphql.Field{
@@ -609,7 +610,7 @@ func (server * GQLServer) Init(abort chan error) bool {
         http_done.Wait()
         break
       case signal:=<-server.signal:
-        log.Logf("gql", "GOROUTINE_SIGNAL fot %s: %+v", server.ID(), signal)
+        log.Logf("gql", "GOROUTINE_SIGNAL for %s: %+v", server.ID(), signal)
         // Take signals to resource and send to GQL subscriptions
       }
     }
