@@ -283,18 +283,35 @@ func (server * GQLServer) update(signal GraphSignal) {
   server.BaseResource.update(signal)
 }
 
+func GQLEventFn(p graphql.ResolveParams, fn func(Event, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
+    if event, ok := p.Source.(Event); ok {
+      return fn(event, p)
+    }
+    return nil, errors.New("Failed to cast source to event")
+}
+
 func GQLEventID(p graphql.ResolveParams) (interface{}, error) {
-  if event, ok := p.Source.(Event); ok {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams)(interface{}, error) {
     return event.ID(), nil
-  }
-  return nil, errors.New("Failed to cast source to event")
+  })
+}
+
+func GQLEventName(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams)(interface{}, error) {
+    return event.Name(), nil
+  })
+}
+
+func GQLEventDescription(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams)(interface{}, error) {
+    return event.Description(), nil
+  })
 }
 
 func GQLEventChildren(p graphql.ResolveParams) (interface{}, error) {
-  if event, ok := p.Source.(Event); ok {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams)(interface{}, error) {
     return event.Children(), nil
-  }
-  return nil, errors.New("Failed to cast source to event")
+  })
 }
 
 var gql_list_event * graphql.List = nil
@@ -333,6 +350,14 @@ func GQLInterfaceEvent() * graphql.Interface {
       Type: graphql.String,
     })
 
+    gql_interface_event.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_event.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+    })
+
     gql_interface_event.AddFieldConfig("Children", &graphql.Field{
       Type: gql_list_event,
     })
@@ -341,57 +366,89 @@ func GQLInterfaceEvent() * graphql.Interface {
   return gql_interface_event
 }
 
+var gql_type_base_event * graphql.Object = nil
+func GQLTypeBaseEvent() * graphql.Object {
+  if gql_type_base_event == nil {
+    gql_type_base_event = graphql.NewObject(graphql.ObjectConfig{
+      Name: "BaseEvent",
+      Interfaces: []*graphql.Interface{
+        GQLInterfaceEvent(),
+      },
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(*BaseEvent)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+    gql_type_base_event.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLEventID,
+    })
+
+    gql_type_base_event.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLEventName,
+    })
+
+    gql_type_base_event.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLEventDescription,
+    })
+
+    gql_type_base_event.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListEvent(),
+      Resolve: GQLEventChildren,
+    })
+  }
+
+  return gql_type_base_event
+}
+
+var gql_type_event_queue * graphql.Object = nil
+func GQLTypeEventQueue() * graphql.Object {
+  if gql_type_event_queue == nil {
+    gql_type_event_queue = graphql.NewObject(graphql.ObjectConfig{
+      Name: "EventQueue",
+      Interfaces: []*graphql.Interface{
+        GQLInterfaceEvent(),
+      },
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(*EventQueue)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+    gql_type_event_queue.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLEventID,
+    })
+    gql_type_event_queue.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLEventName,
+    })
+    gql_type_event_queue.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLEventDescription,
+    })
+    gql_type_event_queue.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListEvent(),
+      Resolve: GQLEventChildren,
+    })
+  }
+  return gql_type_event_queue
+}
+
 func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
   valid_events := map[reflect.Type]*graphql.Object{}
-
-  gql_type_base_event := graphql.NewObject(graphql.ObjectConfig{
-    Name: "BaseEvent",
-    Interfaces: []*graphql.Interface{
-      GQLInterfaceEvent(),
-    },
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(*BaseEvent)
-      return ok
-    },
-    Fields: graphql.Fields{},
-  })
-  valid_events[reflect.TypeOf((*BaseEvent)(nil))] = gql_type_base_event
-  gql_type_base_event.AddFieldConfig("ID", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLEventID,
-  })
-  gql_type_base_event.AddFieldConfig("Children", &graphql.Field{
-    Type: GQLListEvent(),
-    Resolve: GQLEventChildren,
-  })
-
-  gql_type_event_queue := graphql.NewObject(graphql.ObjectConfig{
-    Name: "EventQueue",
-    Interfaces: []*graphql.Interface{
-      GQLInterfaceEvent(),
-    },
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(*EventQueue)
-      return ok
-    },
-    Fields: graphql.Fields{},
-  })
-  valid_events[reflect.TypeOf((*EventQueue)(nil))] = gql_type_event_queue
-  gql_type_event_queue.AddFieldConfig("ID", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLEventID,
-  })
-  gql_type_event_queue.AddFieldConfig("Children", &graphql.Field{
-    Type: GQLListEvent(),
-    Resolve: GQLEventChildren,
-  })
+  valid_events[reflect.TypeOf((*BaseEvent)(nil))] = GQLTypeBaseEvent()
+  valid_events[reflect.TypeOf((*EventQueue)(nil))] = GQLTypeEventQueue()
 
   schemaConfig  := graphql.SchemaConfig{
-    Types: []graphql.Type{gql_type_base_event, gql_type_event_queue},
+    Types: []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue()},
     Query: graphql.NewObject(graphql.ObjectConfig{
       Name: "Query",
       Fields: graphql.Fields{
-        "Event": &graphql.Field{
+        "Owner": &graphql.Field{
           Type: GQLInterfaceEvent(),
           Resolve: func(p graphql.ResolveParams) (interface{}, error) {
             server.lock_holder_lock.Lock()
@@ -505,9 +562,7 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
       return
     }
     res := GQLQuery{}
-    log.Logf("gql", "GQL_REQ: %s", str)
     json.Unmarshal(str, &res)
-    log.Logf("gql", "GQL_QUERY: %s", res.Query)
     result := graphql.Do(graphql.Params{
       Schema: schema,
       Context: ctx,
