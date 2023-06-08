@@ -30,9 +30,59 @@ func GQLVexListAlliance() * graphql.List {
 
 func GQLVexMatchAlliances(p graphql.ResolveParams) (interface{}, error) {
   return GQLEventFn(p, func(event Event, p graphql.ResolveParams) (interface{}, error) {
-    //TODO improve
     return event.(*Match).alliances, nil
   })
+}
+
+func GQLVexMatchArena(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams) (interface{}, error) {
+    return event.(*Match).arena, nil
+  })
+}
+
+func GQLVexAllianceTeams(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.(*Alliance).teams, nil
+  })
+}
+
+var gql_vex_type_arena * graphql.Object = nil
+func GQLVexTypeArena() * graphql.Object {
+  if gql_vex_type_arena == nil {
+    gql_vex_type_arena = graphql.NewObject(graphql.ObjectConfig{
+      Name: "Arena",
+      Interfaces: []*graphql.Interface{
+        GQLInterfaceResource(),
+      },
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(Arena)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+
+    gql_vex_type_arena.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceID,
+    })
+
+    gql_vex_type_arena.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceName,
+    })
+
+    gql_vex_type_arena.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceDescription,
+    })
+
+    gql_vex_type_arena.AddFieldConfig("Parents", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLResourceParents,
+    })
+  }
+
+  return gql_vex_type_arena
 }
 
 var gql_vex_type_match * graphql.Object = nil
@@ -74,6 +124,11 @@ func GQLVexTypeMatch() * graphql.Object {
       Type: GQLVexListAlliance(),
       Resolve: GQLVexMatchAlliances,
     })
+
+    gql_vex_type_match.AddFieldConfig("Arena", &graphql.Field{
+      Type: GQLVexTypeArena(),
+      Resolve: GQLVexMatchArena,
+    })
   }
 
   return gql_vex_type_match
@@ -93,27 +148,32 @@ func GQLVexTypeAlliance() * graphql.Object {
       },
       Fields: graphql.Fields{},
     })
+
+    gql_vex_type_alliance.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceID,
+    })
+
+    gql_vex_type_alliance.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceName,
+    })
+
+    gql_vex_type_alliance.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceDescription,
+    })
+
+    gql_vex_type_alliance.AddFieldConfig("Parents", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLResourceParents,
+    })
+
+    gql_vex_type_alliance.AddFieldConfig("Teams", &graphql.Field{
+      Type: GQLVexListTeam(),
+      Resolve: GQLVexAllianceTeams,
+    })
   }
-
-  gql_vex_type_alliance.AddFieldConfig("ID", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLResourceID,
-  })
-
-  gql_vex_type_alliance.AddFieldConfig("Name", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLResourceName,
-  })
-
-  gql_vex_type_alliance.AddFieldConfig("Description", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLResourceDescription,
-  })
-
-  gql_vex_type_alliance.AddFieldConfig("Parents", &graphql.Field{
-    Type: GQLListResource(),
-    Resolve: GQLResourceParents,
-  })
 
   return gql_vex_type_alliance
 }

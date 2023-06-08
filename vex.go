@@ -51,6 +51,7 @@ func NewTeam(org string, team string, members []*Member) * Team {
 
 type Alliance struct {
   BaseResource
+  teams []*Team
 }
 
 func NewAlliance(team0 * Team, team1 * Team) * Alliance {
@@ -59,6 +60,7 @@ func NewAlliance(team0 * Team, team1 * Team) * Alliance {
 
   resource := &Alliance{
     BaseResource: NewBaseResource(name, description, []Resource{team0, team1}),
+    teams: []*Team{team0, team1},
   }
   return resource
 }
