@@ -10,6 +10,7 @@ import (
   "errors"
   "fmt"
   "sync"
+  "time"
 )
 
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
@@ -93,6 +94,8 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
 
 type GQLQuery struct {
   Query string `json:"query"`
+  OperationName string `json:"operationName"`
+  Variables map[string]interface{} `json:"variables"`
 }
 
 func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
@@ -104,13 +107,24 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
     }
     res := GQLQuery{}
     json.Unmarshal(str, &res)
-    result := graphql.Do(graphql.Params{
+    params := graphql.Params{
       Schema: schema,
       Context: ctx,
       RequestString: res.Query,
-    })
+    }
+    if res.OperationName != "" {
+      params.OperationName = res.OperationName
+    }
+    if len(res.Variables) > 0 {
+      log.Logf("gql", "VARIABLES: %+v", res.Variables)
+      params.VariableValues = res.Variables
+    }
+    result := graphql.Do(params)
     if len(result.Errors) > 0 {
-      log.Logf("gql", "wrong result, unexpected errors: %v", result.Errors)
+      extra_fields := map[string]interface{}{}
+      extra_fields["body"] = string(str)
+      extra_fields["headers"] = r.Header
+      log.Logm("gql", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
     }
     json.NewEncoder(w).Encode(result)
   }
@@ -395,6 +409,93 @@ func GQLTypeEventQueue() * graphql.Object {
   return gql_type_event_queue
 }
 
+func GQLSignalFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
+    if signal, ok := p.Source.(GraphSignal); ok {
+      return fn(signal, p)
+    }
+    return nil, errors.New("Failed to cast source to event")
+}
+
+func GQLSignalType(p graphql.ResolveParams) (interface{}, error) {
+  return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
+    return signal.Type(), nil
+  })
+}
+
+func GQLSignalDesc(p graphql.ResolveParams) (interface{}, error) {
+  return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
+    return signal.Description(), nil
+  })
+}
+
+func GQLSignalTime(p graphql.ResolveParams) (interface{}, error) {
+    return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
+      return signal.Time(), nil
+    })
+}
+
+func GQLSignalString(p graphql.ResolveParams) (interface{}, error) {
+    return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
+      return signal.String(), nil
+    })
+}
+
+
+var gql_type_signal *graphql.Object = nil
+func GQLTypeSignal() *graphql.Object {
+  if gql_type_signal == nil {
+    gql_type_signal = graphql.NewObject(graphql.ObjectConfig{
+      Name: "SignalOut",
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(GraphSignal)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+
+    gql_type_signal.AddFieldConfig("Type", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLSignalType,
+    })
+    gql_type_signal.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLSignalDesc,
+    })
+    gql_type_signal.AddFieldConfig("Time", &graphql.Field{
+      Type: graphql.DateTime,
+      Resolve: GQLSignalTime,
+    })
+    gql_type_signal.AddFieldConfig("String", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLSignalString,
+    })
+  }
+  return gql_type_signal
+}
+
+var gql_type_signal_input *graphql.InputObject = nil
+func GQLTypeSignalInput() *graphql.InputObject {
+  if gql_type_signal_input == nil {
+    gql_type_signal_input = graphql.NewInputObject(graphql.InputObjectConfig{
+      Name: "SignalIn",
+      Fields: graphql.InputObjectConfigFieldMap{},
+    })
+    gql_type_signal_input.AddFieldConfig("Type", &graphql.InputObjectFieldConfig{
+      Type: graphql.String,
+    })
+    gql_type_signal_input.AddFieldConfig("Description", &graphql.InputObjectFieldConfig{
+      Type: graphql.String,
+      DefaultValue: "",
+    })
+    gql_type_signal_input.AddFieldConfig("Time", &graphql.InputObjectFieldConfig{
+      Type: graphql.DateTime,
+      DefaultValue: time.Now(),
+    })
+  }
+  return gql_type_signal_input
+}
+
+
 type GQLServer struct {
   BaseResource
   abort chan error
@@ -428,7 +529,7 @@ func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
   valid_resources := map[reflect.Type]*graphql.Object{}
   valid_resources[reflect.TypeOf((*BaseResource)(nil))] = GQLTypeBaseResource()
 
-  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue()}
+  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput()}
   for go_t, gql_t := range(server.extended_types) {
     valid_events[go_t] = gql_t
     gql_types = append(gql_types, gql_t)
@@ -436,6 +537,54 @@ func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
 
   schemaConfig  := graphql.SchemaConfig{
     Types: gql_types,
+    Mutation: graphql.NewObject(graphql.ObjectConfig{
+      Name: "Mutation",
+      Fields: graphql.Fields{
+        "updateEvent": &graphql.Field{
+          Type: GQLTypeSignal(),
+          Args: graphql.FieldConfigArgument{
+            "id": &graphql.ArgumentConfig{
+              Type: graphql.String,
+            },
+            "signal": &graphql.ArgumentConfig{
+              Type: GQLTypeSignalInput(),
+            },
+          },
+          Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+            signal_map, ok := p.Args["signal"].(map[string]interface{})
+            if ok == false {
+              return nil, errors.New(fmt.Sprintf("Failed to cast arg signal to GraphSignal: %+v", p.Args["signal"]))
+            }
+            signal := NewSignal(server, signal_map["Type"].(string))
+            signal.description = signal_map["Description"].(string)
+            signal.time = signal_map["Time"].(time.Time)
+
+            id , ok := p.Args["id"].(string)
+            if ok == false {
+              return nil, errors.New("Failed to cast arg id to string")
+            }
+
+            owner := server.Owner()
+            if owner == nil {
+              return nil, errors.New("Cannot send update without owner")
+            }
+
+            root_event, ok := owner.(Event)
+            if ok == false {
+              return nil, errors.New("Cannot send update to Event unless owned by an Event")
+            }
+
+            node := FindChild(root_event, id)
+            if node == nil {
+              return nil, errors.New("Failed to find id in event tree from server")
+            }
+
+            SendUpdate(node, signal)
+            return signal, nil
+          },
+        },
+      },
+    }),
     Query: graphql.NewObject(graphql.ObjectConfig{
       Name: "Query",
       Fields: graphql.Fields{

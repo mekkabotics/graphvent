@@ -241,7 +241,7 @@ func (client * FakeClient) process_update(update GraphSignal) {
 }
 
 func main() {
-  event_manager, arenas_div1, arenas_div2 := fake_data()
+  event_manager, _, _ := fake_data()
 
   sigs := make(chan os.Signal, 1)
   signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -261,11 +261,12 @@ func main() {
     pprof.WriteHeapProfile(memfile)
   }()
 
-  // Fake arena clients
+  /*// Fake arena clients
   arena_1_client := NewFakeClient(arenas_div1[0])
   arena_2_client := NewFakeClient(arenas_div1[1])
   arena_3_client := NewFakeClient(arenas_div2[0])
   arena_4_client := NewFakeClient(arenas_div2[1])
+  */
   go func() {
     for true {
       select {
@@ -276,7 +277,7 @@ func main() {
         time.Sleep(time.Second * 5)
         pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
         break
-      case update := <- arena_1_client.update:
+      /*case update := <- arena_1_client.update:
         arena_1_client.process_update(update)
       case update := <- arena_2_client.update:
         arena_2_client.process_update(update)
@@ -291,7 +292,7 @@ func main() {
          arena_4_client.games_done == 12 {
         //signal := NewSignal(nil, "cancel")
         //signal.description = event_manager.root_event.ID()
-        //SendUpdate(event_manager.root_event, signal)
+        //SendUpdate(event_manager.root_event, signal)*/
       }
     }
   }()
@@ -302,10 +303,6 @@ func main() {
     log.Logf("test", "Error running event_manager: %s", err)
   } else {
     log.Logf("test", "Finished event_manager")
-    log.Logf("test", "Client 1 games: %d", arena_1_client.games_done)
-    log.Logf("test", "Client 2 games: %d", arena_2_client.games_done)
-    log.Logf("test", "Client 3 games: %d", arena_3_client.games_done)
-    log.Logf("test", "Client 4 games: %d", arena_4_client.games_done)
   }
   pprof.StopCPUProfile()
 }

@@ -13,6 +13,7 @@ import (
 type Logger interface {
   Init() error
   Logf(component string, format string, items ... interface{})
+  Logm(component string, fields map[string]interface{}, format string, items ... interface{})
 }
 
 type DefaultLogger struct {
@@ -25,6 +26,15 @@ var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}}
 var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql"}
 
 func (logger * DefaultLogger) Init(components []string) error {
+  logger.init_lock.Lock()
+  defer logger.init_lock.Unlock()
+
+  if logger.init == true {
+    return nil
+  }
+
+  logger.init = true
+
   file, err := os.OpenFile("test.log", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
   if err != nil {
     return err
@@ -40,24 +50,28 @@ func (logger * DefaultLogger) Init(components []string) error {
   }
 
   writer := io.MultiWriter(file, os.Stdout)
-  for _, c := range([]string{"gql"}) {
+  for _, c := range(all_components) {
     if component_enabled(c) == true {
       logger.loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
-    } else {
-      panic(fmt.Sprintf("%s is not a component in DefaultLogger", c))
     }
   }
   return nil
 }
 
-func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
-  logger.init_lock.Lock()
-  if logger.init == false {
-    logger.Init(all_components)
-    logger.init = true
+func (logger * DefaultLogger) Logm(component string, fields map[string]interface{}, format string, items ... interface{}) {
+  logger.Init([]string{"gql"})
+  l, exists := logger.loggers[component]
+  if exists == true {
+    log := l.Log()
+    for key, value := range(fields) {
+      log = log.Str(key, fmt.Sprintf("%+v", value))
+    }
+    log.Msg(fmt.Sprintf(format, items...))
   }
-  logger.init_lock.Unlock()
+}
 
+func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
+  logger.Init([]string{"gql"})
   l, exists := logger.loggers[component]
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))
