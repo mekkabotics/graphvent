@@ -277,14 +277,16 @@ type GQLServer struct {
   abort chan error
   listen string
   gql_channel chan error
+  extended_types map[reflect.Type]*graphql.Object
 }
 
-func NewGQLServer(listen string) * GQLServer {
+func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object) * GQLServer {
   server := &GQLServer{
     BaseResource: NewBaseResource("GQL Server", "graphql server for event signals", []Resource{}),
     listen: listen,
     abort: make(chan error, 1),
     gql_channel: make(chan error, 1),
+    extended_types: extended_types,
   }
 
   return server
@@ -295,17 +297,19 @@ func (server * GQLServer) update(signal GraphSignal) {
   server.BaseResource.update(signal)
 }
 
-func (server * GQLServer) Handler(extended_types map[reflect.Type]*graphql.Object) func(http.ResponseWriter, *http.Request) {
+func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
   valid_events := map[reflect.Type]*graphql.Object{}
   valid_events[reflect.TypeOf((*BaseEvent)(nil))] = GQLTypeBaseEvent()
   valid_events[reflect.TypeOf((*EventQueue)(nil))] = GQLTypeEventQueue()
 
-  for go_t, gql_t := range(extended_types) {
+  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue()}
+  for go_t, gql_t := range(server.extended_types) {
     valid_events[go_t] = gql_t
+    gql_types = append(gql_types, gql_t)
   }
 
   schemaConfig  := graphql.SchemaConfig{
-    Types: []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue()},
+    Types: gql_types,
     Query: graphql.NewObject(graphql.ObjectConfig{
       Name: "Query",
       Fields: graphql.Fields{
@@ -337,7 +341,7 @@ func (server * GQLServer) Init(abort chan error) bool {
     log.Logf("gql", "GOROUTINE_START for %s", server.ID())
 
     mux := http.NewServeMux()
-    mux.HandleFunc("/gql", server.Handler(map[reflect.Type]*graphql.Object{}))
+    mux.HandleFunc("/gql", server.Handler())
     mux.HandleFunc("/", GraphiQLHandler())
 
     srv := &http.Server{
