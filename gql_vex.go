@@ -26,11 +26,26 @@ func GQLVexQueries() map[string]*graphql.Field {
 
 func FindResources(event Event, resource_type reflect.Type) []Resource {
   resources := event.RequiredResources()
-  for _, child := range(event.Children()) {
-    resources = append(resources, FindResources(child, resource_type)...)
+  found := []Resource{}
+  for _, resource := range(resources) {
+    if reflect.TypeOf(resource) == resource_type {
+      found = append(found, resource)
+    }
   }
 
-  return resources
+  for _, child := range(event.Children()) {
+    found = append(found, FindResources(child, resource_type)...)
+  }
+
+  m := map[string]Resource{}
+  for _, resource := range(found) {
+    m[resource.ID()] = resource
+  }
+  ret := []Resource{}
+  for _, resource := range(m) {
+    ret = append(ret, resource)
+  }
+  return ret
 }
 
 var gql_vex_query_arenas *graphql.Field = nil
@@ -48,7 +63,7 @@ func GQLVexQueryArenas() *graphql.Field {
         if is_event == false {
           return nil, fmt.Errorf("Can't enumerate arenas when server is attached to resource")
         }
-        return FindResources(owner, reflect.TypeOf((*Arena)(nil))), nil
+        return FindResources(owner, reflect.TypeOf((*VirtualArena)(nil))), nil
       },
     }
   }
