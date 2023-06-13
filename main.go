@@ -6,6 +6,7 @@ import (
   "os"
   "os/signal"
   "syscall"
+  "fmt"
 )
 
 func fake_team(org string, id string, names []string) (*Team, []*Member) {
@@ -17,7 +18,7 @@ func fake_team(org string, id string, names []string) (*Team, []*Member) {
   return team, members
 }
 
-func fake_data() (* EventManager, []Arena, []Arena) {
+func fake_data() (* EventManager) {
   resources := []Resource{}
 
   teams_div1 := []*Team{}
@@ -116,20 +117,24 @@ func fake_data() (* EventManager, []Arena, []Arena) {
   }
 
 
-  gql_server := NewGQLServer(":8080", GQLVexTypes())
+  gql_server := NewGQLServer(":8080", GQLVexTypes(), GQLVexQueries(), GQLVexMutations())
   resources = append(resources, gql_server)
+
   root_event := NewEventQueue("root_event", "", []Resource{gql_server})
-  event_manager := NewEventManager(root_event, resources)
+
   div_1 := NewEventQueue("Division 1", "", []Resource{})
+  err := AddChild(root_event, div_1, NewEventQueueInfo(1))
+  if err != nil {
+    panic(fmt.Sprintf("Failed to add div_1: %s", err))
+  }
+
   div_2 := NewEventQueue("Division 2", "", []Resource{})
-  err := event_manager.AddEvent(root_event, div_1, NewEventQueueInfo(1))
+  err = AddChild(root_event, div_2, NewEventQueueInfo(1))
   if err != nil {
-    panic("Failed to add div_1")
+    panic(fmt.Sprintf("Failed to add div_2: %s", err))
   }
-  err = event_manager.AddEvent(root_event, div_2, NewEventQueueInfo(1))
-  if err != nil {
-    panic("Failed to add div_2")
-  }
+
+  event_manager := NewEventManager(root_event, resources)
 
   for i, alliance := range(alliances_div1) {
     for j, alliance2 := range(alliances_div1) {
@@ -167,81 +172,11 @@ func fake_data() (* EventManager, []Arena, []Arena) {
     }
   }
 
-  return event_manager, arenas_div1, arenas_div2
-}
-
-type FakeClient struct {
-  state string
-  start time.Time
-  arena Arena
-  update chan GraphSignal
-  games_done int
-}
-
-func NewFakeClient(arena Arena) * FakeClient {
-  client := &FakeClient{
-    state: "init",
-    start: time.Now(),
-    arena: arena,
-    update: arena.UpdateChannel(),
-    games_done: 0,
-  }
-
-  return client
-}
-
-func (client * FakeClient) process_update(update GraphSignal) {
-  arena := client.arena
-  if update.Source() != nil {
-    log.Logf("test", "FAKE_CLIENT_UPDATE: %s -> %+v", update.Source().Name(), update)
-  } else {
-    log.Logf("test", "FAKE_CLIENT_UPDATE: nil -> %+v", update)
-  }
-  if update.Type() == "event_start" {
-    if client.state != "init" {
-      log.Logf("test", "BAD_CLIENT_STATE: event_start when match not in init: %s %s", arena.Name(), client.state)
-    }
-    client.state = "autonomous_queued"
-    log.Logf("test", "FAKE_CLIENT_ACTION: Match started on %s, queuing autonomous automatically", arena.Name())
-    SendUpdate(arena, NewSignal(nil, "queue_autonomous"))
-  } else if update.Type() == "autonomous_queued" {
-    if client.state != "autonomous_queued" {
-      log.Logf("test", "BAD_CLIENT_STATE: autonomous_queued when match not in autonomous_queued: %s %s", arena.Name(), client.state)
-    }
-    client.state = "autonomous_started"
-    log.Logf("test", "FAKE_CLIENT_ACTION: Autonomous queued on %s for %s, starting automatically at requested time", arena.Name(), update.Time())
-    signal := NewSignal(nil, "start_autonomous")
-    signal.time = update.Time()
-    SendUpdate(arena, signal)
-  } else if update.Type() == "autonomous_done" {
-    if client.state != "autonomous_started" {
-      log.Logf("test", "BAD_CLIENT_STATE: autonomous_done when match not in autonomous_started: %s %s", arena.Name(), client.state)
-    }
-    client.state = "driver_queued"
-    log.Logf("test", "FAKE_CLIENT_ACTION: Autonomous done on %s for %s, queueing driver automatically", arena.Name(), update.Time())
-    signal := NewSignal(nil, "queue_driver")
-    SendUpdate(arena, signal)
-  } else if update.Type() == "driver_queued" {
-    if client.state != "driver_queued" {
-      log.Logf("test", "BAD_CLIENT_STATE: driver_queued when match not in autonomous_done: %s %s", arena.Name(), client.state)
-    }
-    client.state = "driver_started"
-    log.Logf("test", "FAKE_CLIENT_ACTION: Driver queueud on %s for %s, starting driver automatically at requested time", arena.Name(), update.Time())
-    signal := NewSignal(nil, "start_driver")
-    signal.time = update.Time()
-    SendUpdate(arena, signal)
-  } else if update.Type() == "driver_done" {
-    if client.state != "driver_started" {
-      log.Logf("test", "BAD_CLIENT_STATE: driver_done when match not in driver_started: %s %s", arena.Name(), client.state)
-    }
-    client.state = "init"
-    log.Logf("test", "FAKE_CLIENT_ACTION: Driver done on %s for %s", arena.Name(), update.Time())
-    client.games_done += 1
-  }
+  return event_manager
 }
 
 func main() {
-  event_manager, _, _ := fake_data()
+  event_manager := fake_data()
 
   sigs := make(chan os.Signal, 1)
   signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
@@ -261,12 +196,6 @@ func main() {
     pprof.WriteHeapProfile(memfile)
   }()
 
-  /*// Fake arena clients
-  arena_1_client := NewFakeClient(arenas_div1[0])
-  arena_2_client := NewFakeClient(arenas_div1[1])
-  arena_3_client := NewFakeClient(arenas_div2[0])
-  arena_4_client := NewFakeClient(arenas_div2[1])
-  */
   go func() {
     for true {
       select {
@@ -274,25 +203,7 @@ func main() {
         signal := NewSignal(nil, "abort")
         signal.description = event_manager.root_event.ID()
         SendUpdate(event_manager.root_event, signal)
-        time.Sleep(time.Second * 5)
-        pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
         break
-      /*case update := <- arena_1_client.update:
-        arena_1_client.process_update(update)
-      case update := <- arena_2_client.update:
-        arena_2_client.process_update(update)
-      case update := <- arena_3_client.update:
-        arena_3_client.process_update(update)
-      case update := <- arena_4_client.update:
-        arena_4_client.process_update(update)
-      }
-      if arena_1_client.games_done == 12 &&
-         arena_2_client.games_done == 12 &&
-         arena_3_client.games_done == 12 &&
-         arena_4_client.games_done == 12 {
-        //signal := NewSignal(nil, "cancel")
-        //signal.description = event_manager.root_event.ID()
-        //SendUpdate(event_manager.root_event, signal)*/
       }
     }
   }()

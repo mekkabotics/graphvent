@@ -116,7 +116,6 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
       params.OperationName = res.OperationName
     }
     if len(res.Variables) > 0 {
-      log.Logf("gql", "VARIABLES: %+v", res.Variables)
       params.VariableValues = res.Variables
     }
     result := graphql.Do(params)
@@ -495,6 +494,61 @@ func GQLTypeSignalInput() *graphql.InputObject {
   return gql_type_signal_input
 }
 
+var gql_mutation_update_event *graphql.Field = nil
+func GQLMutationUpdateEvent() *graphql.Field {
+  if gql_mutation_update_event == nil {
+    gql_mutation_update_event = &graphql.Field{
+      Type: GQLTypeSignal(),
+      Args: graphql.FieldConfigArgument{
+        "id": &graphql.ArgumentConfig{
+          Type: graphql.String,
+        },
+        "signal": &graphql.ArgumentConfig{
+          Type: GQLTypeSignalInput(),
+        },
+      },
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        server, ok := p.Context.Value("gql_server").(*GQLServer)
+        if ok == false {
+          return nil, errors.New(fmt.Sprintf("Failed to cast context gql_server to GQLServer: %+v", p.Context.Value("gql_server")))
+        }
+
+        signal_map, ok := p.Args["signal"].(map[string]interface{})
+        if ok == false {
+          return nil, errors.New(fmt.Sprintf("Failed to cast arg signal to GraphSignal: %+v", p.Args["signal"]))
+        }
+        signal := NewSignal(server, signal_map["Type"].(string))
+        signal.description = signal_map["Description"].(string)
+        signal.time = signal_map["Time"].(time.Time)
+
+        id , ok := p.Args["id"].(string)
+        if ok == false {
+          return nil, errors.New("Failed to cast arg id to string")
+        }
+
+        owner := server.Owner()
+        if owner == nil {
+          return nil, errors.New("Cannot send update without owner")
+        }
+
+        root_event, ok := owner.(Event)
+        if ok == false {
+          return nil, errors.New("Cannot send update to Event unless owned by an Event")
+        }
+
+        node := FindChild(root_event, id)
+        if node == nil {
+          return nil, errors.New("Failed to find id in event tree from server")
+        }
+
+        SendUpdate(node, signal)
+        return signal, nil
+      },
+    }
+  }
+
+  return gql_mutation_update_event
+}
 
 type GQLServer struct {
   BaseResource
@@ -502,15 +556,19 @@ type GQLServer struct {
   listen string
   gql_channel chan error
   extended_types map[reflect.Type]*graphql.Object
+  extended_queries map[string]*graphql.Field
+  extended_mutations map[string]*graphql.Field
 }
 
-func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object) * GQLServer {
+func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object, extended_queries map[string]*graphql.Field, extended_mutations map[string]*graphql.Field) * GQLServer {
   server := &GQLServer{
     BaseResource: NewBaseResource("GQL Server", "graphql server for event signals", []Resource{}),
     listen: listen,
     abort: make(chan error, 1),
     gql_channel: make(chan error, 1),
     extended_types: extended_types,
+    extended_queries: extended_queries,
+    extended_mutations: extended_mutations,
   }
 
   return server
@@ -535,71 +593,31 @@ func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
     gql_types = append(gql_types, gql_t)
   }
 
+  gql_queries := graphql.Fields{
+    "Owner": GQLQueryOwner(),
+  }
+
+  for key, value := range(server.extended_queries) {
+    gql_queries[key] = value
+  }
+
+  gql_mutations := graphql.Fields{
+    "updateEvent": GQLMutationUpdateEvent(),
+  }
+
+  for key, value := range(server.extended_mutations) {
+    gql_mutations[key] = value
+  }
+
   schemaConfig  := graphql.SchemaConfig{
     Types: gql_types,
-    Mutation: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Mutation",
-      Fields: graphql.Fields{
-        "updateEvent": &graphql.Field{
-          Type: GQLTypeSignal(),
-          Args: graphql.FieldConfigArgument{
-            "id": &graphql.ArgumentConfig{
-              Type: graphql.String,
-            },
-            "signal": &graphql.ArgumentConfig{
-              Type: GQLTypeSignalInput(),
-            },
-          },
-          Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-            signal_map, ok := p.Args["signal"].(map[string]interface{})
-            if ok == false {
-              return nil, errors.New(fmt.Sprintf("Failed to cast arg signal to GraphSignal: %+v", p.Args["signal"]))
-            }
-            signal := NewSignal(server, signal_map["Type"].(string))
-            signal.description = signal_map["Description"].(string)
-            signal.time = signal_map["Time"].(time.Time)
-
-            id , ok := p.Args["id"].(string)
-            if ok == false {
-              return nil, errors.New("Failed to cast arg id to string")
-            }
-
-            owner := server.Owner()
-            if owner == nil {
-              return nil, errors.New("Cannot send update without owner")
-            }
-
-            root_event, ok := owner.(Event)
-            if ok == false {
-              return nil, errors.New("Cannot send update to Event unless owned by an Event")
-            }
-
-            node := FindChild(root_event, id)
-            if node == nil {
-              return nil, errors.New("Failed to find id in event tree from server")
-            }
-
-            SendUpdate(node, signal)
-            return signal, nil
-          },
-        },
-      },
-    }),
     Query: graphql.NewObject(graphql.ObjectConfig{
       Name: "Query",
-      Fields: graphql.Fields{
-        "Owner": &graphql.Field{
-          Type: GQLInterfaceEvent(),
-          Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-            server.lock_holder_lock.Lock()
-            defer server.lock_holder_lock.Unlock()
-
-            owner := server.Owner()
-
-            return owner, nil
-          },
-        },
-      },
+      Fields: gql_queries,
+    }),
+    Mutation: graphql.NewObject(graphql.ObjectConfig{
+      Name: "Mutation",
+      Fields: gql_mutations,
     }),
   }
 
@@ -610,7 +628,28 @@ func (server * GQLServer) Handler() func(http.ResponseWriter, *http.Request) {
   ctx := context.Background()
   ctx = context.WithValue(ctx, "valid_events", valid_events)
   ctx = context.WithValue(ctx, "valid_resources", valid_resources)
+  ctx = context.WithValue(ctx, "gql_server", server)
   return GQLHandler(schema, ctx)
+}
+
+var gql_query_owner *graphql.Field = nil
+func GQLQueryOwner() *graphql.Field {
+  if gql_query_owner == nil {
+    gql_query_owner = &graphql.Field{
+      Type: GQLInterfaceEvent(),
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        server, ok := p.Context.Value("gql_server").(*GQLServer)
+
+        if ok == false {
+          panic("Failed to get/cast gql_server from context")
+        }
+
+        return server.Owner(), nil
+      },
+    }
+  }
+
+  return gql_query_owner
 }
 
 func (server * GQLServer) Init(abort chan error) bool {

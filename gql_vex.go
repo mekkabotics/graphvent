@@ -3,6 +3,7 @@ package main
 import (
   "github.com/graphql-go/graphql"
   "reflect"
+  "fmt"
 )
 
 func GQLVexTypes() map[reflect.Type]*graphql.Object {
@@ -10,6 +11,56 @@ func GQLVexTypes() map[reflect.Type]*graphql.Object {
   types[reflect.TypeOf((*Match)(nil))] = GQLVexTypeMatch()
 
   return types
+}
+
+func GQLVexMutations() map[string]*graphql.Field {
+  mutations := map[string]*graphql.Field{}
+  return mutations
+}
+
+func GQLVexQueries() map[string]*graphql.Field {
+  queries := map[string]*graphql.Field{}
+  queries["Arenas"] = GQLVexQueryArenas()
+  return queries
+}
+
+func FindResources(event Event, resource_type reflect.Type) []Resource {
+  resources := event.RequiredResources()
+  for _, child := range(event.Children()) {
+    resources = append(resources, FindResources(child, resource_type)...)
+  }
+
+  return resources
+}
+
+var gql_vex_query_arenas *graphql.Field = nil
+func GQLVexQueryArenas() *graphql.Field {
+  if gql_vex_query_arenas == nil {
+    gql_vex_query_arenas = &graphql.Field{
+      Type: GQLVexListArena(),
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        server, ok := p.Context.Value("gql_server").(*GQLServer)
+        if ok == false {
+          panic("Failed to get/cast gql_server from context")
+        }
+
+        owner, is_event := server.Owner().(Event)
+        if is_event == false {
+          return nil, fmt.Errorf("Can't enumerate arenas when server is attached to resource")
+        }
+        return FindResources(owner, reflect.TypeOf((*Arena)(nil))), nil
+      },
+    }
+  }
+  return gql_vex_query_arenas
+}
+
+var gql_vex_list_arena * graphql.List = nil
+func GQLVexListArena() * graphql.List {
+  if gql_vex_list_arena == nil {
+    gql_vex_list_arena = graphql.NewList(GQLVexTypeArena())
+  }
+  return gql_vex_list_arena
 }
 
 var gql_vex_list_team * graphql.List = nil

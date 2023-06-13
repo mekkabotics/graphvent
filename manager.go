@@ -121,50 +121,80 @@ func (manager * EventManager) AddResource(resource Resource) error {
 // Check that created resources don't exist in the DAG
 // Add resources created by the event to the DAG
 // Add child to parent
+func (manager * EventManager) CheckResources(event Event) error {
+  if event == nil {
+    return errors.New("Cannot check nil event for resources")
+  }
+
+  for _, r := range(event.RequiredResources()) {
+    res_found := false
+    for _, res := range(manager.dag_nodes) {
+      if res.ID() == r.ID() {
+        res_found = true
+      }
+    }
+    if res_found == false {
+      return errors.New(fmt.Sprintf("Failed to find %s in the resource forest for %s", r.Name(), event.Name()))
+    }
+  }
+
+  for _, c := range(event.Children()) {
+    err := manager.CheckResources(c)
+    if err != nil {
+      return err
+    }
+  }
+
+  return nil
+}
+
+func (manager * EventManager) AddDoneResources(event Event) {
+  if event == nil {
+    return
+  }
+
+  done_resource := event.DoneResource()
+  _, exists := manager.dag_nodes[done_resource.ID()]
+  if exists == false {
+    manager.AddResource(done_resource)
+  }
+
+  for _, child := range(event.Children()) {
+    manager.AddDoneResources(child)
+  }
+}
+
 func (manager * EventManager) AddEvent(parent Event, child Event, info EventInfo) error {
   if child == nil {
     return errors.New("Cannot add nil Event to EventManager")
-  } else if len(child.Children()) != 0 {
-    return errors.New("Adding events recursively not implemented")
   }
 
-  for _, resource := range child.RequiredResources() {
-    _, exists := manager.dag_nodes[resource.ID()]
-    if exists == false {
-      error_str := fmt.Sprintf("Required resource %s not in DAG, cannot add event %s", resource.ID(), child.ID())
-      return errors.New(error_str)
+  err := manager.CheckResources(child)
+  if err != nil {
+    return fmt.Errorf("Failed to add event to event manager: %w", err)
+  }
+
+  manager.AddDoneResources(child)
+
+  if manager.root_event == nil {
+    if parent != nil {
+      return fmt.Errorf("EventManager has no root, so can't add event to parent")
+    } else {
+      manager.root_event = child
+      return nil
     }
-  }
-
-  resource := child.DoneResource()
-  _, exists := manager.dag_nodes[resource.ID()]
-  if exists == true {
-    error_str := fmt.Sprintf("Created resource %s already exists in DAG, cannot add event %s", resource.ID(), child.ID())
-    return errors.New(error_str)
-  }
-  manager.AddResource(resource)
-
-  if manager.root_event == nil && parent != nil {
-    error_str := fmt.Sprintf("EventManager has no root, so can't add event to parent")
-    return errors.New(error_str)
-  } else if manager.root_event != nil && parent == nil {
-    // TODO
-    return errors.New("Replacing root event not implemented")
-  } else if manager.root_event == nil && parent == nil {
-    manager.root_event = child
-    return nil;
   } else {
-    if FindChild(manager.root_event, parent.ID()) == nil {
-      error_str := fmt.Sprintf("Event %s is not present in the event tree, cannot add %s as child", parent.ID(), child.ID())
-      return errors.New(error_str)
+    if parent == nil {
+      return fmt.Errorf("Replacing root event not implemented")
+    } else if FindChild(manager.root_event, parent.ID()) == nil {
+      return fmt.Errorf("Parent does not exists in event tree")
+    } else if FindChild(manager.root_event, child.ID()) != nil {
+      return fmt.Errorf("Child already exists in event tree")
+    } else {
+      AddChild(parent, child, info)
     }
-
-    if FindChild(manager.root_event, child.ID()) != nil {
-      error_str := fmt.Sprintf("Event %s already exists in the event tree, can not add again", child.ID())
-      return errors.New(error_str)
-    }
-    return AddChild(parent, child, info)
   }
+      return nil
 }
 
 
