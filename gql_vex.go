@@ -130,6 +130,7 @@ func GQLVexTypeArena() * graphql.Object {
     gql_vex_type_arena = graphql.NewObject(graphql.ObjectConfig{
       Name: "Arena",
       Interfaces: []*graphql.Interface{
+        GQLInterfaceNode(),
         GQLInterfaceResource(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
@@ -158,6 +159,11 @@ func GQLVexTypeArena() * graphql.Object {
       Type: GQLListResource(),
       Resolve: GQLResourceParents,
     })
+
+    gql_vex_type_arena.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceNode(),
+      Resolve: GQLResourceOwner,
+    })
   }
 
   return gql_vex_type_arena
@@ -169,6 +175,7 @@ func GQLVexTypeMatch() * graphql.Object {
     gql_vex_type_match = graphql.NewObject(graphql.ObjectConfig{
       Name: "Match",
       Interfaces: []*graphql.Interface{
+        GQLInterfaceNode(),
         GQLInterfaceEvent(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
@@ -228,6 +235,7 @@ func GQLVexTypeAlliance() * graphql.Object {
     gql_vex_type_alliance = graphql.NewObject(graphql.ObjectConfig{
       Name: "Alliance",
       Interfaces: []*graphql.Interface{
+        GQLInterfaceNode(),
         GQLInterfaceResource(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
@@ -257,6 +265,11 @@ func GQLVexTypeAlliance() * graphql.Object {
       Resolve: GQLResourceParents,
     })
 
+    gql_vex_type_alliance.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceNode(),
+      Resolve: GQLResourceOwner,
+    })
+
     gql_vex_type_alliance.AddFieldConfig("Teams", &graphql.Field{
       Type: GQLVexListTeam(),
       Resolve: GQLVexAllianceTeams,
@@ -272,6 +285,7 @@ func GQLVexTypeTeam() * graphql.Object {
     gql_vex_type_team = graphql.NewObject(graphql.ObjectConfig{
       Name: "Team",
       Interfaces: []*graphql.Interface{
+        GQLInterfaceNode(),
         GQLInterfaceResource(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
@@ -300,6 +314,11 @@ func GQLVexTypeTeam() * graphql.Object {
   gql_vex_type_team.AddFieldConfig("Parents", &graphql.Field{
     Type: GQLListResource(),
     Resolve: GQLResourceParents,
+  })
+
+  gql_vex_type_team.AddFieldConfig("Owner", &graphql.Field{
+    Type: GQLInterfaceNode(),
+    Resolve: GQLResourceOwner,
   })
 
   return gql_vex_type_team

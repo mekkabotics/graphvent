@@ -92,6 +92,90 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
 
 }
 
+var gql_type_base_node *graphql.Object = nil
+func GQLTypeBaseNode() *graphql.Object {
+  if gql_type_base_node == nil {
+    gql_type_base_node = graphql.NewObject(graphql.ObjectConfig{
+      Name: "BaseNode",
+      Interfaces: []*graphql.Interface{
+        GQLInterfaceNode(),
+      },
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(*BaseNode)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+
+    gql_type_base_node.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceID,
+    })
+
+    gql_type_base_node.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceName,
+    })
+
+    gql_type_base_node.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceDescription,
+    })
+  }
+
+  return gql_type_base_node
+}
+
+var gql_interface_node *graphql.Interface = nil
+func GQLInterfaceNode() *graphql.Interface {
+  if gql_interface_node == nil {
+    gql_interface_node = graphql.NewInterface(graphql.InterfaceConfig{
+      Name: "Node",
+      ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+        valid_events, ok := p.Context.Value("valid_events").(map[reflect.Type]*graphql.Object)
+        if ok == false {
+          return nil
+        }
+
+        valid_resources, ok := p.Context.Value("valid_resources").(map[reflect.Type]*graphql.Object)
+        if ok == false {
+          return nil
+        }
+
+        for key, value := range(valid_events) {
+          if reflect.TypeOf(p.Value) == key {
+            return value
+          }
+        }
+
+        for key, value := range(valid_resources) {
+          if reflect.TypeOf(p.Value) == key {
+            return value
+          }
+        }
+
+        return GQLTypeBaseNode()
+      },
+      Fields: graphql.Fields{},
+    })
+
+    gql_interface_node.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_node.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_node.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+    })
+
+  }
+
+  return gql_interface_node
+}
+
 type GQLQuery struct {
   Query string `json:"query"`
   OperationName string `json:"operationName"`
@@ -175,6 +259,9 @@ func GQLInterfaceResource() * graphql.Interface {
     gql_interface_resource = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Resource",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+        if p.Value == nil {
+          return GQLTypeBaseResource()
+        }
         valid_resources, ok := p.Context.Value("valid_resources").(map[reflect.Type]*graphql.Object)
         if ok == false {
           return nil
@@ -207,6 +294,10 @@ func GQLInterfaceResource() * graphql.Interface {
 
     gql_interface_resource.AddFieldConfig("Parents", &graphql.Field{
       Type: GQLListResource(),
+    })
+
+    gql_interface_resource.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceNode(),
     })
 
   }
@@ -245,6 +336,12 @@ func GQLResourceParents(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+func GQLResourceOwner(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.Owner(), nil
+  })
+}
+
 var gql_type_base_resource *graphql.Object = nil
 func GQLTypeBaseResource() * graphql.Object {
   if gql_type_base_resource == nil {
@@ -252,6 +349,7 @@ func GQLTypeBaseResource() * graphql.Object {
       Name: "BaseResource",
       Interfaces: []*graphql.Interface{
         GQLInterfaceResource(),
+        GQLInterfaceNode(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         _, ok := p.Value.(*BaseResource)
@@ -278,6 +376,11 @@ func GQLTypeBaseResource() * graphql.Object {
     gql_type_base_resource.AddFieldConfig("Parents", &graphql.Field{
       Type: GQLListResource(),
       Resolve: GQLResourceParents,
+    })
+
+    gql_type_base_resource.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceNode(),
+      Resolve: GQLResourceOwner,
     })
   }
 
@@ -343,6 +446,7 @@ func GQLTypeBaseEvent() * graphql.Object {
       Name: "BaseEvent",
       Interfaces: []*graphql.Interface{
         GQLInterfaceEvent(),
+        GQLInterfaceNode(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         _, ok := p.Value.(*BaseEvent)
@@ -381,6 +485,7 @@ func GQLTypeEventQueue() * graphql.Object {
       Name: "EventQueue",
       Interfaces: []*graphql.Interface{
         GQLInterfaceEvent(),
+        GQLInterfaceNode(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         _, ok := p.Value.(*EventQueue)
