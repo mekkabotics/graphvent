@@ -194,6 +194,7 @@ type GQLWSMsg struct {
 
 func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
+    log.Logf("gqlws", "HANDLING %s",r.RemoteAddr)
     header_map := map[string]interface{}{}
     for header, value := range(r.Header) {
       header_map[header] = value
@@ -230,6 +231,7 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
             break
           }
         } else if msg.Type == "ping" {
+          log.Logf("gqlws", "PING FROM %s", r.RemoteAddr)
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"pong\"}"))
           if err != nil {
             log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND PONG")
