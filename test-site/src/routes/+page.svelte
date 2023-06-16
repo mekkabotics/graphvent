@@ -9,21 +9,19 @@ const client = createClient({
   keepAlive: 10_000,
 });
 
-var resp = ""
-
 console.log("STARTING_CLIENT")
 client.subscribe({
-    query: "{ Arenas { Owner { ... on Match { Name } } } }",
+    query: "{ Arenas { Name Owner { ... on Match { Name, ID } } } }",
   },
   {
   next: (data) => {
     console.log("NEXT")
-    console.log(data)
-    resp = data.data
+    let r = JSON.parse(data.data)
+    let game_id = r.Arenas[0].Owner.ID
+    console.log(game_id)
   },
   error: (err) => {
     console.log("ERROR")
-    console.log(err)
   },
   complete: () => {
     console.log("COMPLETED")
@@ -32,4 +30,4 @@ client.subscribe({
 
 </script>
 
-<h1>{resp}</h1>
+<h1></h1>
