@@ -278,6 +278,7 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
             log.Logf("gqlws", "ERROR: %+v", err)
             break
           }
+        } else {
         }
       }
       return
