@@ -23,7 +23,7 @@ type DefaultLogger struct {
 }
 
 var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}}
-var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql", "vex", "gqlws"}
+var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql", "vex", "gqlws", "listeners"}
 
 func (logger * DefaultLogger) Init(components []string) error {
   logger.init_lock.Lock()
@@ -227,11 +227,11 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
   closed := []chan GraphSignal{}
 
   for _, listener := range node.listeners {
-    log.Logf("update", "UPDATE_LISTENER %s: %p", node.Name(), listener)
+    log.Logf("listeners", "UPDATE_LISTENER %s: %p", node.Name(), listener)
     select {
     case listener <- update:
     default:
-      log.Logf("update", "CLOSED_LISTENER: %s: %p", node.Name(), listener)
+      log.Logf("listeners", "CLOSED_LISTENER: %s: %p", node.Name(), listener)
       go func(node GraphNode, listener chan GraphSignal) {
         listener <- NewSignal(node, "listener_closed")
         close(listener)
