@@ -4,6 +4,8 @@ import (
   "github.com/graphql-go/graphql"
   "reflect"
   "fmt"
+  "errors"
+  "time"
 )
 
 func GQLVexTypes() map[reflect.Type]*graphql.Object {
@@ -15,6 +17,7 @@ func GQLVexTypes() map[reflect.Type]*graphql.Object {
 
 func GQLVexMutations() map[string]*graphql.Field {
   mutations := map[string]*graphql.Field{}
+  mutations["setMatchState"] = GQLVexMutationSetMatchState()
   return mutations
 }
 
@@ -46,6 +49,71 @@ func FindResources(event Event, resource_type reflect.Type) []Resource {
     ret = append(ret, resource)
   }
   return ret
+}
+
+var gql_vex_mutation_set_match_state *graphql.Field= nil
+func GQLVexMutationSetMatchState() *graphql.Field {
+  if gql_vex_mutation_set_match_state == nil {
+    gql_vex_mutation_set_match_state = &graphql.Field{
+      Type: GQLTypeSignal(),
+      Args: graphql.FieldConfigArgument{
+        "id": &graphql.ArgumentConfig{
+          Type: graphql.String,
+        },
+        "state": &graphql.ArgumentConfig{
+          Type: graphql.String,
+        },
+        "time": &graphql.ArgumentConfig{
+          Type: graphql.DateTime,
+        },
+      },
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        server, ok := p.Context.Value("gql_server").(*GQLServer)
+        if ok == false {
+          return nil, fmt.Errorf("Failed to cast context gql_server to GQLServer: %+v", p.Context.Value("gql_server"))
+        }
+
+        id, ok := p.Args["id"].(string)
+        if ok == false {
+          return nil, errors.New("Failed to cast arg id to string")
+        }
+
+        state, ok := p.Args["state"].(string)
+        if ok == false {
+          return nil, errors.New("Failed to cast arg state to string")
+        }
+
+        start, ok := p.Args["time"].(time.Time)
+        if ok == false {
+          start = time.Now()
+        }
+
+        signal := NewSignal(server, state)
+        signal.description = id
+        signal.time = start
+
+        owner := server.Owner()
+        if owner == nil {
+          return nil, errors.New("Cannot send update without owner")
+        }
+
+        root_event, ok := owner.(Event)
+        if ok == false {
+          return nil, errors.New("Cannot send update to Event unless owned by an Event")
+        }
+
+        node := FindChild(root_event, id)
+        if node == nil {
+          return nil, errors.New("Failed to find id in event tree from server")
+        }
+
+        SendUpdate(node, signal)
+
+        return signal, nil
+      },
+    }
+  }
+  return gql_vex_mutation_set_match_state
 }
 
 var gql_vex_query_arenas *graphql.Field = nil

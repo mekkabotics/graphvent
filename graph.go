@@ -23,7 +23,7 @@ type DefaultLogger struct {
 }
 
 var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}}
-var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql"}
+var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql", "vex", "gqlws"}
 
 func (logger * DefaultLogger) Init(components []string) error {
   logger.init_lock.Lock()
@@ -59,7 +59,7 @@ func (logger * DefaultLogger) Init(components []string) error {
 }
 
 func (logger * DefaultLogger) Logm(component string, fields map[string]interface{}, format string, items ... interface{}) {
-  logger.Init([]string{"gql", "manager"})
+  logger.Init([]string{"gqlws"})
   l, exists := logger.loggers[component]
   if exists == true {
     log := l.Log()
@@ -71,7 +71,7 @@ func (logger * DefaultLogger) Logm(component string, fields map[string]interface
 }
 
 func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
-  logger.Init([]string{"gql", "manager"})
+  logger.Init([]string{"gqlws"})
   l, exists := logger.loggers[component]
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))

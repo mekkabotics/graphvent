@@ -93,7 +93,6 @@ func (arena * VirtualArena) lock(node GraphNode) error {
 }
 
 func (arena * VirtualArena) update(signal GraphSignal) {
-  log.Logf("vex", "ARENA_UPDATE: %s", arena.Name())
   arena.signal <- signal
   arena.BaseResource.update(signal)
 }
@@ -140,8 +139,8 @@ func NewVexEvent(name string, description string) * VexEvent {
 }
 
 const start_slack = 250 * time.Millisecond
-const TEMP_AUTON_TIME = 250 * time.Millisecond
-const TEMP_DRIVE_TIME = 250 * time.Millisecond
+const TEMP_AUTON_TIME = 1 * time.Second
+const TEMP_DRIVE_TIME = 1 * time.Second
 
 type Match struct {
   BaseEvent
@@ -208,7 +207,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
 
     end_time := match.control_start.Add(TEMP_AUTON_TIME)
     match.SetTimeout(end_time, "autonomous_done")
-    log.Logf("vex", "AUTONOMOUS_END_TIME: %s %+v", end_time, match.timeout)
+    log.Logf("vex", "AUTONOMOUS@%s: %s UNTIL %s", time.Now(), match.control_start, end_time)
     return "wait", nil
   }
 

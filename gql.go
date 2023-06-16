@@ -11,6 +11,8 @@ import (
   "fmt"
   "sync"
   "time"
+  "github.com/gobwas/ws"
+  "github.com/gobwas/ws/wsutil"
 )
 
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
@@ -176,40 +178,136 @@ func GQLInterfaceNode() *graphql.Interface {
   return gql_interface_node
 }
 
-type GQLQuery struct {
-  Query string `json:"query"`
-  OperationName string `json:"operationName"`
-  Variables map[string]interface{} `json:"variables"`
+type GQLWSPayload struct {
+  OperationName string `json:"operationName,omitempty"`
+  Query string `json:"query,omitempty"`
+  Variables map[string]interface{} `json:"variables,omitempty"`
+  Extensions map[string]interface{} `json:"extensions,omitempty"`
+  Data string `json:"data,omitempty"`
+}
+
+type GQLWSMsg struct {
+  ID      string `json:"id,omitempty"`
+  Type    string `json:"type"`
+  Payload GQLWSPayload `json:"payload,omitempty"`
 }
 
 func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
-    str, err := io.ReadAll(r.Body)
-    if err != nil {
-      log.Logf("gql", "failed to read request body: %s", err)
+    header_map := map[string]interface{}{}
+    for header, value := range(r.Header) {
+      header_map[header] = value
+    }
+    log.Logm("gql", header_map, "REQUEST_HEADERS")
+    u := ws.HTTPUpgrader{
+      Protocol: func(protocol string) bool {
+        log.Logf("gqlws", "UPGRADE_PROTOCOL: %s", string(protocol))
+        return string(protocol) == "graphql-transport-ws"
+      },
+    }
+    conn, _, _, err := u.Upgrade(r, w)
+    if err == nil {
+      defer conn.Close()
+      conn_state := "init"
+      for {
+        msg_raw, op, err := wsutil.ReadClientData(conn)
+        log.Logf("gqlws", "MSG: %s\nOP: 0x%02x\nERR: %+v\n", string(msg_raw), op, err)
+        msg := GQLWSMsg{}
+        json.Unmarshal(msg_raw, &msg)
+        if err != nil {
+          log.Logf("gqlws", "WS_CLIENT_ERROR")
+          break
+        }
+        if msg.Type == "connection_init" {
+          if conn_state != "init" {
+            log.Logf("gqlws", "WS_CLIENT_ERROR: INIT WHILE IN %s", conn_state)
+            break
+          }
+          conn_state = "ready"
+          err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"connection_ack\"}"))
+          if err != nil {
+            log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND connection_ack")
+            break
+          }
+        } else if msg.Type == "ping" {
+          err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"pong\"}"))
+          if err != nil {
+            log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND PONG")
+          }
+        } else if msg.Type == "subscribe" {
+          log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
+          params := graphql.Params{
+            Schema: schema,
+            Context: ctx,
+            RequestString: msg.Payload.Query,
+          }
+          if msg.Payload.OperationName != "" {
+            params.OperationName = msg.Payload.OperationName
+          }
+          if len(msg.Payload.Variables) > 0 {
+            params.VariableValues = msg.Payload.Variables
+          }
+          result := graphql.Do(params)
+
+          if len(result.Errors) > 0 {
+            extra_fields := map[string]interface{}{}
+            extra_fields["query"] = string(msg.Payload.Query)
+            log.Logm("gql", extra_fields, "ERROR: wrong result, unexpected errors: %v", result.Errors)
+            break
+          }
+
+
+          log.Logf("gqlws", "DATA: %+v", result.Data)
+          data, err := json.Marshal(result.Data)
+          msg, err := json.Marshal(GQLWSMsg{
+            ID: msg.ID,
+            Type: "next",
+            Payload: GQLWSPayload{
+              Data: string(data),
+            },
+          })
+          if err != nil {
+            log.Logf("gqlws", "ERROR: %+v", err)
+            break
+          }
+          log.Logf("gqlws", "WRITING_GQLWS: %s", msg)
+          err = wsutil.WriteServerMessage(conn, 1, msg)
+          if err != nil {
+            log.Logf("gqlws", "ERROR: %+v", err)
+            break
+          }
+        }
+      }
       return
+    } else {
+      str, err := io.ReadAll(r.Body)
+      if err != nil {
+        log.Logf("gql", "failed to read request body: %s", err)
+        return
+      }
+      query := GQLWSPayload{}
+      json.Unmarshal(str, &query)
+
+      params := graphql.Params{
+        Schema: schema,
+        Context: ctx,
+        RequestString: query.Query,
+      }
+      if query.OperationName != "" {
+        params.OperationName = query.OperationName
+      }
+      if len(query.Variables) > 0 {
+        params.VariableValues = query.Variables
+      }
+      result := graphql.Do(params)
+      if len(result.Errors) > 0 {
+        extra_fields := map[string]interface{}{}
+        extra_fields["body"] = string(str)
+        extra_fields["headers"] = r.Header
+        log.Logm("gql", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
+      }
+      json.NewEncoder(w).Encode(result)
     }
-    res := GQLQuery{}
-    json.Unmarshal(str, &res)
-    params := graphql.Params{
-      Schema: schema,
-      Context: ctx,
-      RequestString: res.Query,
-    }
-    if res.OperationName != "" {
-      params.OperationName = res.OperationName
-    }
-    if len(res.Variables) > 0 {
-      params.VariableValues = res.Variables
-    }
-    result := graphql.Do(params)
-    if len(result.Errors) > 0 {
-      extra_fields := map[string]interface{}{}
-      extra_fields["body"] = string(str)
-      extra_fields["headers"] = r.Header
-      log.Logm("gql", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
-    }
-    json.NewEncoder(w).Encode(result)
   }
 }
 
