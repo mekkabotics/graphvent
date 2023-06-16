@@ -77,3 +77,6 @@ async function match_state(match_id, state) {
 </script>
 
 <Button on:click={()=>match_state(game_id, "queue_autonomous")}>Queue Autonomous</Button>
+<Button on:click={()=>match_state(game_id, "start_autonomous")}>Start Autonomous</Button>
+<Button on:click={()=>match_state(game_id, "queue_driver")}>Queue Driver</Button>
+<Button on:click={()=>match_state(game_id, "start_driver")}>Start Driver</Button>

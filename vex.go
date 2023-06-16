@@ -139,8 +139,8 @@ func NewVexEvent(name string, description string) * VexEvent {
 }
 
 const start_slack = 250 * time.Millisecond
-const TEMP_AUTON_TIME = 1 * time.Second
-const TEMP_DRIVE_TIME = 1 * time.Second
+const TEMP_AUTON_TIME = 5 * time.Second
+const TEMP_DRIVE_TIME = 5 * time.Second
 
 type Match struct {
   BaseEvent
