@@ -280,7 +280,7 @@ func GQLWSDo(p graphql.Params) chan *graphql.Result {
 
 func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
-    log.Logf("gqlws", "HANDLING %s",r.RemoteAddr)
+    log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
     header_map := map[string]interface{}{}
     for header, value := range(r.Header) {
       header_map[header] = value
@@ -863,6 +863,52 @@ func (server * GQLServer) update(signal GraphSignal) {
   server.BaseResource.update(signal)
 }
 
+func GQLSubscribeSignal(p graphql.ResolveParams) (interface{}, error) {
+  return GQLSubscribeFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error) {
+    return signal, nil
+  })
+}
+
+func GQLSubscribeFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
+  server, ok := p.Context.Value("gql_server").(*GQLServer)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to get gql_Server from context and cast to GQLServer")
+  }
+
+  c := make(chan interface{})
+  go func(c chan interface{}, server *GQLServer) {
+    sig_c := server.UpdateChannel()
+    for {
+      val, ok := <- sig_c
+      if ok == false {
+        return
+      }
+      ret, err := fn(val, p)
+      if err != nil {
+        log.Logf("gqlws", "type convertor error %s", err)
+        return
+      }
+      c <- ret
+    }
+  }(c, server)
+  return c, nil
+}
+
+var gql_subscription_update * graphql.Field = nil
+func GQLSubscriptionUpdate() * graphql.Field {
+  if gql_subscription_update == nil {
+    gql_subscription_update = &graphql.Field{
+      Type: GQLTypeSignal(),
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        return p.Source, nil
+      },
+      Subscribe: GQLSubscribeSignal,
+    }
+  }
+
+  return gql_subscription_update
+}
+
 func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Request), func(http.ResponseWriter, *http.Request)) {
   valid_events := map[reflect.Type]*graphql.Object{}
   valid_events[reflect.TypeOf((*BaseEvent)(nil))] = GQLTypeBaseEvent()
@@ -886,41 +932,7 @@ func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Reques
   }
 
   gql_subscriptions := graphql.Fields{
-    "Test": &graphql.Field{
-      Type: GQLTypeSignal(),
-      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-        return p.Source, nil
-      },
-      Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
-        /*c := make(chan interface{})
-        go func() {
-          elements := []string{"a", "b", "c"}
-          for _, r := range elements {
-            select {
-            case <-p.Context.Done():
-              close(c)
-              return
-            case c <- r:
-            }
-          }
-          close(c)
-        }()
-        return c, nil*/
-        server, ok := p.Context.Value("gql_server").(*GQLServer)
-        if ok == false {
-          return nil, fmt.Errorf("Failed to get gql_server from context and cast")
-        }
-        c := make(chan interface{})
-        go func(c chan interface{}) {
-          sig_c := server.UpdateChannel()
-          for {
-            val, _ := <- sig_c
-            c <- val
-          }
-        }(c)
-        return c, nil
-      },
-    },
+    "Update": GQLSubscriptionUpdate(),
   }
 
   for key, value := range(server.extended_subscriptions) {

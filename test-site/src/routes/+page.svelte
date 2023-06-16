@@ -16,7 +16,7 @@ var game_id = null
 console.log("STARTING_CLIENT")
 client.subscribe({
     operationName: "Sub",
-    query: "query GetArenas { Arenas { Name Owner { ... on Match { Name, ID } } } } subscription Sub { Test { String } }",
+    query: "query GetArenas { Arenas { Name Owner { ... on Match { Name, ID } } } } subscription Sub { Update { String } }",
   },
   {
   next: (data) => {
