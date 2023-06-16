@@ -197,6 +197,9 @@ type GQLWSMsg struct {
 
 func enableCORS(w *http.ResponseWriter) {
  (*w).Header().Set("Access-Control-Allow-Origin", "*")
+ (*w).Header().Set("Access-Control-Allow-Credentials", "true")
+ (*w).Header().Set("Access-Control-Allow-Headers", "*")
+ (*w).Header().Set("Access-Control-Allow-Methods", "*")
 }
 
 func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
@@ -241,8 +244,10 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
 
 func sendOneResultAndClose(res *graphql.Result) chan *graphql.Result {
   resultChannel := make(chan *graphql.Result)
-  resultChannel <- res
-  close(resultChannel)
+  go func() {
+    resultChannel <- res
+    close(resultChannel)
+  }()
   return resultChannel
 }
 
@@ -260,7 +265,11 @@ func getOperationTypeOfReq(p graphql.Params) string{
 
   for _, node := range AST.Definitions {
     if operationDef, ok := node.(*ast.OperationDefinition); ok {
-      if operationDef.Name.Value == p.OperationName || p.OperationName == "" {
+      name := ""
+      if operationDef.Name != nil {
+        name = operationDef.Name.Value
+      }
+      if name == p.OperationName || p.OperationName == "" {
         return operationDef.Operation
       }
     }
@@ -270,12 +279,14 @@ func getOperationTypeOfReq(p graphql.Params) string{
 
 func GQLWSDo(p graphql.Params) chan *graphql.Result {
   operation := getOperationTypeOfReq(p)
+  log.Logf("gqlws", "GQLWSDO_OPERATION: %s %+v", operation, p.RequestString)
 
   if operation == ast.OperationTypeSubscription {
     return graphql.Subscribe(p)
   }
 
-  return sendOneResultAndClose(graphql.Do(p))
+  res := graphql.Do(p)
+  return sendOneResultAndClose(res)
 }
 
 func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
@@ -932,7 +943,7 @@ func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Reques
   }
 
   gql_subscriptions := graphql.Fields{
-    "Update": GQLSubscriptionUpdate(),
+    "Updates": GQLSubscriptionUpdate(),
   }
 
   for key, value := range(server.extended_subscriptions) {

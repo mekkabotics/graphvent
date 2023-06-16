@@ -14,23 +14,39 @@ const client = createClient({
 var game_id = null
 
 console.log("STARTING_CLIENT")
+
+
 client.subscribe({
-    operationName: "Sub",
-    query: "query GetArenas { Arenas { Name Owner { ... on Match { Name, ID } } } } subscription Sub { Update { String } }",
+  query: "query { Arenas { Name Owner { ... on Match { Name, ID } } } }"
   },
   {
   next: (data) => {
-    console.log("NEXT")
-    console.log(data)
+    let obj = JSON.parse(data.data)
+    game_id = obj.Arenas[0].Owner.ID
+    console.log(game_id)
   },
   error: (err) => {
-    console.log("ERROR")
     console.log(err)
   },
   complete: () => {
-    console.log("COMPLETED")
   },
 });
+
+client.subscribe({
+  query: "subscription { Updates { String } }"
+  },
+  {
+  next: (data) => {
+    console.log(data)
+  },
+  error: (err) => {
+    console.log(err)
+  },
+  complete: () => {
+  },
+});
+
+
 
 
 async function match_state(match_id, state) {
@@ -45,9 +61,9 @@ async function match_state(match_id, state) {
   }
   const response = await fetch(url, {
     method: "POST",
-    mode: "same-origin",
+    mode: "cors",
     cache: "no-cache",
-    credentials: "include",
+    credentials: "same-origin",
     headers: {
       "Content-Type": "applicaton/json",
     },
@@ -60,4 +76,4 @@ async function match_state(match_id, state) {
 
 </script>
 
-<Button on:click={()=>match_state("eafd0201-caa4-4b35-a99b-869aac9455fa", "queue_autonomous")}>Queue Autonomous</Button>
+<Button on:click={()=>match_state(game_id, "queue_autonomous")}>Queue Autonomous</Button>
