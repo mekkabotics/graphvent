@@ -310,7 +310,7 @@ func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.Response
       for {
         // TODO: Make this a select between reading client data and getting updates from the event to push to clients"
         msg_raw, op, err := wsutil.ReadClientData(conn)
-        log.Logf("gqlws", "MSG: %s\nOP: 0x%02x\nERR: %+v\n", string(msg_raw), op, err)
+        log.Logf("gqlws_hb", "MSG: %s\nOP: 0x%02x\nERR: %+v\n", string(msg_raw), op, err)
         msg := GQLWSMsg{}
         json.Unmarshal(msg_raw, &msg)
         if err != nil {
@@ -329,7 +329,7 @@ func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.Response
             break
           }
         } else if msg.Type == "ping" {
-          log.Logf("gqlws", "PING FROM %s", r.RemoteAddr)
+          log.Logf("gqlws_hb", "PING FROM %s", r.RemoteAddr)
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"pong\"}"))
           if err != nil {
             log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND PONG")

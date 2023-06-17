@@ -26,23 +26,25 @@ client.subscribe({
     game_id = obj.Arenas[0].Owner.ID
 
     client.subscribe({
-      query: "subscription($arena_id:String) { Arena(arena_id:$arena_id) { Owner { Name ... on Match  { State Control StateStart StateDuration } } }}",
+      query: "subscription($arena_id:String) { Arena(arena_id:$arena_id) { Owner { ID Name ... on Match  { State Control StateStart StateDuration } } }}",
       variables: {
         arena_id: arena_id
       },
       },
-  {
-  next: (data) => {
-    console.log("ARENA_SUB")
-    console.log(data)
-  },
-  error: (err) => {
-    console.log("ARENA_SUB")
-    console.log(err)
-  },
-  complete: () => {
-  },
-});
+      {
+      next: (data) => {
+        console.log("ARENA_SUB")
+        let obj = JSON.parse(data.data)
+        console.log(obj.Arena)
+        game_id = obj.Arena.Owner.ID
+      },
+      error: (err) => {
+        console.log("ARENA_SUB")
+        console.log(err)
+      },
+      complete: () => {
+      },
+    });
   },
   error: (err) => {
     console.log(err)
