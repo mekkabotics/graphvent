@@ -11,17 +11,38 @@ const client = createClient({
   keepAlive: 10_000,
 });
 
-var game_id = "5746b429-de0b-409b-b10f-e64bd2faa02c"
+var game_id = null
+var arena_id = null
 
 console.log("STARTING_CLIENT")
 
-
 client.subscribe({
-  query: "query { Arenas { Name Owner { ... on Match { Name, ID } } } }"
+  query: "query { Arenas { Name ID Owner { Name, ID } }}"
   },
   {
   next: (data) => {
+    let obj = JSON.parse(data.data)
+    arena_id = obj.Arenas[0].ID
+    game_id = obj.Arenas[0].Owner.ID
+
+    client.subscribe({
+      query: "subscription($arena_id:String) { Arena(arena_id:$arena_id) { Owner { Name ... on Match  { State Control StateStart StateDuration } } }}",
+      variables: {
+        arena_id: arena_id
+      },
+      },
+  {
+  next: (data) => {
+    console.log("ARENA_SUB")
     console.log(data)
+  },
+  error: (err) => {
+    console.log("ARENA_SUB")
+    console.log(err)
+  },
+  complete: () => {
+  },
+});
   },
   error: (err) => {
     console.log(err)
@@ -43,28 +64,6 @@ client.subscribe({
   complete: () => {
   },
 });
-
-client.subscribe({
-  query: "subscription($arena_id:String) { Arena(arena_id:$arena_id) { Owner { Name }} }",
-  variables: {
-    arena_id: "bcd6c679-964f-4c4a-96e1-58e39032ded8"
-  },
-  },
-  {
-  next: (data) => {
-    console.log("ARENA_SUB")
-    console.log(data)
-  },
-  error: (err) => {
-    console.log("ARENA_SUB")
-    console.log(err)
-  },
-  complete: () => {
-  },
-});
-
-
-
 
 async function match_state(match_id, state) {
   let url = "http://localhost:8080/gql"

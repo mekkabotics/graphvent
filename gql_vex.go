@@ -225,6 +225,18 @@ func GQLVexMatchState(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+func GQLVexMatchStateStart(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams) (interface{}, error) {
+    return event.(*Match).control_start, nil
+  })
+}
+
+func GQLVexMatchStateDuration(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams) (interface{}, error) {
+    return event.(*Match).control_duration, nil
+  })
+}
+
 func GQLVexAllianceTeams(p graphql.ResolveParams) (interface{}, error) {
   return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
     return resource.(*Alliance).teams, nil
@@ -330,6 +342,16 @@ func GQLVexTypeMatch() * graphql.Object {
     gql_vex_type_match.AddFieldConfig("State", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLVexMatchState,
+    })
+
+    gql_vex_type_match.AddFieldConfig("StateStart", &graphql.Field{
+      Type: graphql.DateTime,
+      Resolve: GQLVexMatchStateStart,
+    })
+
+    gql_vex_type_match.AddFieldConfig("StateDuration", &graphql.Field{
+      Type: graphql.Int,
+      Resolve: GQLVexMatchStateDuration,
     })
   }
 

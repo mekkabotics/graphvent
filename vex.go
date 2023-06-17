@@ -148,6 +148,7 @@ type Match struct {
   state string
   control string
   control_start time.Time
+  control_duration int
   alliances []*Alliance
 }
 
@@ -165,6 +166,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     state: "init",
     control: "init",
     control_start: time.UnixMilli(0),
+    control_duration: 0,
     arena: arena,
     alliances: []*Alliance{alliance0, alliance1},
   }
@@ -176,6 +178,7 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     log.Logf("vex", "STARTING_MATCH %s", match.Name())
     match.control = "none"
     match.state = "scheduled"
+    match.control_start = time.Now()
     return "wait", nil
   }
 
