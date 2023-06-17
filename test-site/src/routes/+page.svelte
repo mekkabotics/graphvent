@@ -11,7 +11,7 @@ const client = createClient({
   keepAlive: 10_000,
 });
 
-var game_id = null
+var game_id = "5746b429-de0b-409b-b10f-e64bd2faa02c"
 
 console.log("STARTING_CLIENT")
 
@@ -21,9 +21,7 @@ client.subscribe({
   },
   {
   next: (data) => {
-    let obj = JSON.parse(data.data)
-    game_id = obj.Arenas[0].Owner.ID
-    console.log(game_id)
+    console.log(data)
   },
   error: (err) => {
     console.log(err)
@@ -49,7 +47,7 @@ client.subscribe({
 client.subscribe({
   query: "subscription($arena_id:String) { Arena(arena_id:$arena_id) { Owner { Name }} }",
   variables: {
-    arena_id: "a3e8af0b-deb3-4543-b2f7-cc82d3326174"
+    arena_id: "bcd6c679-964f-4c4a-96e1-58e39032ded8"
   },
   },
   {
