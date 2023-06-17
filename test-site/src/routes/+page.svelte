@@ -46,6 +46,25 @@ client.subscribe({
   },
 });
 
+client.subscribe({
+  query: "subscription($arena_id:String) { Arena(arena_id:$arena_id) { Owner { Name }} }",
+  variables: {
+    arena_id: "a3e8af0b-deb3-4543-b2f7-cc82d3326174"
+  },
+  },
+  {
+  next: (data) => {
+    console.log("ARENA_SUB")
+    console.log(data)
+  },
+  error: (err) => {
+    console.log("ARENA_SUB")
+    console.log(err)
+  },
+  complete: () => {
+  },
+});
+
 
 
 

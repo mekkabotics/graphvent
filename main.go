@@ -117,7 +117,7 @@ func fake_data() (* EventManager) {
   }
 
 
-  gql_server := NewGQLServer(":8080", GQLVexTypes(), GQLVexQueries(), GQLVexMutations())
+  gql_server := NewGQLServer(":8080", GQLVexTypes(), GQLVexQueries(), GQLVexMutations(), GQLVexSubscriptions())
   resources = append(resources, gql_server)
 
   root_event := NewEventQueue("root_event", "", []Resource{gql_server})

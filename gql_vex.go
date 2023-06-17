@@ -27,28 +27,67 @@ func GQLVexQueries() map[string]*graphql.Field {
   return queries
 }
 
-func FindResources(event Event, resource_type reflect.Type) []Resource {
-  resources := event.RequiredResources()
-  found := []Resource{}
-  for _, resource := range(resources) {
-    if reflect.TypeOf(resource) == resource_type {
-      found = append(found, resource)
+func GQLVexSubscriptions() map[string]*graphql.Field {
+  subs := map[string]*graphql.Field{}
+  subs["Arena"] = GQLVexSubscriptionArena()
+  return subs
+}
+
+var gql_vex_subscription_arena *graphql.Field = nil
+func GQLVexSubscriptionArena() *graphql.Field {
+  if gql_vex_subscription_arena == nil {
+    gql_vex_subscription_arena = &graphql.Field{
+      Type: GQLVexTypeArena(),
+      Args: graphql.FieldConfigArgument{
+        "arena_id": &graphql.ArgumentConfig{
+          Type: graphql.String,
+        },
+      },
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        return p.Source, nil
+      },
+      Subscribe: GQLVexSubscribeArena,
     }
   }
+  return gql_vex_subscription_arena
+}
 
-  for _, child := range(event.Children()) {
-    found = append(found, FindResources(child, resource_type)...)
+func GQLVexSubscribeArena(p graphql.ResolveParams)(interface{}, error) {
+  server, ok := p.Context.Value("gql_server").(*GQLServer)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to get gql_Server from context and cast to GQLServer")
   }
 
-  m := map[string]Resource{}
-  for _, resource := range(found) {
-    m[resource.ID()] = resource
+  c := make(chan interface{})
+  arena_id, ok := p.Args["arena_id"].(string)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to get arena_id arg")
   }
-  ret := []Resource{}
-  for _, resource := range(m) {
-    ret = append(ret, resource)
+  owner, ok := server.Owner().(Event)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast owner to event")
   }
-  return ret
+  resource := FindRequiredResource(owner, arena_id)
+  if resource == nil {
+    return nil, fmt.Errorf("Failed to find resource under owner")
+  }
+  arena, ok := resource.(Arena)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast resource to arena")
+  }
+
+  sig_c := arena.UpdateChannel()
+  go func(c chan interface{}, sig_c chan GraphSignal, arena Arena) {
+    c <- arena
+    for {
+      _, ok := <- sig_c
+      if ok == false {
+        return
+      }
+      c <- arena
+    }
+  }(c, sig_c, arena)
+  return c, nil
 }
 
 var gql_vex_mutation_set_match_state *graphql.Field= nil

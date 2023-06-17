@@ -97,6 +97,47 @@ func (event * BaseEvent) Handler(signal_type string) (func(GraphSignal)(string, 
   return handler, exists
 }
 
+func FindResources(event Event, resource_type reflect.Type) []Resource {
+  resources := event.RequiredResources()
+  found := []Resource{}
+  for _, resource := range(resources) {
+    if reflect.TypeOf(resource) == resource_type {
+      found = append(found, resource)
+    }
+  }
+
+  for _, child := range(event.Children()) {
+    found = append(found, FindResources(child, resource_type)...)
+  }
+
+  m := map[string]Resource{}
+  for _, resource := range(found) {
+    m[resource.ID()] = resource
+  }
+  ret := []Resource{}
+  for _, resource := range(m) {
+    ret = append(ret, resource)
+  }
+  return ret
+}
+
+func FindRequiredResource(event Event, id string) Resource {
+  for _, resource := range(event.RequiredResources()) {
+    if resource.ID() == id {
+      return resource
+    }
+  }
+
+  for _, child := range(event.Children()) {
+    result := FindRequiredResource(child, id)
+    if result != nil {
+      return result
+    }
+  }
+
+  return nil
+}
+
 func FindChild(event Event, id string) Event {
   if id == event.ID() {
     return event
