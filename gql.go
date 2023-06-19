@@ -934,7 +934,11 @@ func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Reques
 
   gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput()}
   for go_t, gql_t := range(server.extended_types) {
-    valid_events[go_t] = gql_t
+    if _, ok := go_t.(Event); ok {
+      valid_events[go_t] = gql_t
+    } else if _, ok := go_t.(Resource); ok {
+      valid_resources[go_t] = gql_t
+    }
     gql_types = append(gql_types, gql_t)
   }
 
