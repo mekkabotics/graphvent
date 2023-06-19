@@ -73,6 +73,7 @@ type Event interface {
   RequiredResources() []Resource
   DoneResource() Resource
   SetTimeout(end_time time.Time, action string)
+  ClearTimeout()
   Timeout() <-chan time.Time
   TimeoutAction() string
   Signal() chan GraphSignal
@@ -93,6 +94,11 @@ func (event * BaseEvent) TimeoutAction() string {
 
 func (event * BaseEvent) Timeout() <-chan time.Time {
   return event.timeout
+}
+
+func (event * BaseEvent) ClearTimeout() {
+  event.timeout_action = ""
+  event.timeout = nil
 }
 
 func (event * BaseEvent) SetTimeout(end_time time.Time, action string) {
