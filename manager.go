@@ -7,7 +7,7 @@ import (
 
 type EventManager struct {
   dag_nodes map[string]Resource
-  root_event Event
+  Root Event
   aborts []chan error
 }
 
@@ -16,7 +16,7 @@ func NewEventManager(root_event Event, dag_nodes []Resource) * EventManager {
 
   manager := &EventManager{
     dag_nodes: map[string]Resource{},
-    root_event: nil,
+    Root: nil,
     aborts: []chan error{},
   }
 
@@ -49,21 +49,21 @@ func (manager * EventManager) Run() error {
     }
   }(abort, manager)
 
-  err := LockResources(manager.root_event)
+  err := LockResources(manager.Root)
   if err != nil {
     log.Logf("manager", "MANAGER_LOCK_ERR: %s", err)
     abort <- nil
     return err
   }
 
-  err = RunEvent(manager.root_event)
+  err = RunEvent(manager.Root)
   abort <- nil
   if err != nil {
     log.Logf("manager", "MANAGER_RUN_ERR: %s", err)
     return err
   }
 
-  err = FinishEvent(manager.root_event)
+  err = FinishEvent(manager.Root)
   if err != nil {
     log.Logf("manager", "MANAGER_FINISH_ERR: %s", err)
     return err
@@ -83,7 +83,7 @@ func (manager * EventManager) FindResource(id string) Resource {
 }
 
 func (manager * EventManager) FindEvent(id string) Event {
-  event := FindChild(manager.root_event, id)
+  event := FindChild(manager.Root, id)
 
   return event
 }
@@ -176,19 +176,19 @@ func (manager * EventManager) AddEvent(parent Event, child Event, info EventInfo
 
   manager.AddDoneResources(child)
 
-  if manager.root_event == nil {
+  if manager.Root == nil {
     if parent != nil {
       return fmt.Errorf("EventManager has no root, so can't add event to parent")
     } else {
-      manager.root_event = child
+      manager.Root = child
       return nil
     }
   } else {
     if parent == nil {
       return fmt.Errorf("Replacing root event not implemented")
-    } else if FindChild(manager.root_event, parent.ID()) == nil {
+    } else if FindChild(manager.Root, parent.ID()) == nil {
       return fmt.Errorf("Parent does not exists in event tree")
-    } else if FindChild(manager.root_event, child.ID()) != nil {
+    } else if FindChild(manager.Root, child.ID()) != nil {
       return fmt.Errorf("Child already exists in event tree")
     } else {
       AddChild(parent, child, info)
