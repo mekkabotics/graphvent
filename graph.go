@@ -1,4 +1,4 @@
-package main
+package git.metznet.ca/MetzNet/graphvent
 
 import (
   "sync"
