@@ -59,7 +59,7 @@ func (logger * DefaultLogger) Init(components []string) error {
 }
 
 func (logger * DefaultLogger) Logm(component string, fields map[string]interface{}, format string, items ... interface{}) {
-  logger.Init([]string{"gqlws", "gqlws_new"})
+  logger.Init([]string{"update"})
   l, exists := logger.loggers[component]
   if exists == true {
     log := l.Log()
@@ -71,7 +71,7 @@ func (logger * DefaultLogger) Logm(component string, fields map[string]interface
 }
 
 func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
-  logger.Init([]string{"gqlws", "gqlws_new"})
+  logger.Init([]string{"update"})
   l, exists := logger.loggers[component]
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))
@@ -85,63 +85,66 @@ func randid() string{
 }
 
 type GraphSignal interface {
-  Source() GraphNode
+  Downwards() bool
+  Source() string
   Type() string
-  Description() string
-  Time() time.Time
-  Last() string
-  Trace(id string) GraphSignal
   String() string
 }
 
 type BaseSignal struct {
-  source GraphNode
-  signal_type string
-  description string
-  time time.Time
-  last_id string
+  downwards bool
+  source string
+  _type string
 }
 
-func (signal BaseSignal) String() string {
-  source_name := "nil"
-  source := signal.source
-  if source != nil {
-    source_name = source.Name()
-  }
-  return fmt.Sprintf("{type: %s, description: %s, source: %s, last: %s}", signal.signal_type, signal.description, source_name, signal.last_id)
+func (signal BaseSignal) Downwards() bool {
+  return signal.downwards
 }
 
-func (signal BaseSignal) Time() time.Time {
-  return signal.time
-}
-
-func (signal BaseSignal) Source() GraphNode {
+func (signal BaseSignal) Source() string {
   return signal.source
 }
 
 func (signal BaseSignal) Type() string {
-  return signal.signal_type
+  return signal._type
 }
 
-func (signal BaseSignal) Description() string {
-  return signal.description
+func (signal BaseSignal) String() string {
+  return fmt.Sprintf("{downwards: %t, source: %s, type: %s}", signal.downwards, signal.source, signal._type)
 }
 
-func (signal BaseSignal) Trace(id string) GraphSignal {
-  new_signal := signal
-  new_signal.last_id = id
-  return new_signal
+type TimeSignal struct {
+  BaseSignal
+  time time.Time
 }
 
-func (signal BaseSignal) Last() string {
-  return signal.last_id
-}
-
-func NewSignal(source GraphNode, signal_type string) (BaseSignal) {
-  signal := BaseSignal{
-    source: source,
-    signal_type: signal_type,
+func NewDownSignal(source GraphNode, _type string) (BaseSignal) {
+  source_id := ""
+  if source != nil {
+    source_id = source.ID()
   }
+
+  signal := BaseSignal{
+    downwards: true,
+    source: source_id,
+    _type: _type,
+  }
+
+  return signal
+}
+
+func NewSignal(source GraphNode, _type string) (BaseSignal) {
+  source_id := ""
+  if source != nil {
+    source_id = source.ID()
+  }
+
+  signal := BaseSignal{
+    downwards: false,
+    source: source_id,
+    _type: _type,
+  }
+
   return signal
 }
 
@@ -251,17 +254,11 @@ func (node * BaseNode) update(signal GraphSignal) {
 }
 
 func SendUpdate(node GraphNode, signal GraphSignal) {
-  source := signal.Source()
-  source_name := "nil"
-  if source != nil {
-    source_name = source.Name()
-  }
-
   node_name := "nil"
   if node != nil {
     node_name = node.Name()
   }
-  log.Logf("update", "UPDATE %s -> %s: %+v", source_name, node_name, signal)
+  log.Logf("update", "UPDATE %s <- %s: %+v", node_name, signal.Source(), signal)
   node.UpdateListeners(signal)
   node.update(signal)
 }

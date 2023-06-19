@@ -715,15 +715,15 @@ func GQLSignalType(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
-func GQLSignalDesc(p graphql.ResolveParams) (interface{}, error) {
+func GQLSignalSource(p graphql.ResolveParams) (interface{}, error) {
   return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
-    return signal.Description(), nil
+    return signal.Source(), nil
   })
 }
 
-func GQLSignalTime(p graphql.ResolveParams) (interface{}, error) {
+func GQLSignalDownwards(p graphql.ResolveParams) (interface{}, error) {
     return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
-      return signal.Time(), nil
+      return signal.Downwards(), nil
     })
 }
 
@@ -750,13 +750,13 @@ func GQLTypeSignal() *graphql.Object {
       Type: graphql.String,
       Resolve: GQLSignalType,
     })
-    gql_type_signal.AddFieldConfig("Description", &graphql.Field{
+    gql_type_signal.AddFieldConfig("Source", &graphql.Field{
       Type: graphql.String,
-      Resolve: GQLSignalDesc,
+      Resolve: GQLSignalSource,
     })
-    gql_type_signal.AddFieldConfig("Time", &graphql.Field{
-      Type: graphql.DateTime,
-      Resolve: GQLSignalTime,
+    gql_type_signal.AddFieldConfig("Downwards", &graphql.Field{
+      Type: graphql.Boolean,
+      Resolve: GQLSignalDownwards,
     })
     gql_type_signal.AddFieldConfig("String", &graphql.Field{
       Type: graphql.String,
@@ -811,9 +811,12 @@ func GQLMutationUpdateEvent() *graphql.Field {
         if ok == false {
           return nil, errors.New(fmt.Sprintf("Failed to cast arg signal to GraphSignal: %+v", p.Args["signal"]))
         }
-        signal := NewSignal(server, signal_map["Type"].(string))
-        signal.description = signal_map["Description"].(string)
-        signal.time = signal_map["Time"].(time.Time)
+        var signal GraphSignal = nil
+        if signal_map["Downwards"] == false {
+          signal = NewSignal(server, signal_map["Type"].(string))
+        } else {
+          signal = NewDownSignal(server, signal_map["Type"].(string))
+        }
 
         id , ok := p.Args["id"].(string)
         if ok == false {

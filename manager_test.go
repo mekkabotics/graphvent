@@ -17,16 +17,9 @@ func (t * graph_tester) WaitForValue(listener chan GraphSignal, signal_type stri
     select {
     case signal := <- listener:
       if signal.Type() == signal_type {
-        if signal.Source() == nil || source == nil {
-          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s\n", signal.Type(), signal.Source())
-          if source == nil && signal.Source() == nil{
-            return signal
-          }
-        } else {
-          fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s\n", signal.Type(), signal.Source().Name())
-          if signal.Source().ID() == source.ID() {
-            return signal
-          }
+        fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s %+v\n", signal.Type(), signal.Source(), listener)
+        if signal.Source() == source.ID() {
+          return signal
         }
       }
     case <-timeout_channel:
@@ -211,10 +204,10 @@ func TestLockResource(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to lock r3")
   }
-  NotifyResourceLocked(r3)
+  SendUpdate(r3, NewDownSignal(r3, "locked"))
 
-  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second, "Wasn't notified of r1 lock on r1 after r3 lock")
-  (*graph_tester)(t).WaitForValue(rel, "lock_changed", r1, time.Second, "Wasn't notified of r1 lock on rel after r3 lock")
+  (*graph_tester)(t).WaitForValue(r1_l, "locked", r3, time.Second, "Wasn't notified of r1 lock on r1 after r3 lock")
+  (*graph_tester)(t).WaitForValue(rel, "locked", r3, time.Second, "Wasn't notified of r1 lock on rel after r3 lock")
 
   err = LockResource(r3, root_event)
   if err == nil {
@@ -240,23 +233,23 @@ func TestLockResource(t * testing.T) {
   if err != nil {
     t.Fatal("Failed to unlock r3")
   }
-  NotifyResourceUnlocked(r3)
-  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 unlock on r1 after r3 unlock")
+  SendUpdate(r3, NewDownSignal(r3, "unlocked"))
+  (*graph_tester)(t).WaitForValue(r1_l, "unlocked", r3, time.Second * 2, "Wasn't notified of r1 unlock on r1 after r3 unlock")
 
   err = LockResource(r4, root_event)
   if err != nil {
     t.Fatal("Failed to lock r4 after unlocking r3")
   }
-  NotifyResourceLocked(r4)
-  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 lock on r1 after r4 lock")
-  (*graph_tester)(t).WaitForValue(rel, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 lock on r1 after r4 lock")
+  SendUpdate(r4, NewDownSignal(r4, "locked"))
+  (*graph_tester)(t).WaitForValue(r1_l, "locked", r4, time.Second * 2, "Wasn't notified of r1 lock on r1 after r4 lock")
+  (*graph_tester)(t).WaitForValue(rel, "locked", r4, time.Second * 2, "Wasn't notified of r1 lock on r1 after r4 lock")
 
   err = UnlockResource(r4, root_event)
   if err != nil {
     t.Fatal("Failed to unlock r4")
   }
-  NotifyResourceUnlocked(r4)
-  (*graph_tester)(t).WaitForValue(r1_l, "lock_changed", r1, time.Second * 2, "Wasn't notified of r1 unlock on r1 after r4 lock")
+  SendUpdate(r4, NewDownSignal(r4, "unlocked"))
+  (*graph_tester)(t).WaitForValue(r1_l, "unlocked", r4, time.Second * 2, "Wasn't notified of r1 unlock on r1 after r4 lock")
 }
 
 func TestAddToEventQueue(t * testing.T) {
@@ -299,8 +292,9 @@ func TestStartBaseEvent(t * testing.T) {
     t.Fatal(err)
   }
   // Check that the update channels for the event and resource have updates
-  (*graph_tester)(t).CheckForValue(e_l, "No update on event_1 after starting")
-  (*graph_tester)(t).CheckForValue(r_l, "No update on r_l after starting")
+  (*graph_tester)(t).WaitForValue(e_l, "event_start", event_1, 1*time.Second, "No event_start on e_l")
+  (*graph_tester)(t).WaitForValue(e_l, "event_done", event_1, 1*time.Second, "No event_start on e_l")
+  (*graph_tester)(t).WaitForValue(r_l, "unlocked", event_1, 1*time.Second, "No unlocked on r_l")
 
   if r.Owner() != nil {
     t.Fatal("r still owned after event completed")
@@ -330,8 +324,7 @@ func TestAbortEventQueue(t * testing.T) {
   // start the queue and check that all the events are executed
   go func() {
     time.Sleep(100 * time.Millisecond)
-    abort_signal := NewSignal(nil, "abort")
-    abort_signal.description = root_event.ID()
+    abort_signal := NewDownSignal(nil, "abort")
     SendUpdate(root_event, abort_signal)
   }()
 
@@ -388,8 +381,7 @@ func TestStartEventQueue(t * testing.T) {
   go func() {
     time.Sleep(5 * time.Second)
     if r.Owner() != nil {
-      abort_signal := NewSignal(nil, "abort")
-      abort_signal.description = root_event.ID()
+      abort_signal := NewDownSignal(nil, "abort")
       SendUpdate(root_event, abort_signal)
     }
   }()
@@ -400,8 +392,7 @@ func TestStartEventQueue(t * testing.T) {
     (*graph_tester)(t).WaitForValue(e1_l, "event_done", e1, time.Second, "No event_done for e3")
     (*graph_tester)(t).WaitForValue(e2_l, "event_done", e2, time.Second, "No event_done for e3")
     (*graph_tester)(t).WaitForValue(e3_l, "event_done", e3, time.Second, "No event_done for e3")
-    signal := NewSignal(nil, "cancel")
-    signal.description = root_event.ID()
+    signal := NewDownSignal(nil, "cancel")
     SendUpdate(root_event, signal)
   }()
 

@@ -100,11 +100,9 @@ func (arena * VirtualArena) update(signal GraphSignal) {
 func (arena * VirtualArena) Init(abort chan error) bool {
   log.Logf("vex", "Initializing %s", arena.Name())
   go func(arena * VirtualArena, abort chan error) {
-    update_str := fmt.Sprintf("VIRTUAL_ARENA connected: %s", arena.Name())
     signal := NewSignal(arena, "resource_connected")
-    signal.description = update_str
     arena.connected = true
-    go SendUpdate(arena, signal)
+    SendUpdate(arena, signal)
     log.Logf("vex", "VIRTUAL_ARENA goroutine starting: %s", arena.Name())
     for true {
       select {
@@ -148,13 +146,8 @@ type Match struct {
   state string
   control string
   control_start time.Time
-  control_duration int
+  control_duration time.Duration
   alliances []*Alliance
-}
-
-func (match * Match) update(signal GraphSignal) {
-  new_signal := signal.Trace(match.ID())
-  match.BaseEvent.update(new_signal)
 }
 
 func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
@@ -192,7 +185,6 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     match.state = "autonomous_queued"
     match.control_start = time.Now().Add(start_slack)
     new_signal := NewSignal(match, "autonomous_queued")
-    new_signal.time = match.control_start
     go SendUpdate(match, new_signal)
     return "wait", nil
   }
@@ -205,7 +197,9 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     log.Logf("vex", "AUTONOMOUS_RUNNING: %s", match.Name())
     match.control = "program"
     match.state = "autonomous_running"
-    match.control_start = signal.Time()
+    match.control_start = time.Now() // TODO
+    match.control_duration = TEMP_AUTON_TIME
+
     go SendUpdate(match, NewSignal(match, "autonomous_running"))
 
     end_time := match.control_start.Add(TEMP_AUTON_TIME)
@@ -235,7 +229,6 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     match.state = "driver_queued"
     match.control_start = time.Now().Add(start_slack)
     new_signal := NewSignal(match, "driver_queued")
-    new_signal.time = match.control_start
     go SendUpdate(match, new_signal)
     return "wait", nil
   }
@@ -247,7 +240,8 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
     }
     match.control = "driver"
     match.state = "driver_running"
-    match.control_start = signal.Time()
+    match.control_start = time.Now() // TODO
+    match.control_duration = TEMP_DRIVE_TIME
 
     go SendUpdate(match, NewSignal(match, "driver_running"))
 
@@ -269,8 +263,6 @@ func NewMatch(alliance0 * Alliance, alliance1 * Alliance, arena Arena) * Match {
   }
 
   match.actions["driver_done"] = func() (string, error) {
-    new_signal := NewSignal(match, "driver_done")
-    new_signal.time = time.Now()
     SendUpdate(match, NewSignal(match, "driver_done"))
     return "wait", nil
   }

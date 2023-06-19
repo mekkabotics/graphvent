@@ -9,24 +9,28 @@ import (
 // Resources propagate update up to multiple parents, and not downwards
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
 func (resource * BaseResource) update(signal GraphSignal) {
-  new_signal := signal.Trace(resource.ID())
 
-  for _, parent := range resource.Parents() {
-    SendUpdate(parent, new_signal)
-  }
-  resource.lock_holder_lock.Lock()
-  if resource.lock_holder != nil {
-    if resource.lock_holder.ID() != signal.Last() {
-      lock_holder := resource.lock_holder
-      resource.lock_holder_lock.Unlock()
-      SendUpdate(lock_holder, new_signal)
-    } else {
-      resource.lock_holder_lock.Unlock()
+  if signal.Downwards() == false {
+    // Child->Parent, resource updates parent resources
+    resource.parents_lock.Lock()
+    defer resource.parents_lock.Unlock()
+    for _, parent := range resource.Parents() {
+      SendUpdate(parent, signal)
     }
   } else {
-    resource.lock_holder_lock.Unlock()
-  }
+    // Parent->Child, resource updates lock holder
+    resource.lock_holder_lock.Lock()
+    defer resource.lock_holder_lock.Unlock()
+    if resource.lock_holder != nil {
+      SendUpdate(resource.lock_holder, signal)
+    }
 
+    resource.children_lock.Lock()
+    defer resource.children_lock.Unlock()
+    for _, child := range(resource.children) {
+      SendUpdate(child, signal)
+    }
+  }
 }
 
 // Resource is the interface that DAG nodes are made from
@@ -75,13 +79,12 @@ func AddParent(resource Resource, parent Resource) error {
 func UnlockResource(resource Resource, event Event) error {
   var err error = nil
   resource.LockState()
+  defer resource.UnlockState()
   if resource.Owner() == nil {
-    resource.UnlockState()
     return errors.New("Resource already unlocked")
   }
 
   if resource.Owner().ID() != event.ID() {
-    resource.UnlockState()
     return errors.New("Resource not locked by parent, unlock failed")
   }
 
@@ -95,36 +98,29 @@ func UnlockResource(resource Resource, event Event) error {
   }
 
   if lock_err != nil {
-    resource.UnlockState()
-    err_str := fmt.Sprintf("Resource failed to unlock: %s", lock_err)
-    return errors.New(err_str)
+    return fmt.Errorf("Resource failed to unlock: %s", lock_err)
   }
 
   resource.SetOwner(nil)
 
   err = resource.unlock(event)
   if err != nil {
-    resource.UnlockState()
     return errors.New("Failed to unlock resource")
   }
 
-  resource.UnlockState()
   return nil
 }
 
 func LockResource(resource Resource, node GraphNode) error {
   resource.LockState()
+  defer resource.UnlockState()
   if resource.Owner() != nil {
-    resource.UnlockState()
-    err_str := fmt.Sprintf("Resource already locked: %s", resource.Name())
-    return errors.New(err_str)
+    return fmt.Errorf("Resource already locked: %s", resource.Name())
   }
 
   err := resource.lock(node)
   if err != nil {
-    resource.UnlockState()
-    err_str := fmt.Sprintf("Failed to lock resource: %s", err)
-    return errors.New(err_str)
+    return fmt.Errorf("Failed to lock resource: %s", err)
   }
 
   var lock_err error = nil
@@ -139,39 +135,13 @@ func LockResource(resource Resource, node GraphNode) error {
   }
 
   if lock_err != nil {
-    resource.UnlockState()
-    err_str := fmt.Sprintf("Resource failed to lock: %s", lock_err)
-    return errors.New(err_str)
+    return fmt.Errorf("Resource failed to lock: %s", lock_err)
   }
 
   log.Logf("resource", "Locked %s", resource.Name())
   resource.SetOwner(node)
 
-
-  resource.UnlockState()
   return nil
-}
-
-func NotifyResourceLocked(resource Resource) {
-  signal := NewSignal(resource, "lock_changed")
-  signal.description = "lock"
-
-  for _, child := range resource.Children() {
-    NotifyResourceLocked(child)
-  }
-
-  go SendUpdate(resource, signal)
-}
-
-func NotifyResourceUnlocked(resource Resource) {
-  signal := NewSignal(resource, "lock_changed")
-  signal.description = "unlock"
-
-  for _, child := range(resource.Children()) {
-    NotifyResourceUnlocked(child)
-  }
-
-  go SendUpdate(resource, signal)
 }
 
 // BaseResource is the most basic resource that can exist in the DAG

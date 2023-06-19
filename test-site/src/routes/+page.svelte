@@ -35,8 +35,9 @@ client.subscribe({
       next: (data) => {
         console.log("ARENA_SUB")
         let obj = JSON.parse(data.data)
-        console.log(obj.Arena)
-        game_id = obj.Arena.Owner.ID
+        if(obj.Arena.Owner != null) {
+          game_id = obj.Arena.Owner.ID
+        }
       },
       error: (err) => {
         console.log("ARENA_SUB")

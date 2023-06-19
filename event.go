@@ -11,20 +11,28 @@ import (
 
 // Update the events listeners, and notify the parent to do the same
 func (event * BaseEvent) update(signal GraphSignal) {
-  event.signal <- signal
-  new_signal := signal.Trace(event.ID())
+  if signal.Downwards() == false {
+    // Child->Parent
+    event.parent_lock.Lock()
+    defer event.parent_lock.Unlock()
+    if event.parent != nil {
+      SendUpdate(event.parent, signal)
+    }
 
-  if event.parent != nil {
-    SendUpdate(event.parent, new_signal)
-  }
-
-  source_id := signal.Last()
-
-  for _, resource := range(event.RequiredResources()) {
-    if source_id != resource.ID() {
-      SendUpdate(resource, new_signal)
+    event.rr_lock.Lock()
+    defer event.rr_lock.Unlock()
+    for _, resource := range(event.required_resources) {
+      SendUpdate(resource, signal)
+    }
+  } else {
+    // Parent->Child
+    event.child_lock.Lock()
+    defer event.child_lock.Unlock()
+    for _, child := range(event.children) {
+      SendUpdate(child, signal)
     }
   }
+  event.signal <- signal
 }
 
 type EventInfo interface {
@@ -197,15 +205,13 @@ func AddChild(event Event, child Event, info EventInfo) error {
   child.UnlockParent()
   event.UnlockParent()
 
-  update := NewSignal(event, "child_added")
-  update.description = child.Name()
   SendUpdate(event, NewSignal(event, "child_added"))
   return nil
 }
 
 func RunEvent(event Event) error {
   log.Logf("event", "EVENT_RUN: %s", event.Name())
-  go SendUpdate(event, NewSignal(event, "event_start"))
+  SendUpdate(event, NewSignal(event, "event_start"))
   next_action := "start"
   var err error = nil
   for next_action != "" {
@@ -229,42 +235,14 @@ func RunEvent(event Event) error {
 
 func EventAbort(event Event) func(signal GraphSignal) (string, error) {
   return func(signal GraphSignal) (string, error) {
-    if signal.Description() == event.ID() {
-      AbortChildren(event)
-      return "", errors.New(fmt.Sprintf("%s aborted by signal", event.ID()))
-    }
-    return "wait", nil
+    return "", errors.New(fmt.Sprintf("%s aborted by signal", event.ID()))
   }
 }
 
 func EventCancel(event Event) func(signal GraphSignal) (string, error) {
   return func(signal GraphSignal) (string, error) {
-    if signal.Description() == event.ID() {
-      CancelChildren(event)
-      return "", nil
-    }
-    return "wait", nil
+    return "", nil
   }
-}
-
-func CancelChildren(event Event) {
-  event.LockChildren()
-  for _, child := range(event.Children()) {
-    signal := NewSignal(event, "cancel")
-    signal.description = child.ID()
-    SendUpdate(child, signal)
-  }
-  event.UnlockChildren()
-}
-
-func AbortChildren(event Event) {
-  event.LockChildren()
-  for _, child := range(event.Children()) {
-    signal := NewSignal(event, "abort")
-    signal.description = child.ID()
-    SendUpdate(child, signal)
-  }
-  event.UnlockChildren()
 }
 
 func LockResources(event Event) error {
@@ -287,22 +265,19 @@ func LockResources(event Event) error {
     return lock_err
   }
 
-  for _, resource := range(locked_resources) {
-    NotifyResourceLocked(resource)
-  }
+  signal := NewDownSignal(event, "locked")
+  SendUpdate(event, signal)
 
   return nil
 }
 
 func FinishEvent(event Event) error {
-  // TODO make more 'safe' like LockResources, or make UnlockResource not return errors
   log.Logf("event", "EVENT_FINISH: %s", event.Name())
   for _, resource := range(event.RequiredResources()) {
     err := UnlockResource(resource, event)
     if err != nil {
       panic(err)
     }
-    NotifyResourceUnlocked(resource)
   }
 
   err := UnlockResource(event.DoneResource(), event)
@@ -310,7 +285,8 @@ func FinishEvent(event Event) error {
     return err
   }
 
-  NotifyResourceUnlocked(event.DoneResource())
+  SendUpdate(event, NewDownSignal(event, "unlocked"))
+  SendUpdate(event.DoneResource(), NewDownSignal(event, "unlocked"))
 
   err = event.finish()
   if err != nil {
@@ -330,6 +306,7 @@ func FinishEvent(event Event) error {
 type BaseEvent struct {
   BaseNode
   done_resource Resource
+  rr_lock sync.Mutex
   required_resources []Resource
   children []Event
   child_info map[string]EventInfo
@@ -353,11 +330,7 @@ func EventWait(event Event) (func() (string, error)) {
     log.Logf("event", "EVENT_WAIT: %s TIMEOUT: %+v", event.Name(), event.Timeout())
     select {
     case signal := <- event.Signal():
-      if signal.Source() != nil {
-        log.Logf("event", "EVENT_SIGNAL: %s %s %s -> %+v", event.Name(), signal.Last(), signal.Source().Name(), signal)
-      } else {
-        log.Logf("event", "EVENT_SIGNAL: %s %s nil -> %+v", event.Name(), signal.Last(), signal)
-      }
+      log.Logf("event", "EVENT_SIGNAL: %s %+v", event.Name(), signal)
       signal_fn, exists := event.Handler(signal.Type())
       if exists == true {
         log.Logf("event", "EVENT_HANDLER: %s - %s", event.Name(), signal.Type())

@@ -201,8 +201,7 @@ func main() {
       select {
       case <-sigs:
         pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
-        signal := NewSignal(nil, "abort")
-        signal.description = event_manager.root_event.ID()
+        signal := NewDownSignal(nil, "abort")
         SendUpdate(event_manager.root_event, signal)
         break
       }

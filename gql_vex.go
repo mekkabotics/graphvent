@@ -5,7 +5,6 @@ import (
   "reflect"
   "fmt"
   "errors"
-  "time"
 )
 
 func GQLVexTypes() map[reflect.Type]*graphql.Object {
@@ -122,14 +121,7 @@ func GQLVexMutationSetMatchState() *graphql.Field {
           return nil, errors.New("Failed to cast arg state to string")
         }
 
-        start, ok := p.Args["time"].(time.Time)
-        if ok == false {
-          start = time.Now()
-        }
-
         signal := NewSignal(server, state)
-        signal.description = id
-        signal.time = start
 
         owner := server.Owner()
         if owner == nil {
