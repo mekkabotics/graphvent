@@ -88,7 +88,7 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
       </script>
     </body>
     </html>
-    `, r.RequestURI)
+    `, r.Host)
 
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     w.WriteHeader(http.StatusOK)
