@@ -137,11 +137,6 @@ func GQLInterfaceNode() *graphql.Interface {
     gql_interface_node = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Node",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-
-        if reflect.TypeOf(p.Value) == reflect.TypeOf((*BaseNode)(nil)) {
-          return value
-        }
-
         valid_events, ok := p.Context.Value("valid_events").(map[reflect.Type]*graphql.Object)
         if ok == false {
           return nil
@@ -937,7 +932,7 @@ func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Reques
   valid_resources := map[reflect.Type]*graphql.Object{}
   valid_resources[reflect.TypeOf((*BaseResource)(nil))] = GQLTypeBaseResource()
 
-  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput()}
+  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput(), GQLTypeBaseNode()}
   for go_t, gql_t := range(server.extended_types) {
     if _, ok := go_t.(Event); ok {
       valid_events[go_t] = gql_t
