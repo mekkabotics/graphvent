@@ -158,8 +158,7 @@ type GraphNode interface {
   RegisterChannel(listener chan GraphSignal)
   UnregisterChannel(listener chan GraphSignal)
   UpdateChannel() chan GraphSignal
-  Update(signal GraphSignal)
-  GetUpdate() GraphSignal
+  SignalChannel() chan GraphSignal
 }
 
 func NewBaseNode(name string, description string, id string) BaseNode {
@@ -185,12 +184,8 @@ type BaseNode struct {
   listeners map[chan GraphSignal]chan GraphSignal
 }
 
-func (node * BaseNode) Update(signal GraphSignal) {
-  node.signal <- signal
-}
-
-func (node * BaseNode) GetUpdate() GraphSignal {
-  return <- node.signal
+func (node * BaseNode) SignalChannel() chan GraphSignal {
+  return node.signal
 }
 
 func (node * BaseNode) Name() string {
