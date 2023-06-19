@@ -19,11 +19,11 @@ type Logger interface {
 type DefaultLogger struct {
   init bool
   init_lock sync.Mutex
-  loggers map[string]zerolog.Logger
-  components []string
+  Loggers map[string]zerolog.Logger
+  Components []string
 }
 
-var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}, components: []string{"update", "graph", "event", "resource", "manager", "gql", "gqlws", "gqlws_new", "gqlws_hb", "listeners"}}
+var log DefaultLogger = DefaultLogger{Loggers: map[string]zerolog.Logger{}, Components: []string{"update", "graph", "event", "resource", "manager", "gql", "gqlws", "gqlws_new", "gqlws_hb", "listeners"}}
 
 func (logger * DefaultLogger) Init(components []string) error {
   logger.init_lock.Lock()
@@ -50,9 +50,9 @@ func (logger * DefaultLogger) Init(components []string) error {
   }
 
   writer := io.MultiWriter(file, os.Stdout)
-  for _, c := range(logger.components) {
+  for _, c := range(logger.Components) {
     if component_enabled(c) == true {
-      logger.loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
+      logger.Loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
     }
   }
   return nil
@@ -60,7 +60,7 @@ func (logger * DefaultLogger) Init(components []string) error {
 
 func (logger * DefaultLogger) Logm(component string, fields map[string]interface{}, format string, items ... interface{}) {
   logger.Init([]string{"update"})
-  l, exists := logger.loggers[component]
+  l, exists := logger.Loggers[component]
   if exists == true {
     log := l.Log()
     for key, value := range(fields) {
@@ -72,7 +72,7 @@ func (logger * DefaultLogger) Logm(component string, fields map[string]interface
 
 func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
   logger.Init([]string{"update"})
-  l, exists := logger.loggers[component]
+  l, exists := logger.Loggers[component]
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))
   }
