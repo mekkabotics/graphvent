@@ -20,10 +20,10 @@ type DefaultLogger struct {
   init bool
   init_lock sync.Mutex
   loggers map[string]zerolog.Logger
+  components []string
 }
 
-var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}}
-var all_components = []string{"update", "graph", "event", "resource", "manager", "test", "gql", "vex", "gqlws", "gqlws_new", "gqlws_hb", "listeners"}
+var log DefaultLogger = DefaultLogger{loggers: map[string]zerolog.Logger{}, components: []string{"update", "graph", "event", "resource", "manager", "test", "gql", "gqlws", "gqlws_new", "gqlws_hb", "listeners"}}
 
 func (logger * DefaultLogger) Init(components []string) error {
   logger.init_lock.Lock()
@@ -50,7 +50,7 @@ func (logger * DefaultLogger) Init(components []string) error {
   }
 
   writer := io.MultiWriter(file, os.Stdout)
-  for _, c := range(all_components) {
+  for _, c := range(logger.components) {
     if component_enabled(c) == true {
       logger.loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
     }
