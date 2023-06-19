@@ -101,7 +101,7 @@ func (event * BaseEvent) SetTimeout(end_time time.Time, action string) {
 }
 
 func (event * BaseEvent) Handler(signal_type string) (func(GraphSignal)(string, error), bool) {
-  handler, exists := event.handlers[signal_type]
+  handler, exists := event.Handlers[signal_type]
   return handler, exists
 }
 
@@ -312,8 +312,8 @@ type BaseEvent struct {
   children_lock sync.Mutex
   child_info map[string]EventInfo
   child_info_lock sync.Mutex
-  actions map[string]func() (string, error)
-  handlers map[string]func(GraphSignal) (string, error)
+  Actions map[string]func() (string, error)
+  Handlers map[string]func(GraphSignal) (string, error)
   parent Event
   parent_lock sync.Mutex
   abort chan string
@@ -322,7 +322,7 @@ type BaseEvent struct {
 }
 
 func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
-  action_fn, exists := event.actions[action]
+  action_fn, exists := event.Actions[action]
   return action_fn, exists
 }
 
@@ -354,8 +354,8 @@ func NewBaseEvent(name string, description string, required_resources []Resource
     child_info: map[string]EventInfo{},
     done_resource: done_resource,
     required_resources: required_resources,
-    actions: map[string]func()(string, error){},
-    handlers: map[string]func(GraphSignal)(string, error){},
+    Actions: map[string]func()(string, error){},
+    Handlers: map[string]func(GraphSignal)(string, error){},
     abort: make(chan string, 1),
     timeout: nil,
     timeout_action: "",
@@ -370,11 +370,11 @@ func NewEvent(name string, description string, required_resources []Resource) (*
   event := NewBaseEvent(name, description, required_resources)
   event_ptr := &event
 
-  event_ptr.actions["wait"] = EventWait(event_ptr)
-  event_ptr.handlers["abort"] = EventAbort(event_ptr)
-  event_ptr.handlers["cancel"] = EventCancel(event_ptr)
+  event_ptr.Actions["wait"] = EventWait(event_ptr)
+  event_ptr.Handlers["abort"] = EventAbort(event_ptr)
+  event_ptr.Handlers["cancel"] = EventCancel(event_ptr)
 
-  event_ptr.actions["start"] = func() (string, error) {
+  event_ptr.Actions["start"] = func() (string, error) {
     return "", nil
   }
 
@@ -414,15 +414,15 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     listened_resources: map[string]Resource{},
   }
 
-  queue.actions["wait"] = EventWait(queue)
-  queue.handlers["abort"] = EventAbort(queue)
-  queue.handlers["cancel"] = EventCancel(queue)
+  queue.Actions["wait"] = EventWait(queue)
+  queue.Handlers["abort"] = EventAbort(queue)
+  queue.Handlers["cancel"] = EventCancel(queue)
 
-  queue.actions["start"] = func() (string, error) {
+  queue.Actions["start"] = func() (string, error) {
     return "queue_event", nil
   }
 
-  queue.actions["queue_event"] = func() (string, error) {
+  queue.Actions["queue_event"] = func() (string, error) {
     // Copy the events to sort the list
     queue.LockChildren()
     copied_events := make([]Event, len(queue.Children()))
@@ -479,19 +479,19 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     return "wait", nil
   }
 
-  queue.handlers["resource_connected"] = func(signal GraphSignal) (string, error) {
+  queue.Handlers["resource_connected"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
-  queue.handlers["child_added"] = func(signal GraphSignal) (string, error) {
+  queue.Handlers["child_added"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
-  queue.handlers["lock_changed"] = func(signal GraphSignal) (string, error) {
+  queue.Handlers["lock_changed"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
-  queue.handlers["event_done"] = func(signal GraphSignal) (string, error) {
+  queue.Handlers["event_done"] = func(signal GraphSignal) (string, error) {
     return "queue_event", nil
   }
 
