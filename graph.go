@@ -59,7 +59,7 @@ func (logger * DefaultLogger) Init(components []string) error {
 }
 
 func (logger * DefaultLogger) Logm(component string, fields map[string]interface{}, format string, items ... interface{}) {
-  logger.Init(logger.Components)
+  logger.Init([]string{"gql", "gqlws"})
   l, exists := logger.Loggers[component]
   if exists == true {
     log := l.Log()
@@ -71,7 +71,7 @@ func (logger * DefaultLogger) Logm(component string, fields map[string]interface
 }
 
 func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
-  logger.Init(logger.Components)
+  logger.Init([]string{"gql", "gqlws"})
   l, exists := logger.Loggers[component]
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))
