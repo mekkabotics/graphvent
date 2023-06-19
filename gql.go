@@ -1017,7 +1017,9 @@ func (server * GQLServer) Init(abort chan error) bool {
     http_handler, ws_handler := MakeGQLHandlers(server)
     mux.HandleFunc("/gql", http_handler)
     mux.HandleFunc("/gqlws", ws_handler)
-    mux.HandleFunc("/", GraphiQLHandler())
+    mux.HandleFunc("/graphiql", GraphiQLHandler())
+    fs := http.FileServer(http.Dir("./site"))
+    mux.Handle("/site/", http.StripPrefix("/site", fs))
 
     srv := &http.Server{
       Addr: server.listen,
