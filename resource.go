@@ -25,9 +25,9 @@ func (resource * BaseResource) update(signal GraphSignal) {
       SendUpdate(resource.lock_holder, signal)
     }
 
-    resource.children_lock.Lock()
-    defer resource.children_lock.Unlock()
-    for _, child := range(resource.children) {
+    resource.ChildrenSliceLock.Lock()
+    defer resource.ChildrenSliceLock.Unlock()
+    for _, child := range(resource.ChildrenSlice) {
       SendUpdate(child, signal)
     }
   }
@@ -150,8 +150,8 @@ type BaseResource struct {
   BaseNode
   parents []Resource
   parents_lock sync.Mutex
-  children []Resource
-  children_lock sync.Mutex
+  ChildrenSlice []Resource
+  ChildrenSliceLock sync.Mutex
   lock_holder GraphNode
   lock_holder_lock sync.Mutex
   state_lock sync.Mutex
@@ -189,7 +189,7 @@ func (resource * BaseResource) unlock(node GraphNode) error {
 }
 
 func (resource * BaseResource) Children() []Resource {
-  return resource.children
+  return resource.ChildrenSlice
 }
 
 func (resource * BaseResource) Parents() []Resource {
@@ -213,7 +213,7 @@ func NewBaseResource(name string, description string, children []Resource) BaseR
   resource := BaseResource{
     BaseNode: NewBaseNode(name, description, randid()),
     parents: []Resource{},
-    children: children,
+    ChildrenSlice: children,
   }
 
   return resource
