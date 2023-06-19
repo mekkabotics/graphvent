@@ -873,9 +873,9 @@ func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object
   return server
 }
 
-func (server * GQLServer) update(signal GraphSignal) {
+func (server * GQLServer) PropagateUpdate(signal GraphSignal) {
   server.signal <- signal
-  server.BaseResource.update(signal)
+  server.BaseResource.PropagateUpdate(signal)
 }
 
 func GQLSubscribeSignal(p graphql.ResolveParams) (interface{}, error) {

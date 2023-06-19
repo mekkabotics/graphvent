@@ -8,7 +8,7 @@ import (
 
 // Resources propagate update up to multiple parents, and not downwards
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
-func (resource * BaseResource) update(signal GraphSignal) {
+func (resource * BaseResource) PropagateUpdate(signal GraphSignal) {
 
   if signal.Downwards() == false {
     // Child->Parent, resource updates parent resources

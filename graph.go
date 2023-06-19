@@ -154,7 +154,7 @@ type GraphNode interface {
   Description() string
   ID() string
   UpdateListeners(update GraphSignal)
-  update(update GraphSignal)
+  PropagateUpdate(update GraphSignal)
   RegisterChannel(listener chan GraphSignal)
   UnregisterChannel(listener chan GraphSignal)
   UpdateChannel() chan GraphSignal
@@ -255,7 +255,7 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
   node.listeners_lock.Unlock()
 }
 
-func (node * BaseNode) update(signal GraphSignal) {
+func (node * BaseNode) PropagateUpdate(signal GraphSignal) {
 }
 
 func SendUpdate(node GraphNode, signal GraphSignal) {
@@ -265,6 +265,6 @@ func SendUpdate(node GraphNode, signal GraphSignal) {
   }
   log.Logf("update", "UPDATE %s <- %s: %+v", node_name, signal.Source(), signal)
   node.UpdateListeners(signal)
-  node.update(signal)
+  node.PropagateUpdate(signal)
 }
 

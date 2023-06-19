@@ -10,7 +10,7 @@ import (
 )
 
 // Update the events listeners, and notify the parent to do the same
-func (event * BaseEvent) update(signal GraphSignal) {
+func (event * BaseEvent) PropagateUpdate(signal GraphSignal) {
   if signal.Downwards() == false {
     // Child->Parent
     event.parent_lock.Lock()
