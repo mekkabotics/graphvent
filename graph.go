@@ -23,7 +23,7 @@ type DefaultLogger struct {
   Components []string
 }
 
-var log DefaultLogger = DefaultLogger{Loggers: map[string]zerolog.Logger{}, Components: []string{"event"}}
+var log DefaultLogger = DefaultLogger{Loggers: map[string]zerolog.Logger{}, Components: []string{}}
 
 func (logger * DefaultLogger) Init(components []string) error {
   logger.init_lock.Lock()
