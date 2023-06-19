@@ -1,4 +1,4 @@
-module git.metznet.ca/MetzNet/graphvent
+module github.com/mekkabotics/graphvent
 
 go 1.20
 
