@@ -137,6 +137,11 @@ func GQLInterfaceNode() *graphql.Interface {
     gql_interface_node = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Node",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+
+        if reflect.TypeOf(p.Value) == reflect.TypeOf((*BaseNode)(nil)) {
+          return value
+        }
+
         valid_events, ok := p.Context.Value("valid_events").(map[reflect.Type]*graphql.Object)
         if ok == false {
           return nil
