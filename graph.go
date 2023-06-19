@@ -158,6 +158,7 @@ type GraphNode interface {
   RegisterChannel(listener chan GraphSignal)
   UnregisterChannel(listener chan GraphSignal)
   UpdateChannel() chan GraphSignal
+  Update(signal GraphSignal)
 }
 
 func NewBaseNode(name string, description string, id string) BaseNode {
@@ -181,6 +182,10 @@ type BaseNode struct {
   signal chan GraphSignal
   listeners_lock sync.Mutex
   listeners map[chan GraphSignal]chan GraphSignal
+}
+
+func (node * BaseNode) Update(signal GraphSignal) {
+  node.signal <- signal
 }
 
 func (node * BaseNode) Name() string {
