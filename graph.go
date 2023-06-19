@@ -118,34 +118,26 @@ type TimeSignal struct {
   time time.Time
 }
 
-func NewDownSignal(source GraphNode, _type string) (BaseSignal) {
+func NewBaseSignal(source GraphNode, _type string, downwards bool) BaseSignal {
   source_id := ""
   if source != nil {
     source_id = source.ID()
   }
 
   signal := BaseSignal{
-    downwards: true,
+    downwards: downwards,
     source: source_id,
     _type: _type,
   }
-
   return signal
 }
 
-func NewSignal(source GraphNode, _type string) (BaseSignal) {
-  source_id := ""
-  if source != nil {
-    source_id = source.ID()
-  }
+func NewDownSignal(source GraphNode, _type string) BaseSignal {
+  return NewBaseSignal(source, _type, true)
+}
 
-  signal := BaseSignal{
-    downwards: false,
-    source: source_id,
-    _type: _type,
-  }
-
-  return signal
+func NewSignal(source GraphNode, _type string) BaseSignal {
+  return NewBaseSignal(source, _type, false)
 }
 
 // GraphNode is the interface common to both DAG nodes and Event tree nodes
