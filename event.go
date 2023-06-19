@@ -26,9 +26,9 @@ func (event * BaseEvent) update(signal GraphSignal) {
     }
   } else {
     // Parent->Child
-    event.ChildrenSliceLock.Lock()
-    defer event.ChildrenSliceLock.Unlock()
-    for _, child := range(event.ChildrenSlice) {
+    event.children_lock.Lock()
+    defer event.children_lock.Unlock()
+    for _, child := range(event.children) {
       SendUpdate(child, signal)
     }
   }
@@ -308,9 +308,10 @@ type BaseEvent struct {
   done_resource Resource
   rr_lock sync.Mutex
   required_resources []Resource
-  ChildrenSlice []Event
-  ChildInfoMap map[string]EventInfo
-  ChildrenSliceLock sync.Mutex
+  children []Event
+  children_lock sync.Mutex
+  child_info map[string]EventInfo
+  child_info_lock sync.Mutex
   actions map[string]func() (string, error)
   handlers map[string]func(GraphSignal) (string, error)
   parent Event
@@ -349,8 +350,8 @@ func NewBaseEvent(name string, description string, required_resources []Resource
   event := BaseEvent{
     BaseNode: NewBaseNode(name, description, randid()),
     parent: nil,
-    ChildrenSlice: []Event{},
-    ChildInfoMap: map[string]EventInfo{},
+    children: []Event{},
+    child_info: map[string]EventInfo{},
     done_resource: done_resource,
     required_resources: required_resources,
     actions: map[string]func()(string, error){},
@@ -510,11 +511,11 @@ func (event * BaseEvent) DoneResource() Resource {
 }
 
 func (event * BaseEvent) Children() []Event {
-  return event.ChildrenSlice
+  return event.children
 }
 
 func (event * BaseEvent) ChildInfo(idx Event) EventInfo {
-  val, ok := event.ChildInfoMap[idx.ID()]
+  val, ok := event.child_info[idx.ID()]
   if ok == false {
     return nil
   }
@@ -522,11 +523,11 @@ func (event * BaseEvent) ChildInfo(idx Event) EventInfo {
 }
 
 func (event * BaseEvent) LockChildren() {
-  event.ChildrenSliceLock.Lock()
+  event.children_lock.Lock()
 }
 
 func (event * BaseEvent) UnlockChildren() {
-  event.ChildrenSliceLock.Unlock()
+  event.children_lock.Unlock()
 }
 
 func (event * BaseEvent) LockParent() {
@@ -542,8 +543,8 @@ func (event * BaseEvent) setParent(parent Event) {
 }
 
 func (event * BaseEvent) addChild(child Event, info EventInfo) {
-  event.ChildrenSlice = append(event.ChildrenSlice, child)
-  event.ChildInfoMap[child.ID()] = info
+  event.children = append(event.children, child)
+  event.child_info[child.ID()] = info
 }
 
 type GQLEvent struct {
