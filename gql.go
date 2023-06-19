@@ -80,7 +80,7 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
         root.render(
           React.createElement(GraphiQL, {
     	fetcher: GraphiQL.createFetcher({
-	url: '%s/gql',
+	url: 'http://%s/gql',
     	}),
     	defaultEditorToolsVisibility: true,
           }),
