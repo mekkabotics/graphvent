@@ -80,7 +80,7 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
         root.render(
           React.createElement(GraphiQL, {
     	fetcher: GraphiQL.createFetcher({
-	url: 'http://%s/gql',
+	url: '/gql',
     	}),
     	defaultEditorToolsVisibility: true,
           }),
@@ -88,7 +88,7 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
       </script>
     </body>
     </html>
-    `, r.Host)
+    `)
 
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     w.WriteHeader(http.StatusOK)
