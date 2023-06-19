@@ -933,8 +933,8 @@ func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Reques
   valid_resources[reflect.TypeOf((*BaseResource)(nil))] = GQLTypeBaseResource()
 
   gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput(), GQLTypeBaseNode()}
-  event_type := reflect.TypeOf((Event)(nil))
-  resource_type := reflect.TypeOf((Resource)(nil))
+  event_type := reflect.TypeOf((*Event)(nil)).Elem()
+  resource_type := reflect.TypeOf((*Resource)(nil)).Elem()
   for go_t, gql_t := range(server.extended_types) {
     if go_t.Implements(event_type) {
       valid_events[go_t] = gql_t
