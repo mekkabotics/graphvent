@@ -159,6 +159,7 @@ type GraphNode interface {
   UnregisterChannel(listener chan GraphSignal)
   UpdateChannel() chan GraphSignal
   Update(signal GraphSignal)
+  GetUpdate() GraphSignal
 }
 
 func NewBaseNode(name string, description string, id string) BaseNode {
@@ -186,6 +187,10 @@ type BaseNode struct {
 
 func (node * BaseNode) Update(signal GraphSignal) {
   node.signal <- signal
+}
+
+func (node * BaseNode) GetUpdate() GraphSignal {
+  return <- node.signal
 }
 
 func (node * BaseNode) Name() string {
