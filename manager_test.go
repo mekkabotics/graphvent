@@ -1,4 +1,4 @@
-package git.metznet.ca/MetzNet/graphvent
+package graphvent
 
 import (
   "testing"
