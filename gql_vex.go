@@ -121,7 +121,7 @@ func GQLVexMutationSetMatchState() *graphql.Field {
           return nil, errors.New("Failed to cast arg state to string")
         }
 
-        signal := NewSignal(server, state)
+        signal := NewDownSignal(server, state)
 
         owner := server.Owner()
         if owner == nil {
