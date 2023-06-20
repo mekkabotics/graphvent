@@ -34,7 +34,7 @@ func (resource * BaseResource) PropagateUpdate(signal GraphSignal) {
 }
 
 // Resource is the interface that DAG nodes are made from
-// A resource needs to be able to represent logical entities and connections to physical entities.
+// A resource needs to be able to represent Logical entities and connections to physical entities.
 // A resource lock could be aborted at any time if this connection is broken, if that happens the event locking it must be aborted
 // The device connection should be maintained as much as possible(requiring some reconnection behaviour in the background)
 type Resource interface {
@@ -166,7 +166,7 @@ func LockResource(resource Resource, node GraphNode) error {
     return fmt.Errorf("Resource failed to lock: %s", lock_err)
   }
 
-  log.Logf("resource", "Locked %s", resource.Name())
+  Log.Logf("resource", "Locked %s", resource.Name())
   resource.SetOwner(node)
 
   return nil

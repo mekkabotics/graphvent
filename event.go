@@ -231,33 +231,33 @@ func LinkEvent(event Event, child Event, info EventInfo) error {
 }
 
 func StartRootEvent(event Event) error {
-  log.Logf("event", "ROOT_EVEN_START")
+  Log.Logf("event", "ROOT_EVEN_START")
 
   err := LockResources(event)
   if err != nil {
-    log.Logf("event", "ROOT_EVENT_LOCK_ERR: %s", err)
+    Log.Logf("event", "ROOT_EVENT_LOCK_ERR: %s", err)
     return err
   }
 
   err = RunEvent(event)
   if err != nil {
-    log.Logf("event", "ROOT_EVENT_RUNE_ERR: %s", err)
+    Log.Logf("event", "ROOT_EVENT_RUNE_ERR: %s", err)
     return err
   }
 
   err = FinishEvent(event)
   if err != nil {
-    log.Logf("event", "ROOT_EVENT_FINISH_ERR: %s", err)
+    Log.Logf("event", "ROOT_EVENT_FINISH_ERR: %s", err)
     return err
   }
-  log.Logf("event", "ROOT_EVENT_DONE")
+  Log.Logf("event", "ROOT_EVENT_DONE")
 
   return nil
 }
 
 
 func RunEvent(event Event) error {
-  log.Logf("event", "EVENT_RUN: %s", event.Name())
+  Log.Logf("event", "EVENT_RUN: %s", event.Name())
   SendUpdate(event, NewSignal(event, "event_start"))
   next_action := "start"
   var err error = nil
@@ -268,14 +268,14 @@ func RunEvent(event Event) error {
       return errors.New(error_str)
     }
 
-    log.Logf("event", "EVENT_ACTION: %s - %s", event.Name(), next_action)
+    Log.Logf("event", "EVENT_ACTION: %s - %s", event.Name(), next_action)
     next_action, err = action()
     if err != nil {
       return err
     }
   }
 
-  log.Logf("event", "EVENT_RUN_DONE: %s", event.Name())
+  Log.Logf("event", "EVENT_RUN_DONE: %s", event.Name())
 
   return nil
 }
@@ -293,7 +293,7 @@ func EventCancel(event Event) func(signal GraphSignal) (string, error) {
 }
 
 func LockResources(event Event) error {
-  log.Logf("event", "RESOURCE_LOCKING for %s - %+v", event.Name(), event.Resources())
+  Log.Logf("event", "RESOURCE_LOCKING for %s - %+v", event.Name(), event.Resources())
   locked_resources := []Resource{}
   var lock_err error = nil
   for _, resource := range(event.Resources()) {
@@ -309,11 +309,11 @@ func LockResources(event Event) error {
     for _, resource := range(locked_resources) {
       UnlockResource(resource, event)
     }
-    log.Logf("event", "RESOURCE_LOCK_FAIL for %s: %s", event.Name(), lock_err)
+    Log.Logf("event", "RESOURCE_LOCK_FAIL for %s: %s", event.Name(), lock_err)
     return lock_err
   }
 
-  log.Logf("event", "RESOURCE_LOCK_SUCCESS for %s", event.Name())
+  Log.Logf("event", "RESOURCE_LOCK_SUCCESS for %s", event.Name())
   signal := NewDownSignal(event, "locked")
   SendUpdate(event, signal)
 
@@ -321,7 +321,7 @@ func LockResources(event Event) error {
 }
 
 func FinishEvent(event Event) error {
-  log.Logf("event", "EVENT_FINISH: %s", event.Name())
+  Log.Logf("event", "EVENT_FINISH: %s", event.Name())
   for _, resource := range(event.Resources()) {
     err := UnlockResource(resource, event)
     if err != nil {
@@ -378,18 +378,18 @@ func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
 
 func EventWait(event Event) (func() (string, error)) {
   return func() (string, error) {
-    log.Logf("event", "EVENT_WAIT: %s TIMEOUT: %+v", event.Name(), event.Timeout())
+    Log.Logf("event", "EVENT_WAIT: %s TIMEOUT: %+v", event.Name(), event.Timeout())
     select {
     case signal := <- event.Signal():
-      log.Logf("event", "EVENT_SIGNAL: %s %+v", event.Name(), signal)
+      Log.Logf("event", "EVENT_SIGNAL: %s %+v", event.Name(), signal)
       signal_fn, exists := event.Handler(signal.Type())
       if exists == true {
-        log.Logf("event", "EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
+        Log.Logf("event", "EVENT_HANDLER: %s - %s", event.Name(), signal.Type())
         return signal_fn(signal)
       }
       return "wait", nil
     case <- event.Timeout():
-      log.Logf("event", "EVENT_TIMEOUT %s - NEXT_STATE: %s", event.Name(), event.TimeoutAction())
+      Log.Logf("event", "EVENT_TIMEOUT %s - NEXT_STATE: %s", event.Name(), event.TimeoutAction())
       return event.TimeoutAction(), nil
     }
   }
@@ -514,15 +514,15 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
         err := LockResources(event)
         // start in new goroutine
         if err != nil {
-          //log.Logf("event", "Failed to lock %s: %s", event.Name(), err)
+          //Log.Logf("event", "Failed to lock %s: %s", event.Name(), err)
         } else {
           info.state = "running"
-          log.Logf("event", "EVENT_START: %s", event.Name())
+          Log.Logf("event", "EVENT_START: %s", event.Name())
           go func(event Event, info * EventQueueInfo, queue Event) {
-            log.Logf("event", "EVENT_GOROUTINE: %s", event.Name())
+            Log.Logf("event", "EVENT_GOROUTINE: %s", event.Name())
             err := RunEvent(event)
             if err != nil {
-              log.Logf("event", "EVENT_ERROR: %s", err)
+              Log.Logf("event", "EVENT_ERROR: %s", err)
             }
             info.state = "done"
             FinishEvent(event)
@@ -535,7 +535,7 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
     for _, resource := range(needed_resources) {
       _, exists := queue.listened_resources[resource.ID()]
       if exists == false {
-        log.Logf("event", "REGISTER_RESOURCE: %s - %s", queue.Name(), resource.Name())
+        Log.Logf("event", "REGISTER_RESOURCE: %s - %s", queue.Name(), resource.Name())
         queue.listened_resources[resource.ID()] = resource
         resource.RegisterChannel(queue.signal)
       }

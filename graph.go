@@ -7,7 +7,6 @@ import (
   "os"
   "github.com/rs/zerolog"
   "fmt"
-  "io"
 )
 
 type Logger interface {
@@ -17,28 +16,16 @@ type Logger interface {
 }
 
 type DefaultLogger struct {
-  init bool
   init_lock sync.Mutex
   Loggers map[string]zerolog.Logger
   Components []string
 }
 
-var log DefaultLogger = DefaultLogger{Loggers: map[string]zerolog.Logger{}, Components: []string{"event"}}
+var Log DefaultLogger = DefaultLogger{Loggers: map[string]zerolog.Logger{}, Components: []string{}}
 
 func (logger * DefaultLogger) Init(components []string) error {
   logger.init_lock.Lock()
   defer logger.init_lock.Unlock()
-
-  if logger.init == true {
-    return nil
-  }
-
-  logger.init = true
-
-  file, err := os.OpenFile("test.log", os.O_TRUNC|os.O_CREATE|os.O_WRONLY, 0666)
-  if err != nil {
-    return err
-  }
 
   component_enabled := func (component string) bool {
     for _, c := range(components) {
@@ -49,17 +36,22 @@ func (logger * DefaultLogger) Init(components []string) error {
     return false
   }
 
-  writer := io.MultiWriter(file, os.Stdout)
-  for _, c := range(logger.Components) {
-    if component_enabled(c) == true {
-      logger.Loggers[c] = zerolog.New(writer).With().Timestamp().Str("component", c).Logger()
+  for c, _ := range(logger.Loggers) {
+    if component_enabled(c) == false {
+      delete(logger.Loggers, c)
+    }
+  }
+
+  for _, c := range(components) {
+    _, exists := logger.Loggers[c]
+    if component_enabled(c) == true && exists == false {
+      logger.Loggers[c] = zerolog.New(os.Stdout).With().Timestamp().Str("component", c).Logger()
     }
   }
   return nil
 }
 
 func (logger * DefaultLogger) Logm(component string, fields map[string]interface{}, format string, items ... interface{}) {
-  logger.Init(logger.Components)
   l, exists := logger.Loggers[component]
   if exists == true {
     log := l.Log()
@@ -71,7 +63,6 @@ func (logger * DefaultLogger) Logm(component string, fields map[string]interface
 }
 
 func (logger * DefaultLogger) Logf(component string, format string, items ... interface{}) {
-  logger.Init(logger.Components)
   l, exists := logger.Loggers[component]
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))
@@ -161,7 +152,7 @@ func NewBaseNode(name string, description string, id string) BaseNode {
     signal: make(chan GraphSignal, 512),
     listeners: map[chan GraphSignal]chan GraphSignal{},
   }
-  log.Logf("graph", "NEW_NODE: %s - %s", node.ID(), node.Name())
+  Log.Logf("graph", "NEW_NODE: %s - %s", node.ID(), node.Name())
   return node
 }
 
@@ -227,11 +218,11 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
   closed := []chan GraphSignal{}
 
   for _, listener := range node.listeners {
-    log.Logf("listeners", "UPDATE_LISTENER %s: %p", node.Name(), listener)
+    Log.Logf("listeners", "UPDATE_LISTENER %s: %p", node.Name(), listener)
     select {
     case listener <- update:
     default:
-      log.Logf("listeners", "CLOSED_LISTENER: %s: %p", node.Name(), listener)
+      Log.Logf("listeners", "CLOSED_LISTENER: %s: %p", node.Name(), listener)
       go func(node GraphNode, listener chan GraphSignal) {
         listener <- NewSignal(node, "listener_closed")
         close(listener)
@@ -255,7 +246,7 @@ func SendUpdate(node GraphNode, signal GraphSignal) {
   if node != nil {
     node_name = node.Name()
   }
-  log.Logf("update", "UPDATE %s <- %s: %+v", node_name, signal.Source(), signal)
+  Log.Logf("update", "UPDATE %s <- %s: %+v", node_name, signal.Source(), signal)
   node.UpdateListeners(signal)
   node.PropagateUpdate(signal)
 }

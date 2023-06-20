@@ -204,17 +204,17 @@ func enableCORS(w *http.ResponseWriter) {
 
 func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
-    log.Logf("gql", "GQL REQUEST: %s", r.RemoteAddr)
+    Log.Logf("gql", "GQL REQUEST: %s", r.RemoteAddr)
     enableCORS(&w)
     header_map := map[string]interface{}{}
     for header, value := range(r.Header) {
       header_map[header] = value
     }
-    log.Logm("gql", header_map, "REQUEST_HEADERS")
+    Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
     str, err := io.ReadAll(r.Body)
     if err != nil {
-      log.Logf("gql", "failed to read request body: %s", err)
+      Log.Logf("gql", "failed to read request body: %s", err)
       return
     }
     query := GQLWSPayload{}
@@ -236,7 +236,7 @@ func GQLHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWr
       extra_fields := map[string]interface{}{}
       extra_fields["body"] = string(str)
       extra_fields["headers"] = r.Header
-      log.Logm("gql", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
+      Log.Logm("gql", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
     }
     json.NewEncoder(w).Encode(result)
   }
@@ -279,7 +279,7 @@ func getOperationTypeOfReq(p graphql.Params) string{
 
 func GQLWSDo(p graphql.Params) chan *graphql.Result {
   operation := getOperationTypeOfReq(p)
-  log.Logf("gqlws", "GQLWSDO_OPERATION: %s %+v", operation, p.RequestString)
+  Log.Logf("gqlws", "GQLWSDO_OPERATION: %s %+v", operation, p.RequestString)
 
   if operation == ast.OperationTypeSubscription {
     return graphql.Subscribe(p)
@@ -291,15 +291,15 @@ func GQLWSDo(p graphql.Params) chan *graphql.Result {
 
 func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
-    log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
+    Log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
     header_map := map[string]interface{}{}
     for header, value := range(r.Header) {
       header_map[header] = value
     }
-    log.Logm("gql", header_map, "REQUEST_HEADERS")
+    Log.Logm("gql", header_map, "REQUEST_HEADERS")
     u := ws.HTTPUpgrader{
       Protocol: func(protocol string) bool {
-        log.Logf("gqlws", "UPGRADE_PROTOCOL: %s", string(protocol))
+        Log.Logf("gqlws", "UPGRADE_PROTOCOL: %s", string(protocol))
         return string(protocol) == "graphql-transport-ws"
       },
     }
@@ -310,32 +310,32 @@ func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.Response
       for {
         // TODO: Make this a select between reading client data and getting updates from the event to push to clients"
         msg_raw, op, err := wsutil.ReadClientData(conn)
-        log.Logf("gqlws_hb", "MSG: %s\nOP: 0x%02x\nERR: %+v\n", string(msg_raw), op, err)
+        Log.Logf("gqlws_hb", "MSG: %s\nOP: 0x%02x\nERR: %+v\n", string(msg_raw), op, err)
         msg := GQLWSMsg{}
         json.Unmarshal(msg_raw, &msg)
         if err != nil {
-          log.Logf("gqlws", "WS_CLIENT_ERROR")
+          Log.Logf("gqlws", "WS_CLIENT_ERROR")
           break
         }
         if msg.Type == "connection_init" {
           if conn_state != "init" {
-            log.Logf("gqlws", "WS_CLIENT_ERROR: INIT WHILE IN %s", conn_state)
+            Log.Logf("gqlws", "WS_CLIENT_ERROR: INIT WHILE IN %s", conn_state)
             break
           }
           conn_state = "ready"
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"connection_ack\"}"))
           if err != nil {
-            log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND connection_ack")
+            Log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND connection_ack")
             break
           }
         } else if msg.Type == "ping" {
-          log.Logf("gqlws_hb", "PING FROM %s", r.RemoteAddr)
+          Log.Logf("gqlws_hb", "PING FROM %s", r.RemoteAddr)
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"pong\"}"))
           if err != nil {
-            log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND PONG")
+            Log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND PONG")
           }
         } else if msg.Type == "subscribe" {
-          log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
+          Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
           params := graphql.Params{
             Schema: schema,
             Context: ctx,
@@ -354,23 +354,23 @@ func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.Response
             for {
               next, ok := <-res_chan
               if ok == false {
-                log.Logf("gqlws", "response channel was closed")
+                Log.Logf("gqlws", "response channel was closed")
                 return
               }
               if next == nil {
-                log.Logf("gqlws", "NIL_ON_CHANNEL")
+                Log.Logf("gqlws", "NIL_ON_CHANNEL")
                 return
               }
               if len(next.Errors) > 0 {
                 extra_fields := map[string]interface{}{}
                 extra_fields["query"] = string(msg.Payload.Query)
-                log.Logm("gqlws", extra_fields, "ERROR: wrong result, unexpected errors: %+v", next.Errors)
+                Log.Logm("gqlws", extra_fields, "ERROR: wrong result, unexpected errors: %+v", next.Errors)
                 continue
               }
-              log.Logf("gqlws", "DATA: %+v", next.Data)
+              Log.Logf("gqlws", "DATA: %+v", next.Data)
               data, err := json.Marshal(next.Data)
               if err != nil {
-                log.Logf("gqlws", "ERROR: %+v", err)
+                Log.Logf("gqlws", "ERROR: %+v", err)
                 continue
               }
               msg, err := json.Marshal(GQLWSMsg{
@@ -381,13 +381,13 @@ func GQLWSHandler(schema graphql.Schema, ctx context.Context) func(http.Response
                 },
               })
               if err != nil {
-                log.Logf("gqlws", "ERROR: %+v", err)
+                Log.Logf("gqlws", "ERROR: %+v", err)
                 continue
               }
 
               err = wsutil.WriteServerMessage(conn, 1, msg)
               if err != nil {
-                log.Logf("gqlws", "ERROR: %+v", err)
+                Log.Logf("gqlws", "ERROR: %+v", err)
                 continue
               }
             }
@@ -871,7 +871,7 @@ func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object
   }
 
   go func() {
-    log.Logf("gql", "GOROUTINE_START for %s", server.ID())
+    Log.Logf("gql", "GOROUTINE_START for %s", server.ID())
 
     mux := http.NewServeMux()
     http_handler, ws_handler := MakeGQLHandlers(server)
@@ -907,7 +907,7 @@ func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object
           http_done.Wait()
           break
         }
-        log.Logf("gql", "GOROUTINE_SIGNAL for %s: %+v", server.ID(), signal)
+        Log.Logf("gql", "GOROUTINE_SIGNAL for %s: %+v", server.ID(), signal)
         // Take signals to resource and send to GQL subscriptions
       }
     }
@@ -943,7 +943,7 @@ func GQLSubscribeFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.Resolv
       }
       ret, err := fn(val, p)
       if err != nil {
-        log.Logf("gqlws", "type convertor error %s", err)
+        Log.Logf("gqlws", "type convertor error %s", err)
         return
       }
       c <- ret
