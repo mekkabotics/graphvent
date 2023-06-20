@@ -1,4 +1,4 @@
-module github.com/mekkabotics/graphvent
+module github.com/mekkanized/graphvent
 
 go 1.20
 
