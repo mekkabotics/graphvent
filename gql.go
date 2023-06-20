@@ -860,7 +860,7 @@ type GQLServer struct {
 
 func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object, extended_queries map[string]*graphql.Field, extended_mutations map[string]*graphql.Field, extended_subscriptions map[string]*graphql.Field) * GQLServer {
   server := &GQLServer{
-    BaseResource: NewBaseResource("GQL Server", "graphql server for event signals", []Resource{}),
+    BaseResource: NewBaseResource("GQL Server", "graphql server for event signals"),
     listen: listen,
     abort: make(chan error, 1),
     gql_channel: make(chan error, 1),

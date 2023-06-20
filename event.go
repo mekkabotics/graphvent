@@ -21,7 +21,7 @@ func (event * BaseEvent) PropagateUpdate(signal GraphSignal) {
 
     event.rr_lock.Lock()
     defer event.rr_lock.Unlock()
-    for _, resource := range(event.required_resources) {
+    for _, resource := range(event.resources) {
       SendUpdate(resource, signal)
     }
   } else {
@@ -70,7 +70,8 @@ type Event interface {
   UnlockParent()
   Action(action string) (func()(string, error), bool)
   Handler(signal_type string) (func(GraphSignal) (string, error), bool)
-  RequiredResources() []Resource
+  Resources() []Resource
+  AddResource(Resource) error
   DoneResource() Resource
   SetTimeout(end_time time.Time, action string)
   ClearTimeout()
@@ -82,6 +83,20 @@ type Event interface {
 
   addChild(child Event, info EventInfo)
   setParent(parent Event)
+}
+
+func (event * BaseEvent) AddResource(resource Resource) error {
+  event.resources_lock.Lock()
+  defer event.resources_lock.Unlock()
+
+  for _, r := range(event.resources) {
+    if r.ID() == resource.ID() {
+      return fmt.Errorf("%s is already required for %s, cannot add again", resource.Name(), event.Name())
+    }
+  }
+
+  event.resources = append(event.resources, resource)
+  return nil
 }
 
 func (event * BaseEvent) Signal() chan GraphSignal {
@@ -112,7 +127,7 @@ func (event * BaseEvent) Handler(signal_type string) (func(GraphSignal)(string, 
 }
 
 func FindResources(event Event, resource_type reflect.Type) []Resource {
-  resources := event.RequiredResources()
+  resources := event.Resources()
   found := []Resource{}
   for _, resource := range(resources) {
     if reflect.TypeOf(resource) == resource_type {
@@ -136,7 +151,7 @@ func FindResources(event Event, resource_type reflect.Type) []Resource {
 }
 
 func FindRequiredResource(event Event, id string) Resource {
-  for _, resource := range(event.RequiredResources()) {
+  for _, resource := range(event.Resources()) {
     if resource.ID() == id {
       return resource
     }
@@ -179,9 +194,9 @@ func CheckInfoType(event Event, info EventInfo) bool {
   return event.InfoType() == reflect.TypeOf(info)
 }
 
-func AddChild(event Event, child Event, info EventInfo) error {
+func LinkEvent(event Event, child Event, info EventInfo) error {
   if CheckInfoType(event, info) == false {
-    return errors.New("AddChild got wrong type")
+    return errors.New("LinkEvents got wrong type")
   }
 
   event.LockParent()
@@ -214,6 +229,32 @@ func AddChild(event Event, child Event, info EventInfo) error {
   SendUpdate(event, NewSignal(event, "child_added"))
   return nil
 }
+
+func StartRootEvent(event Event) error {
+  log.Logf("event", "ROOT_EVEN_START")
+
+  err := LockResources(event)
+  if err != nil {
+    log.Logf("event", "ROOT_EVENT_LOCK_ERR: %s", err)
+    return err
+  }
+
+  err = RunEvent(event)
+  if err != nil {
+    log.Logf("event", "ROOT_EVENT_RUNE_ERR: %s", err)
+    return err
+  }
+
+  err = FinishEvent(event)
+  if err != nil {
+    log.Logf("event", "ROOT_EVENT_FINISH_ERR: %s", err)
+    return err
+  }
+  log.Logf("event", "ROOT_EVENT_DONE")
+
+  return nil
+}
+
 
 func RunEvent(event Event) error {
   log.Logf("event", "EVENT_RUN: %s", event.Name())
@@ -252,10 +293,10 @@ func EventCancel(event Event) func(signal GraphSignal) (string, error) {
 }
 
 func LockResources(event Event) error {
-  log.Logf("event", "RESOURCE_LOCKING for %s - %+v", event.Name(), event.RequiredResources())
+  log.Logf("event", "RESOURCE_LOCKING for %s - %+v", event.Name(), event.Resources())
   locked_resources := []Resource{}
   var lock_err error = nil
-  for _, resource := range(event.RequiredResources()) {
+  for _, resource := range(event.Resources()) {
     err := LockResource(resource, event)
     if err != nil {
       lock_err = err
@@ -279,7 +320,7 @@ func LockResources(event Event) error {
 
 func FinishEvent(event Event) error {
   log.Logf("event", "EVENT_FINISH: %s", event.Name())
-  for _, resource := range(event.RequiredResources()) {
+  for _, resource := range(event.Resources()) {
     err := UnlockResource(resource, event)
     if err != nil {
       panic(err)
@@ -313,7 +354,8 @@ type BaseEvent struct {
   BaseNode
   done_resource Resource
   rr_lock sync.Mutex
-  required_resources []Resource
+  resources []Resource
+  resources_lock sync.Mutex
   children []Event
   children_lock sync.Mutex
   child_info map[string]EventInfo
@@ -351,15 +393,15 @@ func EventWait(event Event) (func() (string, error)) {
   }
 }
 
-func NewBaseEvent(name string, description string, required_resources []Resource) (BaseEvent) {
-  done_resource := NewResource("event_done", "signal that event is done", []Resource{})
+func NewBaseEvent(name string, description string) (BaseEvent) {
+  done_resource, _ := NewResource("event_done", "signal that event is done", []Resource{})
   event := BaseEvent{
     BaseNode: NewBaseNode(name, description, randid()),
     parent: nil,
     children: []Event{},
     child_info: map[string]EventInfo{},
     done_resource: done_resource,
-    required_resources: required_resources,
+    resources: []Resource{},
     Actions: map[string]func()(string, error){},
     Handlers: map[string]func(GraphSignal)(string, error){},
     abort: make(chan string, 1),
@@ -372,9 +414,24 @@ func NewBaseEvent(name string, description string, required_resources []Resource
   return event
 }
 
-func NewEvent(name string, description string, required_resources []Resource) (* BaseEvent) {
-  event := NewBaseEvent(name, description, required_resources)
+func AddResources(event Event, resources []Resource) error {
+  for _, r := range(resources) {
+    err := event.AddResource(r)
+    if err != nil {
+      return err
+    }
+  }
+  return nil
+}
+
+func NewEvent(name string, description string, resources []Resource) (* BaseEvent, error) {
+  event := NewBaseEvent(name, description)
   event_ptr := &event
+
+  err := AddResources(event_ptr, resources)
+  if err != nil {
+    return nil, err
+  }
 
   event_ptr.Actions["wait"] = EventWait(event_ptr)
   event_ptr.Handlers["abort"] = EventAbort(event_ptr)
@@ -384,7 +441,7 @@ func NewEvent(name string, description string, required_resources []Resource) (*
     return "", nil
   }
 
-  return event_ptr
+  return event_ptr, nil
 }
 
 func (event * BaseEvent) finish() error {
@@ -414,11 +471,13 @@ func (queue * EventQueue) InfoType() reflect.Type {
   return reflect.TypeOf((*EventQueueInfo)(nil))
 }
 
-func NewEventQueue(name string, description string, required_resources []Resource) (* EventQueue) {
+func NewEventQueue(name string, description string, resources []Resource) (* EventQueue, error) {
   queue := &EventQueue{
-    BaseEvent: NewBaseEvent(name, description, required_resources),
+    BaseEvent: NewBaseEvent(name, description),
     listened_resources: map[string]Resource{},
   }
+
+  AddResources(queue, resources)
 
   queue.Actions["wait"] = EventWait(queue)
   queue.Handlers["abort"] = EventAbort(queue)
@@ -443,7 +502,7 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     needed_resources := map[string]Resource{}
     for _, event := range(copied_events) {
       // make sure all the required resources are registered to update the event
-      for _, resource := range(event.RequiredResources()) {
+      for _, resource := range(event.Resources()) {
         needed_resources[resource.ID()] = resource
       }
 
@@ -501,15 +560,15 @@ func NewEventQueue(name string, description string, required_resources []Resourc
     return "queue_event", nil
   }
 
-  return queue
+  return queue, nil
 }
 
 func (event * BaseEvent) Parent() Event {
   return event.parent
 }
 
-func (event * BaseEvent) RequiredResources() []Resource {
-  return event.required_resources
+func (event * BaseEvent) Resources() []Resource {
+  return event.resources
 }
 
 func (event * BaseEvent) DoneResource() Resource {

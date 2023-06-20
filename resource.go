@@ -12,8 +12,8 @@ func (resource * BaseResource) PropagateUpdate(signal GraphSignal) {
 
   if signal.Downwards() == false {
     // Child->Parent, resource updates parent resources
-    resource.parents_lock.Lock()
-    defer resource.parents_lock.Unlock()
+    resource.connection_lock.Lock()
+    defer resource.connection_lock.Unlock()
     for _, parent := range resource.Parents() {
       SendUpdate(parent, signal)
     }
@@ -25,8 +25,8 @@ func (resource * BaseResource) PropagateUpdate(signal GraphSignal) {
       SendUpdate(resource.lock_holder, signal)
     }
 
-    resource.children_lock.Lock()
-    defer resource.children_lock.Unlock()
+    resource.connection_lock.Lock()
+    defer resource.connection_lock.Unlock()
     for _, child := range(resource.children) {
       SendUpdate(child, signal)
     }
@@ -43,9 +43,10 @@ type Resource interface {
   Children() []Resource
   Parents() []Resource
 
-  AddParent(parent Resource) error
-  LockParents()
-  UnlockParents()
+  AddParent(parent Resource)
+  AddChild(child Resource)
+  LockConnections()
+  UnlockConnections()
 
   SetOwner(owner GraphNode)
   LockState()
@@ -56,24 +57,46 @@ type Resource interface {
   unlock(node GraphNode) error
 }
 
-func AddParent(resource Resource, parent Resource) error {
-  if parent.ID() == resource.ID() {
-    error_str := fmt.Sprintf("Will not add %s as parent of itself", parent.Name())
-    return errors.New(error_str)
+// Recurse up cur's parents to ensure r is not present
+func checkIfParent(r Resource, cur Resource) bool {
+  if r == nil || cur == nil {
+    panic("Cannot recurse DAG with nil")
   }
 
-  resource.LockParents()
-  for _, p := range resource.Parents() {
-    if p.ID() == parent.ID() {
-      error_str := fmt.Sprintf("%s is already a parent of %s, will not double-bond", p.Name(), resource.Name())
-      return errors.New(error_str)
+  if r.ID() == cur.ID() {
+    return true
+  }
+
+  cur.LockConnections()
+  defer cur.UnlockConnections()
+  for _, p := range(cur.Parents()) {
+    if checkIfParent(r, p) == true {
+      return true
     }
   }
 
-  err := resource.AddParent(parent)
-  resource.UnlockParents()
+  return false
+}
 
-  return err
+// Recurse doen cur's children to ensure r is not present
+func checkIfChild(r Resource, cur Resource) bool {
+  if r == nil || cur == nil {
+    panic("Cannot recurse DAG with nil")
+  }
+
+  if r.ID() == cur.ID() {
+    return true
+  }
+
+  cur.LockConnections()
+  defer cur.UnlockConnections()
+  for _, c := range(cur.Children()) {
+    if checkIfChild(r, c) == true {
+      return true
+    }
+  }
+
+  return false
 }
 
 func UnlockResource(resource Resource, event Event) error {
@@ -149,9 +172,8 @@ func LockResource(resource Resource, node GraphNode) error {
 type BaseResource struct {
   BaseNode
   parents []Resource
-  parents_lock sync.Mutex
   children []Resource
-  children_lock sync.Mutex
+  connection_lock sync.Mutex
   lock_holder GraphNode
   lock_holder_lock sync.Mutex
   state_lock sync.Mutex
@@ -196,30 +218,72 @@ func (resource * BaseResource) Parents() []Resource {
   return resource.parents
 }
 
-func (resource * BaseResource) LockParents() {
-  resource.parents_lock.Lock()
+func (resource * BaseResource) LockConnections() {
+  resource.connection_lock.Lock()
 }
 
-func (resource * BaseResource) UnlockParents() {
-  resource.parents_lock.Unlock()
+func (resource * BaseResource) UnlockConnections() {
+  resource.connection_lock.Unlock()
 }
 
-func (resource * BaseResource) AddParent(parent Resource) error {
+func (resource * BaseResource) AddParent(parent Resource) {
   resource.parents = append(resource.parents, parent)
-  return nil
 }
 
-func NewBaseResource(name string, description string, children []Resource) BaseResource {
+func (resource * BaseResource) AddChild(child Resource) {
+  resource.children = append(resource.children, child)
+}
+
+func NewBaseResource(name string, description string) BaseResource {
   resource := BaseResource{
     BaseNode: NewBaseNode(name, description, randid()),
     parents: []Resource{},
-    children: children,
+    children: []Resource{},
   }
 
   return resource
 }
 
-func NewResource(name string, description string, children []Resource) * BaseResource {
-  resource := NewBaseResource(name, description, children)
-  return &resource
+func LinkResource(resource Resource, child Resource) error {
+  if child == nil || resource == nil {
+    return fmt.Errorf("Will not connect nil to resource DAG")
+  } else if child.ID() == resource.ID() {
+    return fmt.Errorf("Will not connect resource to itself")
+  }
+
+  if checkIfChild(resource, child) {
+    return fmt.Errorf("%s is a child of %s, cannot add as parent", resource.Name(), child.Name())
+  }
+
+  for _, p := range(resource.Parents()) {
+    if checkIfParent(child, p) {
+      return fmt.Errorf("Will not add %s as a parent of itself", child.Name())
+    }
+  }
+
+  child.AddParent(resource)
+  resource.AddChild(child)
+  return nil
+}
+
+func LinkResources(resource Resource, children []Resource) error {
+  for _, c := range(children) {
+    err := LinkResource(resource, c)
+    if err != nil {
+      return err
+    }
+  }
+  return nil
+}
+
+func NewResource(name string, description string, children []Resource) (* BaseResource, error) {
+  resource := NewBaseResource(name, description)
+  resource_ptr := &resource
+
+  err := LinkResources(resource_ptr, children)
+  if err != nil {
+    return nil, err
+  }
+
+  return resource_ptr, nil
 }
