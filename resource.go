@@ -52,7 +52,6 @@ type Resource interface {
   LockState()
   UnlockState()
 
-  Init(abort chan error) bool
   lock(node GraphNode) error
   unlock(node GraphNode) error
 }
@@ -191,10 +190,6 @@ func (resource * BaseResource) LockState() {
 
 func (resource * BaseResource) UnlockState() {
   resource.state_lock.Unlock()
-}
-
-func (resource * BaseResource) Init(abort chan error) bool {
-  return false
 }
 
 func (resource * BaseResource) Owner() GraphNode {

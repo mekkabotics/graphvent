@@ -870,6 +870,49 @@ func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object
     extended_subscriptions: extended_subscriptions,
   }
 
+  go func() {
+    log.Logf("gql", "GOROUTINE_START for %s", server.ID())
+
+    mux := http.NewServeMux()
+    http_handler, ws_handler := MakeGQLHandlers(server)
+    mux.HandleFunc("/gql", http_handler)
+    mux.HandleFunc("/gqlws", ws_handler)
+    mux.HandleFunc("/graphiql", GraphiQLHandler())
+    fs := http.FileServer(http.Dir("./site"))
+    mux.Handle("/site/", http.StripPrefix("/site", fs))
+
+    srv := &http.Server{
+      Addr: server.listen,
+      Handler: mux,
+    }
+
+    http_done := &sync.WaitGroup{}
+    http_done.Add(1)
+    go func(srv *http.Server, http_done *sync.WaitGroup) {
+      defer http_done.Done()
+      err := srv.ListenAndServe()
+      if err != http.ErrServerClosed {
+        panic(fmt.Sprintf("Failed to start gql server: %s", err))
+      }
+    }(srv, http_done)
+
+    for true {
+      select {
+      case signal:=<-server.signal:
+        if signal.Type() == "abort" || signal.Type() == "cancel" {
+          err := srv.Shutdown(context.Background())
+          if err != nil{
+            panic(fmt.Sprintf("Failed to shutdown gql server: %s", err))
+          }
+          http_done.Wait()
+          break
+        }
+        log.Logf("gql", "GOROUTINE_SIGNAL for %s: %+v", server.ID(), signal)
+        // Take signals to resource and send to GQL subscriptions
+      }
+    }
+  }()
+
   return server
 }
 
@@ -1013,50 +1056,4 @@ func GQLQueryOwner() *graphql.Field {
   }
 
   return gql_query_owner
-}
-
-func (server * GQLServer) Init(abort chan error) bool {
-  go func(abort chan error) {
-    log.Logf("gql", "GOROUTINE_START for %s", server.ID())
-
-    mux := http.NewServeMux()
-    http_handler, ws_handler := MakeGQLHandlers(server)
-    mux.HandleFunc("/gql", http_handler)
-    mux.HandleFunc("/gqlws", ws_handler)
-    mux.HandleFunc("/graphiql", GraphiQLHandler())
-    fs := http.FileServer(http.Dir("./site"))
-    mux.Handle("/site/", http.StripPrefix("/site", fs))
-
-    srv := &http.Server{
-      Addr: server.listen,
-      Handler: mux,
-    }
-
-    http_done := &sync.WaitGroup{}
-    http_done.Add(1)
-    go func(srv *http.Server, http_done *sync.WaitGroup) {
-      defer http_done.Done()
-      err := srv.ListenAndServe()
-      if err != http.ErrServerClosed {
-        panic(fmt.Sprintf("Failed to start gql server: %s", err))
-      }
-    }(srv, http_done)
-
-    for true {
-      select {
-      case <-abort:
-        log.Logf("gql", "GOROUTINE_ABORT for %s", server.ID())
-        err := srv.Shutdown(context.Background())
-        if err != nil{
-          panic(fmt.Sprintf("Failed to shutdown gql server: %s", err))
-        }
-        http_done.Wait()
-        break
-      case signal:=<-server.signal:
-        log.Logf("gql", "GOROUTINE_SIGNAL for %s: %+v", server.ID(), signal)
-        // Take signals to resource and send to GQL subscriptions
-      }
-    }
-  }(abort)
-  return true
 }
