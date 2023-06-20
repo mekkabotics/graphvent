@@ -52,8 +52,14 @@ type Resource interface {
   LockState()
   UnlockState()
 
+  String() string
+
   lock(node GraphNode) error
   unlock(node GraphNode) error
+}
+
+func (resource * BaseResource) String() string {
+  return resource.Name()
 }
 
 // Recurse up cur's parents to ensure r is not present

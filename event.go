@@ -309,9 +309,11 @@ func LockResources(event Event) error {
     for _, resource := range(locked_resources) {
       UnlockResource(resource, event)
     }
+    log.Logf("event", "RESOURCE_LOCK_FAIL for %s: %s", event.Name(), lock_err)
     return lock_err
   }
 
+  log.Logf("event", "RESOURCE_LOCK_SUCCESS for %s", event.Name())
   signal := NewDownSignal(event, "locked")
   SendUpdate(event, signal)
 
