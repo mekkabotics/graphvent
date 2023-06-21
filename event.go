@@ -71,6 +71,7 @@ type Event interface {
   Action(action string) (func()(string, error), bool)
   Handler(signal_type string) (func(GraphSignal) (string, error), bool)
   Resources() []Resource
+  Resource(id string) Resource
   AddResource(Resource) error
   DoneResource() Resource
   SetTimeout(end_time time.Time, action string)
@@ -89,13 +90,12 @@ func (event * BaseEvent) AddResource(resource Resource) error {
   event.resources_lock.Lock()
   defer event.resources_lock.Unlock()
 
-  for _, r := range(event.resources) {
-    if r.ID() == resource.ID() {
-      return fmt.Errorf("%s is already required for %s, cannot add again", resource.Name(), event.Name())
-    }
+  _, exists := event.resources[resource.ID()]
+  if exists == true {
+    return fmt.Errorf("%s is already required for %s, cannot add again", resource.Name(), event.Name())
   }
 
-  event.resources = append(event.resources, resource)
+  event.resources[resource.ID()] = resource
   return nil
 }
 
@@ -124,47 +124,6 @@ func (event * BaseEvent) SetTimeout(end_time time.Time, action string) {
 func (event * BaseEvent) Handler(signal_type string) (func(GraphSignal)(string, error), bool) {
   handler, exists := event.Handlers[signal_type]
   return handler, exists
-}
-
-func FindResources(event Event, resource_type reflect.Type) []Resource {
-  resources := event.Resources()
-  found := []Resource{}
-  for _, resource := range(resources) {
-    if reflect.TypeOf(resource) == resource_type {
-      found = append(found, resource)
-    }
-  }
-
-  for _, child := range(event.Children()) {
-    found = append(found, FindResources(child, resource_type)...)
-  }
-
-  m := map[string]Resource{}
-  for _, resource := range(found) {
-    m[resource.ID()] = resource
-  }
-  ret := []Resource{}
-  for _, resource := range(m) {
-    ret = append(ret, resource)
-  }
-  return ret
-}
-
-func FindRequiredResource(event Event, id string) Resource {
-  for _, resource := range(event.Resources()) {
-    if resource.ID() == id {
-      return resource
-    }
-  }
-
-  for _, child := range(event.Children()) {
-    result := FindRequiredResource(child, id)
-    if result != nil {
-      return result
-    }
-  }
-
-  return nil
 }
 
 func FindChild(event Event, id string) Event {
@@ -345,7 +304,7 @@ type BaseEvent struct {
   BaseNode
   done_resource Resource
   rr_lock sync.Mutex
-  resources []Resource
+  resources map[string]Resource
   resources_lock sync.Mutex
   children []Event
   children_lock sync.Mutex
@@ -392,7 +351,7 @@ func NewBaseEvent(name string, description string) (BaseEvent) {
     children: []Event{},
     child_info: map[string]EventInfo{},
     done_resource: done_resource,
-    resources: []Resource{},
+    resources: map[string]Resource{},
     Actions: map[string]func()(string, error){},
     Handlers: map[string]func(GraphSignal)(string, error){},
     abort: make(chan string, 1),
@@ -566,7 +525,16 @@ func (event * BaseEvent) Parent() Event {
 }
 
 func (event * BaseEvent) Resources() []Resource {
-  return event.resources
+  resources := []Resource{}
+  for _, val := range(event.resources) {
+    resources = append(resources, val)
+  }
+  return resources
+}
+
+func (event * BaseEvent) Resource(id string) Resource {
+  resource, _ := event.resources[id]
+  return resource
 }
 
 func (event * BaseEvent) DoneResource() Resource {

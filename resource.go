@@ -259,6 +259,25 @@ func NewBaseResource(name string, description string) BaseResource {
   return resource
 }
 
+func FindResource(root Event, id string) Resource {
+  if root == nil || id == ""{
+    panic("invalid input")
+  }
+
+  for _, resource := range(root.Resources()) {
+    if resource.ID() == id {
+      return resource
+    }
+  }
+  for _, child := range(root.Children()) {
+    resource := FindResource(child, id)
+    if resource != nil {
+      return resource
+    }
+  }
+  return nil
+}
+
 func LinkResource(resource Resource, child Resource) error {
   if child == nil || resource == nil {
     return fmt.Errorf("Will not connect nil to resource DAG")

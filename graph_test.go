@@ -64,7 +64,7 @@ func TestNewEventWithResource(t *testing.T) {
     t.Fatal(err)
   }
 
-  res := FindRequiredResource(root_event, test_resource.ID())
+  res := FindResource(root_event, test_resource.ID())
   if res == nil {
     t.Fatal("Failed to find Resource in EventManager after adding")
   }
