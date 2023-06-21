@@ -541,6 +541,14 @@ func GQLResourceOwner(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+func GQLResourceChildren(p graphql.ResolveParams) (interface{}, error) {
+  return GQLResourceFn(p, func(resource Resource, p graphql.ResolveParams) (interface{}, error) {
+    return resource.Children(), nil
+  })
+}
+
+
+
 var gql_type_gql_server *graphql.Object = nil
 func GQLTypeGQLServer() * graphql.Object {
   if gql_type_gql_server == nil {
@@ -579,7 +587,7 @@ func GQLTypeGQLServer() * graphql.Object {
 
     gql_type_gql_server.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListResource(),
-      Resolve: GQLResourceParents,
+      Resolve: GQLResourceChildren,
     })
 
     gql_type_gql_server.AddFieldConfig("Owner", &graphql.Field{
@@ -628,7 +636,7 @@ func GQLTypeBaseResource() * graphql.Object {
 
     gql_type_gql_server.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListResource(),
-      Resolve: GQLResourceParents,
+      Resolve: GQLResourceChildren,
     })
 
     gql_type_base_resource.AddFieldConfig("Owner", &graphql.Field{
