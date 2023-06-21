@@ -360,6 +360,9 @@ func TestDelegateLock(t * testing.T) {
 
   go func() {
     (*GraphTester)(t).WaitForValue(test_listener, "event_done", test_event, 250 * time.Millisecond, "No event_done for test_event")
+    if test_resource.Owner().ID() != root_event.ID() {
+      t.Fatal("Lock failed to pass back to root_event")
+    }
     abort_signal := NewDownSignal(nil, "cancel")
     SendUpdate(root_event, abort_signal)
   }()
