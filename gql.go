@@ -433,6 +433,12 @@ func GQLEventChildren(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+func GQLEventResources(p graphql.ResolveParams) (interface{}, error) {
+  return GQLEventFn(p, func(event Event, p graphql.ResolveParams)(interface{}, error) {
+    return event.Resources(), nil
+  })
+}
+
 var gql_list_resource * graphql.List = nil
 func GQLListResource() * graphql.List {
   if gql_list_resource == nil {
@@ -608,6 +614,10 @@ func GQLInterfaceEvent() * graphql.Interface {
       gql_list_event = graphql.NewList(gql_interface_event)
     }
 
+    if gql_list_resource == nil {
+      gql_list_resource = graphql.NewList(GQLInterfaceResource())
+    }
+
     gql_interface_event.AddFieldConfig("ID", &graphql.Field{
       Type: graphql.String,
     })
@@ -622,6 +632,10 @@ func GQLInterfaceEvent() * graphql.Interface {
 
     gql_interface_event.AddFieldConfig("Children", &graphql.Field{
       Type: gql_list_event,
+    })
+
+    gql_interface_event.AddFieldConfig("Resources", &graphql.Field{
+      Type: gql_list_resource,
     })
   }
 
@@ -662,6 +676,11 @@ func GQLTypeBaseEvent() * graphql.Object {
       Type: GQLListEvent(),
       Resolve: GQLEventChildren,
     })
+
+    gql_type_base_event.AddFieldConfig("Resources", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLEventResources,
+    })
   }
 
   return gql_type_base_event
@@ -697,6 +716,10 @@ func GQLTypeEventQueue() * graphql.Object {
     gql_type_event_queue.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListEvent(),
       Resolve: GQLEventChildren,
+    })
+    gql_type_event_queue.AddFieldConfig("Resources", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLEventResources,
     })
   }
   return gql_type_event_queue
