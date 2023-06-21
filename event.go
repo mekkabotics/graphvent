@@ -553,6 +553,14 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
   return queue, nil
 }
 
+func (event * BaseEvent) Allowed() []GraphNode {
+  ret := make([]GraphNode, len(event.children))
+  for i, v := range(event.children) {
+    ret[i] = v
+  }
+  return ret
+}
+
 func (event * BaseEvent) Parent() Event {
   return event.parent
 }

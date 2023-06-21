@@ -136,6 +136,9 @@ type GraphNode interface {
   Name() string
   Description() string
   ID() string
+  Allowed() []GraphNode
+  Delegator(id string) GraphNode
+  TakeLock(resource Resource)
   UpdateListeners(update GraphSignal)
   PropagateUpdate(update GraphSignal)
   RegisterChannel(listener chan GraphSignal)
@@ -151,6 +154,7 @@ func NewBaseNode(name string, description string, id string) BaseNode {
     id: id,
     signal: make(chan GraphSignal, 512),
     listeners: map[chan GraphSignal]chan GraphSignal{},
+    delegation_map: map[string]GraphNode{},
   }
   Log.Logf("graph", "NEW_NODE: %s - %s", node.ID(), node.Name())
   return node
@@ -165,6 +169,30 @@ type BaseNode struct {
   signal chan GraphSignal
   listeners_lock sync.Mutex
   listeners map[chan GraphSignal]chan GraphSignal
+  delegation_map map[string]GraphNode
+}
+
+func (node * BaseNode) TakeLock(resource Resource) {
+  _, exists := node.delegation_map[resource.ID()]
+  if exists == true {
+    panic("Trying to take a lock we already have")
+  }
+
+  node.delegation_map[resource.ID()] = resource.Owner()
+}
+
+func (node * BaseNode) Allowed() []GraphNode {
+  return []GraphNode{}
+}
+
+func (node * BaseNode) Delegator(id string) GraphNode {
+  last_owner, exists := node.delegation_map[id]
+  if exists == false {
+    panic("Trying to delegate a lock we don't own")
+  }
+
+  delete(node.delegation_map, id)
+  return last_owner
 }
 
 func (node * BaseNode) SignalChannel() chan GraphSignal {

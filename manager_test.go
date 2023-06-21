@@ -319,14 +319,6 @@ func TestAbortEventQueue(t * testing.T) {
 
   LockResource(r1, root_event)
 
-  e1, _ := NewEvent("event_1", "", []Resource{r1})
-  e1_info := NewEventQueueInfo(1)
-  // Add an event so that the queue doesn't auto complete
-  err := LinkEvent(root_event, e1, e1_info)
-  if err != nil {
-    t.Fatal(err)
-  }
-
   // Now that the event is constructed with a queue and 3 basic events
   // start the queue and check that all the events are executed
   go func() {
@@ -335,7 +327,7 @@ func TestAbortEventQueue(t * testing.T) {
     SendUpdate(root_event, abort_signal)
   }()
 
-  err = LockResources(root_event)
+  err := LockResources(root_event)
   if err != nil {
     t.Fatal(err)
   }
@@ -346,6 +338,35 @@ func TestAbortEventQueue(t * testing.T) {
 
   if r.Owner() == nil {
     t.Fatal("root event was finished after starting")
+  }
+}
+
+func TestDelegateLock(t * testing.T) {
+  Log.Init([]string{})
+  test_resource, _ := NewResource("test_resource", "", []Resource{})
+  root_event, _ := NewEventQueue("root_event", "", []Resource{test_resource})
+  test_event, _ := NewEvent("test_event", "", []Resource{test_resource})
+  err := LinkEvent(root_event, test_event, NewEventQueueInfo(1))
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  err = LockResources(root_event)
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  test_listener := test_event.UpdateChannel()
+
+  go func() {
+    (*GraphTester)(t).WaitForValue(test_listener, "event_done", test_event, 250 * time.Millisecond, "No event_done for test_event")
+    abort_signal := NewDownSignal(nil, "cancel")
+    SendUpdate(root_event, abort_signal)
+  }()
+
+  err = RunEvent(root_event)
+  if err != nil {
+    t.Fatal(err)
   }
 }
 
@@ -360,6 +381,7 @@ func TestStartWithoutLocking(t * testing.T) {
 }
 
 func TestStartEventQueue(t * testing.T) {
+  Log.Init([]string{"event"})
   root_event, _ := NewEventQueue("root_event", "", []Resource{})
   r := root_event.DoneResource()
   rel := root_event.UpdateChannel();
@@ -432,7 +454,7 @@ func TestStartEventQueue(t * testing.T) {
   }
 
   if e1_r.Owner() != nil {
-    t.Fatal("e1 was not completed")
+    t.Fatal(fmt.Sprintf("e1 was not completed: %s", e1_r.Owner()))
   }
 
   if e2_r.Owner() != nil {

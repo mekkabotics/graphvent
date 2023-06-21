@@ -104,7 +104,7 @@ func checkIfChild(r Resource, cur Resource) bool {
   return false
 }
 
-func UnlockResource(resource Resource, event Event) error {
+func UnlockResource(resource Resource, node GraphNode) error {
   var err error = nil
   resource.LockState()
   defer resource.UnlockState()
@@ -112,13 +112,13 @@ func UnlockResource(resource Resource, event Event) error {
     return errors.New("Resource already unlocked")
   }
 
-  if resource.Owner().ID() != event.ID() {
+  if resource.Owner().ID() != node.ID() {
     return errors.New("Resource not locked by parent, unlock failed")
   }
 
   var lock_err error = nil
   for _, child := range resource.Children() {
-    err := UnlockResource(child, event)
+    err := UnlockResource(child, node)
     if err != nil {
       lock_err = err
       break
@@ -129,9 +129,9 @@ func UnlockResource(resource Resource, event Event) error {
     return fmt.Errorf("Resource failed to unlock: %s", lock_err)
   }
 
-  resource.SetOwner(nil)
+  resource.SetOwner(node.Delegator(resource.ID()))
 
-  err = resource.unlock(event)
+  err = resource.unlock(node)
   if err != nil {
     return errors.New("Failed to unlock resource")
   }
@@ -139,11 +139,24 @@ func UnlockResource(resource Resource, event Event) error {
   return nil
 }
 
+func isAllowedToTakeLock(node GraphNode, current_owner GraphNode) bool {
+  for _, allowed := range(current_owner.Allowed()) {
+    if allowed.ID() == node.ID() {
+      return true
+    }
+  }
+  return false
+}
+
 func LockResource(resource Resource, node GraphNode) error {
   resource.LockState()
   defer resource.UnlockState()
+
   if resource.Owner() != nil {
-    return fmt.Errorf("Resource already locked: %s", resource.Name())
+    // Check if node is allowed to take a lock from resource.Owner()
+    if isAllowedToTakeLock(node, resource.Owner()) == false {
+      return fmt.Errorf("%s is not allowed to take a lock from %s, allowed: %+v", node.Name(), resource.Owner().Name(), resource.Owner().Allowed())
+    }
   }
 
   err := resource.lock(node)
@@ -167,6 +180,7 @@ func LockResource(resource Resource, node GraphNode) error {
   }
 
   Log.Logf("resource", "Locked %s", resource.Name())
+  node.TakeLock(resource)
   resource.SetOwner(node)
 
   return nil
