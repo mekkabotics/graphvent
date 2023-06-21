@@ -230,34 +230,17 @@ func LinkEvent(event Event, child Event, info EventInfo) error {
   return nil
 }
 
-func StartRootEvent(event Event) error {
-  Log.Logf("event", "ROOT_EVEN_START")
-
-  err := LockResources(event)
-  if err != nil {
-    Log.Logf("event", "ROOT_EVENT_LOCK_ERR: %s", err)
-    return err
-  }
-
-  err = RunEvent(event)
-  if err != nil {
-    Log.Logf("event", "ROOT_EVENT_RUNE_ERR: %s", err)
-    return err
-  }
-
-  err = FinishEvent(event)
-  if err != nil {
-    Log.Logf("event", "ROOT_EVENT_FINISH_ERR: %s", err)
-    return err
-  }
-  Log.Logf("event", "ROOT_EVENT_DONE")
-
-  return nil
-}
-
-
 func RunEvent(event Event) error {
   Log.Logf("event", "EVENT_RUN: %s", event.Name())
+
+  for _, resource := range(event.Resources()) {
+    if resource.Owner() == nil {
+      return fmt.Errorf("EVENT_RUN_RESOURCE_NOT_LOCKED: %s, %s", event.Name(), resource.Name())
+    } else if resource.Owner().ID() != event.ID() {
+      return fmt.Errorf("EVENT_RUN_RESOURCE_ALREADY_LOCKED: %s, %s, %s", event.Name(), resource.Name(), resource.Owner().Name())
+    }
+  }
+
   SendUpdate(event, NewSignal(event, "event_start"))
   next_action := "start"
   var err error = nil
@@ -273,6 +256,12 @@ func RunEvent(event Event) error {
     if err != nil {
       return err
     }
+  }
+
+  err = FinishEvent(event)
+  if err != nil {
+    Log.Logf("event", "EVENT_RUN_FINISH_ERR: %s", err)
+    return err
   }
 
   Log.Logf("event", "EVENT_RUN_DONE: %s", event.Name())
@@ -525,7 +514,6 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
               Log.Logf("event", "EVENT_ERROR: %s", err)
             }
             info.state = "done"
-            FinishEvent(event)
           }(event, info, queue)
         }
       }

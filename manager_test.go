@@ -293,7 +293,12 @@ func TestStartBaseEvent(t * testing.T) {
     t.Fatal("r is not owned by event_1")
   }
 
-  err := StartRootEvent(event_1)
+  err := LockResources(event_1)
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  err = RunEvent(event_1)
   if err != nil {
     t.Fatal(err)
   }
@@ -330,13 +335,27 @@ func TestAbortEventQueue(t * testing.T) {
     SendUpdate(root_event, abort_signal)
   }()
 
-  err = StartRootEvent(root_event)
+  err = LockResources(root_event)
+  if err != nil {
+    t.Fatal(err)
+  }
+  err = RunEvent(root_event)
   if err == nil {
     t.Fatal("root_event completed without error")
   }
 
   if r.Owner() == nil {
     t.Fatal("root event was finished after starting")
+  }
+}
+
+func TestStartWithoutLocking(t * testing.T) {
+  test_resource, _ := NewResource("test_resource", "", []Resource{})
+  root_event, _ := NewEvent("root_event", "", []Resource{test_resource})
+
+  err := RunEvent(root_event)
+  if err == nil {
+    t.Fatal("Event ran without error without locking resources")
   }
 }
 
@@ -397,7 +416,12 @@ func TestStartEventQueue(t * testing.T) {
     SendUpdate(root_event, signal)
   }()
 
-  err = StartRootEvent(root_event)
+  err = LockResources(root_event)
+  if err != nil {
+    t.Fatal(err)
+  }
+
+  err = RunEvent(root_event)
   if err != nil {
     t.Fatal(err)
   }
