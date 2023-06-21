@@ -17,7 +17,7 @@ func (t * GraphTester) WaitForValue(listener chan GraphSignal, signal_type strin
     select {
     case signal := <- listener:
       if signal.Type() == signal_type {
-        fmt.Printf("SIGNAL_TYPE_FOUND: %s - %s %+v\n", signal.Type(), signal.Source(), listener)
+        Log.Logf("test", "SIGNAL_TYPE_FOUND: %s - %s %+v\n", signal.Type(), signal.Source(), listener)
         if signal.Source() == source.ID() {
           return signal
         }
@@ -450,7 +450,6 @@ func TestStartEventQueue(t * testing.T) {
   }
 
   if r.Owner() != nil {
-    fmt.Printf("root_event.DoneResource(): %p", root_event.DoneResource())
     t.Fatal("root event was not finished after starting")
   }
 
