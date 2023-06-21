@@ -491,6 +491,10 @@ func GQLInterfaceResource() * graphql.Interface {
       Type: GQLListResource(),
     })
 
+    gql_interface_resource.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListResource(),
+    })
+
     gql_interface_resource.AddFieldConfig("Owner", &graphql.Field{
       Type: GQLInterfaceNode(),
     })
@@ -573,6 +577,11 @@ func GQLTypeGQLServer() * graphql.Object {
       Resolve: GQLResourceParents,
     })
 
+    gql_type_gql_server.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLResourceParents,
+    })
+
     gql_type_gql_server.AddFieldConfig("Owner", &graphql.Field{
       Type: GQLInterfaceNode(),
       Resolve: GQLResourceOwner,
@@ -613,6 +622,11 @@ func GQLTypeBaseResource() * graphql.Object {
     })
 
     gql_type_base_resource.AddFieldConfig("Parents", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLResourceParents,
+    })
+
+    gql_type_gql_server.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListResource(),
       Resolve: GQLResourceParents,
     })
