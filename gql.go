@@ -537,6 +537,50 @@ func GQLResourceOwner(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+var gql_type_gql_server *graphql.Object = nil
+func GQLTypeGQLServer() * graphql.Object {
+  if gql_type_gql_server == nil {
+    gql_type_gql_server = graphql.NewObject(graphql.ObjectConfig{
+      Name: "GQLServer",
+      Interfaces: []*graphql.Interface{
+        GQLInterfaceResource(),
+        GQLInterfaceNode(),
+      },
+      IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+        _, ok := p.Value.(*GQLServer)
+        return ok
+      },
+      Fields: graphql.Fields{},
+    })
+
+    gql_type_gql_server.AddFieldConfig("ID", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceID,
+    })
+
+    gql_type_gql_server.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceName,
+    })
+
+    gql_type_gql_server.AddFieldConfig("Description", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLResourceDescription,
+    })
+
+    gql_type_gql_server.AddFieldConfig("Parents", &graphql.Field{
+      Type: GQLListResource(),
+      Resolve: GQLResourceParents,
+    })
+
+    gql_type_gql_server.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceNode(),
+      Resolve: GQLResourceOwner,
+    })
+  }
+  return gql_type_gql_server
+}
+
 var gql_type_base_resource *graphql.Object = nil
 func GQLTypeBaseResource() * graphql.Object {
   if gql_type_base_resource == nil {
@@ -997,8 +1041,9 @@ func MakeGQLHandlers(server * GQLServer) (func(http.ResponseWriter, *http.Reques
 
   valid_resources := map[reflect.Type]*graphql.Object{}
   valid_resources[reflect.TypeOf((*BaseResource)(nil))] = GQLTypeBaseResource()
+  valid_resources[reflect.TypeOf((*GQLServer)(nil))] = GQLTypeGQLServer()
 
-  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput(), GQLTypeBaseNode()}
+  gql_types := []graphql.Type{GQLTypeBaseEvent(), GQLTypeEventQueue(), GQLTypeSignal(), GQLTypeSignalInput(), GQLTypeBaseNode(), GQLTypeGQLServer(), GQLTypeBaseResource()}
   event_type := reflect.TypeOf((*Event)(nil)).Elem()
   resource_type := reflect.TypeOf((*Resource)(nil)).Elem()
   for go_t, gql_t := range(server.extended_types) {
