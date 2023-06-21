@@ -342,7 +342,6 @@ func TestAbortEventQueue(t * testing.T) {
 }
 
 func TestDelegateLock(t * testing.T) {
-  Log.Init([]string{})
   test_resource, _ := NewResource("test_resource", "", []Resource{})
   root_event, _ := NewEventQueue("root_event", "", []Resource{test_resource})
   test_event, _ := NewEvent("test_event", "", []Resource{test_resource})
@@ -384,7 +383,6 @@ func TestStartWithoutLocking(t * testing.T) {
 }
 
 func TestStartEventQueue(t * testing.T) {
-  Log.Init([]string{"event"})
   root_event, _ := NewEventQueue("root_event", "", []Resource{})
   r := root_event.DoneResource()
   rel := root_event.UpdateChannel();
