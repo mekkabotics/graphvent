@@ -547,8 +547,6 @@ func GQLResourceChildren(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
-
-
 var gql_type_gql_server *graphql.Object = nil
 func GQLTypeGQLServer() * graphql.Object {
   if gql_type_gql_server == nil {
@@ -634,7 +632,7 @@ func GQLTypeBaseResource() * graphql.Object {
       Resolve: GQLResourceParents,
     })
 
-    gql_type_gql_server.AddFieldConfig("Children", &graphql.Field{
+    gql_type_base_resource.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListResource(),
       Resolve: GQLResourceChildren,
     })
