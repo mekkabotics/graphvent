@@ -7,28 +7,27 @@ import (
   "reflect"
   "sort"
   "sync"
+  badger "github.com/dgraph-io/badger/v3"
 )
 
 // Update the events listeners, and notify the parent to do the same
 func (event * BaseEvent) PropagateUpdate(signal GraphSignal) {
+  event.state_lock.RLock()
+  defer event.state_lock.RUnlock()
+  state := event.state.(*EventState)
+
   if signal.Downwards() == false {
     // Child->Parent
-    event.parent_lock.Lock()
-    defer event.parent_lock.Unlock()
-    if event.parent != nil {
-      SendUpdate(event.parent, signal)
+    if state.parent != nil {
+      SendUpdate(state.parent, signal)
     }
 
-    event.rr_lock.Lock()
-    defer event.rr_lock.Unlock()
-    for _, resource := range(event.resources) {
+    for _, resource := range(state.resources) {
       SendUpdate(resource, signal)
     }
   } else {
     // Parent->Child
-    event.children_lock.Lock()
-    defer event.children_lock.Unlock()
-    for _, child := range(event.children) {
+    for _, child := range(state.children) {
       SendUpdate(child, signal)
     }
   }
@@ -64,6 +63,8 @@ type Event interface {
   LockChildren()
   UnlockChildren()
   InfoType() reflect.Type
+  LockInfo()
+  UnlockInfo()
   ChildInfo(event Event) EventInfo
   Parent() Event
   LockParent()
@@ -87,15 +88,16 @@ type Event interface {
 }
 
 func (event * BaseEvent) AddResource(resource Resource) error {
-  event.resources_lock.Lock()
-  defer event.resources_lock.Unlock()
+  event.state_lock.Lock()
+  defer event.state_lock.Unlock()
+  state := event.state.(*EventState)
 
-  _, exists := event.resources[resource.ID()]
+  _, exists := state.resources[resource.ID()]
   if exists == true {
-    return fmt.Errorf("%s is already required for %s, cannot add again", resource.Name(), event.Name())
+    return fmt.Errorf("%s is already required for %s, cannot add again", resource.Name(), state.name)
   }
 
-  event.resources[resource.ID()] = resource
+  state.resources[resource.ID()] = resource
   return nil
 }
 
@@ -302,21 +304,33 @@ func FinishEvent(event Event) error {
 // When starter, this event automatically transitions to completion and unlocks all it's resources(including created)
 type BaseEvent struct {
   BaseNode
-  done_resource Resource
-  rr_lock sync.Mutex
-  resources map[string]Resource
+
   resources_lock sync.Mutex
-  children []Event
   children_lock sync.Mutex
-  child_info map[string]EventInfo
-  child_info_lock sync.Mutex
+  info_lock sync.Mutex
+  parent_lock sync.Mutex
+
   Actions map[string]func() (string, error)
   Handlers map[string]func(GraphSignal) (string, error)
-  parent Event
-  parent_lock sync.Mutex
-  abort chan string
+
   timeout <-chan time.Time
   timeout_action string
+}
+
+type EventState struct {
+  BaseNodeState
+  children []Event
+  child_info map[string]EventInfo
+  resources map[string]Resource
+  parent Event
+}
+
+func (event * BaseEvent) LockInfo() {
+  event.info_lock.Lock()
+}
+
+func (event * BaseEvent) UnlockInfo() {
+  event.info_lock.Unlock()
 }
 
 func (event * BaseEvent) Action(action string) (func() (string, error), bool) {
@@ -344,23 +358,13 @@ func EventWait(event Event) (func() (string, error)) {
 }
 
 func NewBaseEvent(name string, description string) (BaseEvent) {
-  done_resource, _ := NewResource("event_done", "signal that event is done", []Resource{})
   event := BaseEvent{
-    BaseNode: NewBaseNode(name, description, randid()),
-    parent: nil,
-    children: []Event{},
-    child_info: map[string]EventInfo{},
-    done_resource: done_resource,
-    resources: map[string]Resource{},
+    BaseNode: NewBaseNode(randid()),
     Actions: map[string]func()(string, error){},
     Handlers: map[string]func(GraphSignal)(string, error){},
-    abort: make(chan string, 1),
     timeout: nil,
     timeout_action: "",
   }
-
-  LockResource(event.done_resource, &event)
-
   return event
 }
 
@@ -374,9 +378,24 @@ func AddResources(event Event, resources []Resource) error {
   return nil
 }
 
-func NewEvent(name string, description string, resources []Resource) (* BaseEvent, error) {
+func NewEventState(name string, description string) *EventState{
+  return &EventState{
+    BaseNodeState: BaseNodeState{
+      name: name,
+      description: description,
+      delegation_map: map[string]GraphNode{},
+    },
+    children: []Event{},
+    child_info: map[string]EventInfo{},
+    resources: map[string]Resource{},
+    parent: nil,
+  }
+}
+
+func NewEvent(db *badger.DB, name string, description string, resources []Resource) (* BaseEvent, error) {
   event := NewBaseEvent(name, description)
   event_ptr := &event
+  event_ptr.state = NewEventState(name, description)
 
   err := AddResources(event_ptr, resources)
   if err != nil {
@@ -427,6 +446,8 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
     listened_resources: map[string]Resource{},
   }
 
+  queue.state = NewEventState(name, description)
+
   AddResources(queue, resources)
 
   queue.Actions["wait"] = EventWait(queue)
@@ -457,12 +478,12 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
       }
 
       info := queue.ChildInfo(event).(*EventQueueInfo)
+      event.LockInfo()
+      defer event.UnlockInfo()
       if info.state == "queued" {
-        // Try to lock it
         err := LockResources(event)
         // start in new goroutine
         if err != nil {
-          //Log.Logf("event", "Failed to lock %s: %s", event.Name(), err)
         } else {
           info.state = "running"
           Log.Logf("event", "EVENT_START: %s", event.Name())
@@ -472,6 +493,8 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
             if err != nil {
               Log.Logf("event", "EVENT_ERROR: %s", err)
             }
+            event.LockInfo()
+            defer event.UnlockInfo()
             info.state = "done"
           }(event, info, queue)
         }
@@ -513,15 +536,15 @@ func NewEventQueue(name string, description string, resources []Resource) (* Eve
 }
 
 func (event * BaseEvent) Allowed() []GraphNode {
-  ret := make([]GraphNode, len(event.children))
-  for i, v := range(event.children) {
+  event.state_lock.RLock()
+  defer event.state_lock.RUnlock()
+  state := event.state.(*EventState)
+
+  ret := make([]GraphNode, len(state.children))
+  for i, v := range(state.children) {
     ret[i] = v
   }
   return ret
-}
-
-func (event * BaseEvent) Parent() Event {
-  return event.parent
 }
 
 func (event * BaseEvent) Resources() []Resource {

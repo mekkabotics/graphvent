@@ -945,7 +945,10 @@ type GQLServer struct {
   extended_mutations map[string]*graphql.Field
 }
 
-func NewGQLServer(listen string, extended_types map[reflect.Type]*graphql.Object, extended_queries map[string]*graphql.Field, extended_mutations map[string]*graphql.Field, extended_subscriptions map[string]*graphql.Field) * GQLServer {
+type ObjTypeMap map[reflect.Type]*graphql.Object
+type FieldMap map[string]*graphql.Field
+
+func NewGQLServer(listen string, extended_types ObjTypeMap, extended_queries FieldMap, extended_mutations FieldMap, extended_subscriptions FieldMap) * GQLServer {
   server := &GQLServer{
     BaseResource: NewBaseResource("GQL Server", "graphql server for event signals"),
     listen: listen,

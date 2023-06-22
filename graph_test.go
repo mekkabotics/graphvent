@@ -6,6 +6,7 @@ import (
   "fmt"
   "os"
   "runtime/pprof"
+  badger "github.com/dgraph-io/badger/v3"
 )
 
 type GraphTester testing.T
@@ -54,12 +55,16 @@ func (t * GraphTester) CheckForNone(listener chan GraphSignal, str string) {
 }
 
 func TestNewEventWithResource(t *testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger1"))
+  if err != nil {
+    t.Fatal(err)
+  }
   name := "Test Resource"
   description := "A resource for testing"
   children := []Resource{}
 
   test_resource, _ := NewResource(name, description, children)
-  root_event, err := NewEvent("root_event", "", []Resource{test_resource})
+  root_event, err := NewEvent(db, "root_event", "", []Resource{test_resource})
   if err != nil {
     t.Fatal(err)
   }
@@ -75,8 +80,12 @@ func TestNewEventWithResource(t *testing.T) {
 }
 
 func TestDoubleResourceAdd(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger2"))
+  if err != nil {
+    t.Fatal(err)
+  }
   test_resource, _ := NewResource("", "", []Resource{})
-  _, err := NewEvent("", "", []Resource{test_resource, test_resource})
+  _, err = NewEvent(db, "", "", []Resource{test_resource, test_resource})
 
   if err == nil {
     t.Fatal("NewEvent didn't return an error")
@@ -84,12 +93,17 @@ func TestDoubleResourceAdd(t * testing.T) {
 }
 
 func TestTieredResource(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger3"))
+  if err != nil {
+    t.Fatal(err)
+  }
+
   r1, _ := NewResource("r1", "", []Resource{})
   r2, err := NewResource("r2", "", []Resource{r1})
   if err != nil {
     t.Fatal(err)
   }
-  _, err = NewEvent("", "", []Resource{r2})
+  _, err = NewEvent(db, "", "", []Resource{r2})
 
   if err != nil {
     t.Fatal("Failed to create event with tiered resources")
@@ -97,6 +111,11 @@ func TestTieredResource(t * testing.T) {
 }
 
 func TestResourceUpdate(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger4"))
+  if err != nil {
+    t.Fatal(err)
+  }
+
   r1, err := NewResource("r1", "", []Resource{})
   if err != nil {
     t.Fatal(err)
@@ -114,7 +133,7 @@ func TestResourceUpdate(t * testing.T) {
     t.Fatal(err)
   }
 
-  _, err = NewEvent("", "", []Resource{r3, r4})
+  _, err = NewEvent(db, "", "", []Resource{r3, r4})
   if err != nil {
     t.Fatal("Failed to add initial tiered resources for test")
   }
@@ -147,16 +166,20 @@ func TestResourceUpdate(t * testing.T) {
 }
 
 func TestAddEvent(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger5"))
+  if err != nil {
+    t.Fatal(err)
+  }
   r1, _ := NewResource("r1", "", []Resource{})
   r2, _ := NewResource("r2", "", []Resource{r1})
-  root_event, _ := NewEvent("", "", []Resource{r2})
+  root_event, _ := NewEvent(db, "", "", []Resource{r2})
 
   name := "Test Event"
   description := "A test event"
   resources := []Resource{r2}
-  new_event, _ := NewEvent(name, description, resources)
+  new_event, _ := NewEvent(db, name, description, resources)
 
-  err := LinkEvent(root_event, new_event, nil)
+  err = LinkEvent(root_event, new_event, nil)
   if err != nil {
     t.Fatalf("Failed to add new_event to root_event: %s", err)
   }
@@ -179,6 +202,10 @@ func TestAddEvent(t * testing.T) {
 }
 
 func TestLockResource(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger6"))
+  if err != nil {
+    t.Fatal(err)
+  }
   r1, err := NewResource("r1", "", []Resource{})
   if err != nil {
     t.Fatal(err)
@@ -195,11 +222,11 @@ func TestLockResource(t * testing.T) {
   if err != nil {
     t.Fatal(err)
   }
-  root_event, err := NewEvent("", "", []Resource{})
+  root_event, err := NewEvent(db, "", "", []Resource{})
   if err != nil {
     t.Fatal(err)
   }
-  test_event, err := NewEvent("", "", []Resource{})
+  test_event, err := NewEvent(db, "", "", []Resource{})
   if err != nil {
     t.Fatal(err)
   }
@@ -260,11 +287,15 @@ func TestLockResource(t * testing.T) {
 }
 
 func TestAddToEventQueue(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger7"))
+  if err != nil {
+    t.Fatal(err)
+  }
   queue, _ := NewEventQueue("q", "", []Resource{})
-  event_1, _ := NewEvent("1", "", []Resource{})
-  event_2, _ := NewEvent("2", "", []Resource{})
+  event_1, _ := NewEvent(db, "1", "", []Resource{})
+  event_2, _ := NewEvent(db, "2", "", []Resource{})
 
-  err := LinkEvent(queue, event_1, nil)
+  err = LinkEvent(queue, event_1, nil)
   if err == nil {
     t.Fatal("suceeded in added nil info to queue")
   }
@@ -281,7 +312,11 @@ func TestAddToEventQueue(t * testing.T) {
 }
 
 func TestStartBaseEvent(t * testing.T) {
-  event_1, _ := NewEvent("TestStartBaseEvent event_1", "", []Resource{})
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger8"))
+  if err != nil {
+    t.Fatal(err)
+  }
+  event_1, _ := NewEvent(db, "TestStartBaseEvent event_1", "", []Resource{})
   r := event_1.DoneResource()
 
   e_l := event_1.UpdateChannel()
@@ -293,7 +328,7 @@ func TestStartBaseEvent(t * testing.T) {
     t.Fatal("r is not owned by event_1")
   }
 
-  err := LockResources(event_1)
+  err = LockResources(event_1)
   if err != nil {
     t.Fatal(err)
   }
@@ -342,10 +377,14 @@ func TestAbortEventQueue(t * testing.T) {
 }
 
 func TestDelegateLock(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger"))
+  if err != nil {
+    t.Fatal(err)
+  }
   test_resource, _ := NewResource("test_resource", "", []Resource{})
   root_event, _ := NewEventQueue("root_event", "", []Resource{test_resource})
-  test_event, _ := NewEvent("test_event", "", []Resource{test_resource})
-  err := LinkEvent(root_event, test_event, NewEventQueueInfo(1))
+  test_event, _ := NewEvent(db, "test_event", "", []Resource{test_resource})
+  err = LinkEvent(root_event, test_event, NewEventQueueInfo(1))
   if err != nil {
     t.Fatal(err)
   }
@@ -373,16 +412,24 @@ func TestDelegateLock(t * testing.T) {
 }
 
 func TestStartWithoutLocking(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger9"))
+  if err != nil {
+    t.Fatal(err)
+  }
   test_resource, _ := NewResource("test_resource", "", []Resource{})
-  root_event, _ := NewEvent("root_event", "", []Resource{test_resource})
+  root_event, _ := NewEvent(db, "root_event", "", []Resource{test_resource})
 
-  err := RunEvent(root_event)
+  err = RunEvent(root_event)
   if err == nil {
     t.Fatal("Event ran without error without locking resources")
   }
 }
 
 func TestStartEventQueue(t * testing.T) {
+  db, err := badger.Open(badger.DefaultOptions("/tmp/badger10"))
+  if err != nil {
+    t.Fatal(err)
+  }
   root_event, _ := NewEventQueue("root_event", "", []Resource{})
   r := root_event.DoneResource()
   rel := root_event.UpdateChannel();
@@ -390,17 +437,17 @@ func TestStartEventQueue(t * testing.T) {
   res_2, _ := NewResource("test_resource_2", "", []Resource{})
 
 
-  e1, _ := NewEvent("e1", "", []Resource{res_1, res_2})
+  e1, _ := NewEvent(db, "e1", "", []Resource{res_1, res_2})
   e1_l := e1.UpdateChannel()
   e1_r := e1.DoneResource()
   e1_info := NewEventQueueInfo(1)
-  err := LinkEvent(root_event, e1, e1_info)
+  err = LinkEvent(root_event, e1, e1_info)
   if err != nil {
     t.Fatal("Failed to add e1 to root_event")
   }
   (*GraphTester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e1")
 
-  e2, _ := NewEvent("e2", "", []Resource{res_1})
+  e2, _ := NewEvent(db, "e2", "", []Resource{res_1})
   e2_l := e2.UpdateChannel()
   e2_r := e2.DoneResource()
   e2_info := NewEventQueueInfo(2)
@@ -410,7 +457,7 @@ func TestStartEventQueue(t * testing.T) {
   }
   (*GraphTester)(t).WaitForValue(rel, "child_added", root_event, time.Second, "No update on root_event after adding e2")
 
-  e3, _ := NewEvent("e3", "", []Resource{res_2})
+  e3, _ := NewEvent(db, "e3", "", []Resource{res_2})
   e3_l := e3.UpdateChannel()
   e3_r := e3.DoneResource()
   e3_info := NewEventQueueInfo(3)
@@ -465,3 +512,4 @@ func TestStartEventQueue(t * testing.T) {
     t.Fatal("e3 was not completed")
   }
 }
+

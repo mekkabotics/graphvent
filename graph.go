@@ -7,6 +7,7 @@ import (
   "os"
   "github.com/rs/zerolog"
   "fmt"
+  "encoding/json"
 )
 
 type Logger interface {
@@ -131,89 +132,81 @@ func NewSignal(source GraphNode, _type string) BaseSignal {
   return NewBaseSignal(source, _type, false)
 }
 
-// GraphNode is the interface common to both DAG nodes and Event tree nodes
-type GraphNode interface {
+type NodeState interface {
   Name() string
   Description() string
+  DelegationMap() map[string]GraphNode
+}
+
+type BaseNodeState struct {
+  name string
+  description string
+  delegation_map map[string]GraphNode
+}
+
+func (state * BaseNodeState) Name() string {
+  return state.name
+}
+
+func (state * BaseNodeState) Description() string {
+  return state.description
+}
+
+func (state * BaseNodeState) DelegationMap() map[string]GraphNode {
+  return state.delegation_map
+}
+
+
+// GraphNode is the interface common to both DAG nodes and Event tree nodes
+type GraphNode interface {
+  State() NodeState
   ID() string
-  Allowed() []GraphNode
-  Delegator(id string) GraphNode
-  TakeLock(resource Resource)
   UpdateListeners(update GraphSignal)
   PropagateUpdate(update GraphSignal)
   RegisterChannel(listener chan GraphSignal)
   UnregisterChannel(listener chan GraphSignal)
-  UpdateChannel() chan GraphSignal
   SignalChannel() chan GraphSignal
 }
 
-func NewBaseNode(name string, description string, id string) BaseNode {
+func (node * BaseNode) StateLock() *sync.Mutex {
+  return &node.state_lock
+}
+
+func NewBaseNode(id string) BaseNode {
   node := BaseNode{
-    name: name,
-    description: description,
     id: id,
     signal: make(chan GraphSignal, 512),
     listeners: map[chan GraphSignal]chan GraphSignal{},
-    delegation_map: map[string]GraphNode{},
   }
-  Log.Logf("graph", "NEW_NODE: %s - %s", node.ID(), node.Name())
+  Log.Logf("graph", "NEW_NODE: %s", node.ID())
   return node
 }
 
 // BaseNode is the most basic implementation of the GraphNode interface
 // It is used to implement functions common to Events and Resources
 type BaseNode struct {
-  name string
-  description string
   id string
+  state NodeState
+  state_lock sync.RWMutex
   signal chan GraphSignal
   listeners_lock sync.Mutex
   listeners map[chan GraphSignal]chan GraphSignal
-  delegation_map map[string]GraphNode
-}
-
-func (node * BaseNode) TakeLock(resource Resource) {
-  _, exists := node.delegation_map[resource.ID()]
-  if exists == true {
-    panic("Trying to take a lock we already have")
-  }
-
-  node.delegation_map[resource.ID()] = resource.Owner()
-}
-
-func (node * BaseNode) Allowed() []GraphNode {
-  return []GraphNode{}
-}
-
-func (node * BaseNode) Delegator(id string) GraphNode {
-  last_owner, exists := node.delegation_map[id]
-  if exists == false {
-    panic("Trying to delegate a lock we don't own")
-  }
-
-  delete(node.delegation_map, id)
-  return last_owner
 }
 
 func (node * BaseNode) SignalChannel() chan GraphSignal {
   return node.signal
 }
 
-func (node * BaseNode) Name() string {
-  return node.name
-}
-
-func (node * BaseNode) Description() string {
-  return node.description
+func (node * BaseNode) State() NodeState {
+  return node.state
 }
 
 func (node * BaseNode) ID() string {
   return node.id
 }
 
-// Create a new listener channel for the node, add it to the nodes listener list, and return the new channel
-const listener_buffer = 1000
-func (node * BaseNode) UpdateChannel() chan GraphSignal {
+const listener_buffer = 100
+func GetUpdateChannel(node * BaseNode) chan GraphSignal {
   new_listener := make(chan GraphSignal, listener_buffer)
   node.RegisterChannel(new_listener)
   return new_listener
@@ -239,18 +232,49 @@ func (node * BaseNode) UnregisterChannel(listener chan GraphSignal) {
   node.listeners_lock.Unlock()
 }
 
-// Send the update to listener channels
+func (node * BaseNode) PropagateUpdate(update GraphSignal) {
+}
+
 func (node * BaseNode) UpdateListeners(update GraphSignal) {
-  node.listeners_lock.Lock()
+  node.ListenersLock.Lock()
+  defer node.ListenersLock.Unlock()
+  closed := []chan GraphSignal
 
-  closed := []chan GraphSignal{}
-
-  for _, listener := range node.listeners {
-    Log.Logf("listeners", "UPDATE_LISTENER %s: %p", node.Name(), listener)
+  for _, listener := range node.Listeners() {
+    Log.Logf("listeners", "UPDATE_LISTENER %s: %p", node.ID(), listener)
     select {
-    case listener <- update:
+    case listener <- signal:
     default:
-      Log.Logf("listeners", "CLOSED_LISTENER: %s: %p", node.Name(), listener)
+      Log.Logf("listeners", "CLOSED_LISTENER %s: %p", node.ID(), listener)
+      go func(node GraphNode, listener chan GraphSignal) {
+        listener <- NewSignal(node, "listener_closed")
+        close(listener)
+      }(node, listener)
+      closed = append(closed, listener)
+    }
+  }
+
+  for _, listener := range(closed) {
+    delete(node.listeners, listener)
+  }
+}
+
+func SendUpdate(node GraphNode, signal GraphSignal) {
+  node_name := "nil"
+  if node != nil {
+    node_name = node.Name()
+  }
+  Log.Logf("update", "UPDATE %s <- %s: %+v", node_name, signal.Source(), signal)
+  node.ListenersLock.Lock()
+  defer node.ListenersLock.Unlock()
+  closed := []chan GraphSignal
+
+  for _, listener := range node.Listeners() {
+    Log.Logf("listeners", "UPDATE_LISTENER %s: %p", node.ID(), listener)
+    select {
+    case listener <- signal:
+    default:
+      Log.Logf("listeners", "CLOSED_LISTENER %s: %p", node.ID(), listener)
       go func(node GraphNode, listener chan GraphSignal) {
         listener <- NewSignal(node, "listener_closed")
         close(listener)
@@ -263,19 +287,6 @@ func (node * BaseNode) UpdateListeners(update GraphSignal) {
     delete(node.listeners, listener)
   }
 
-  node.listeners_lock.Unlock()
-}
-
-func (node * BaseNode) PropagateUpdate(signal GraphSignal) {
-}
-
-func SendUpdate(node GraphNode, signal GraphSignal) {
-  node_name := "nil"
-  if node != nil {
-    node_name = node.Name()
-  }
-  Log.Logf("update", "UPDATE %s <- %s: %+v", node_name, signal.Source(), signal)
-  node.UpdateListeners(signal)
   node.PropagateUpdate(signal)
 }
 
