@@ -2,80 +2,168 @@ package graphvent
 
 import (
   "fmt"
-  "sync"
-  "errors"
 )
+
+// Link a resource with a child
+func LinkResource(ctx * GraphContext, resource Resource, child Resource) error {
+  if resource == nil || child == nil {
+    return fmt.Errorf("Will not connect nil to DAG")
+  }
+  _, err := UpdateStates(ctx, []GraphNode{resource, child}, func(states []NodeState) ([]NodeState, interface{}, error) {
+    resource_state := states[0].(ResourceState)
+    child_state := states[1].(ResourceState)
+
+    if checkIfChild(ctx, resource_state, resource.ID(), child_state, child.ID()) == true {
+      return nil, nil, fmt.Errorf("RESOURCE_LINK_ERR: %s is a parent of %s so cannot link as child", child.ID(), resource.ID())
+    }
+
+    resource_state.children = append(resource_state.children, child)
+    child_state.parents = append(child_state.parents, resource)
+    return []NodeState{resource_state, child_state}, nil, nil
+  })
+  return err
+}
+
+// Link multiple children to a resource
+func LinkResources(ctx * GraphContext, resource Resource, children []Resource) error {
+  if resource == nil || children == nil {
+    return fmt.Errorf("Invalid input")
+  }
+
+  found := map[NodeID]bool{}
+  child_nodes := make([]GraphNode, len(children))
+  for i, child := range(children) {
+    if child == nil {
+      return fmt.Errorf("Will not connect nil to DAG")
+    }
+    _, exists := found[child.ID()]
+    if exists == true {
+      return fmt.Errorf("Will not connect the same child twice")
+    }
+    found[child.ID()] = true
+    child_nodes[i] = child
+  }
+
+  _, err := UpdateStates(ctx, append([]GraphNode{resource}, child_nodes...), func(states []NodeState) ([]NodeState, interface{}, error) {
+    resource_state := states[0].(ResourceState)
+
+    new_states := make([]ResourceState, len(states))
+    for i, state := range(states) {
+      new_states[i] = state.(ResourceState)
+    }
+
+    for i, state := range(states[1:]) {
+      child_state := state.(ResourceState)
+
+      if checkIfChild(ctx, resource_state, resource.ID(), child_state, children[i].ID()) == true {
+        return nil, nil, fmt.Errorf("RESOURCES_LINK_ERR: %s is a parent of %s so cannot link as child", children[i].ID() , resource.ID())
+      }
+
+      new_states[0].children = append(new_states[0].children, children[i])
+      new_states[i+1].parents = append(new_states[i+1].parents, resource)
+    }
+    ret_states := make([]NodeState, len(states))
+    for i, state := range(new_states) {
+      ret_states[i] = state
+    }
+    return ret_states, nil, nil
+  })
+
+  return err
+}
+
+type ResourceState struct {
+  name string
+  owner GraphNode
+  children []Resource
+  parents []Resource
+}
+
+func (state ResourceState) Serialize() []byte {
+  return []byte(state.name)
+}
+
+// Locks cannot be passed between resources, so the answer to
+// "who used to own this lock held by a resource" is always "nobody"
+func (state ResourceState) OriginalLockHolder(id NodeID) GraphNode {
+  return nil
+}
+
+// Nothing can take a lock from a resource
+func (state ResourceState) AllowedToTakeLock(id NodeID) bool {
+  return false
+}
+
+func (state ResourceState) RecordLockHolder(id NodeID, lock_holder GraphNode) NodeState {
+  if lock_holder != nil {
+    panic("Attempted to delegate a lock to a resource")
+  }
+
+  return state
+}
+
+func NewResourceState(name string) ResourceState {
+  return ResourceState{
+    name: name,
+    owner: nil,
+    children: []Resource{},
+    parents: []Resource{},
+  }
+}
+
+// Resource represents a Node which can be locked by another node,
+// and needs to own all it's childrens locks before being locked.
+// Resource connections form a directed acyclic graph
+// Resources do not allow any other nodes to take locks from them
+type Resource interface {
+  GraphNode
+
+  // Called when locking the node to allow for custom lock behaviour
+  Lock(node GraphNode, state NodeState) (NodeState, error)
+  // Called when unlocking the node to allow for custom lock behaviour
+  Unlock(node GraphNode, state NodeState) (NodeState, error)
+}
 
 // Resources propagate update up to multiple parents, and not downwards
 // (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
-func (resource * BaseResource) PropagateUpdate(signal GraphSignal) {
+func (resource * BaseResource) PropagateUpdate(ctx * GraphContext, signal GraphSignal) {
+  UseStates(ctx, []GraphNode{resource}, func(states []NodeState) (interface{}, error){
+    resource_state := states[0].(ResourceState)
+    if signal.Direction() == Up {
+      // Child->Parent, resource updates parent resources
+      for _, parent := range resource_state.parents {
+        SendUpdate(ctx, parent, signal)
+      }
+    } else if signal.Direction() == Down {
+      // Parent->Child, resource updates lock holder
+      if resource_state.owner != nil {
+        SendUpdate(ctx, resource_state.owner, signal)
+      }
 
-  if signal.Downwards() == false {
-    // Child->Parent, resource updates parent resources
-    resource.connection_lock.Lock()
-    defer resource.connection_lock.Unlock()
-    for _, parent := range resource.Parents() {
-      SendUpdate(parent, signal)
+      for _, child := range(resource_state.children) {
+        SendUpdate(ctx, child, signal)
+      }
+    } else if signal.Direction() == Direct {
+    } else {
+      panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
     }
-  } else {
-    // Parent->Child, resource updates lock holder
-    resource.lock_holder_lock.Lock()
-    defer resource.lock_holder_lock.Unlock()
-    if resource.lock_holder != nil {
-      SendUpdate(resource.lock_holder, signal)
-    }
-
-    resource.connection_lock.Lock()
-    defer resource.connection_lock.Unlock()
-    for _, child := range(resource.children) {
-      SendUpdate(child, signal)
-    }
-  }
+    return nil, nil
+  })
 }
 
-// Resource is the interface that DAG nodes are made from
-// A resource needs to be able to represent Logical entities and connections to physical entities.
-// A resource lock could be aborted at any time if this connection is broken, if that happens the event locking it must be aborted
-// The device connection should be maintained as much as possible(requiring some reconnection behaviour in the background)
-type Resource interface {
-  GraphNode
-  Owner() GraphNode
-  Children() []Resource
-  Parents() []Resource
-
-  AddParent(parent Resource)
-  AddChild(child Resource)
-  LockConnections()
-  UnlockConnections()
-
-  SetOwner(owner GraphNode)
-  LockState()
-  UnlockState()
-
-  String() string
-
-  lock(node GraphNode) error
-  unlock(node GraphNode) error
-}
-
-func (resource * BaseResource) String() string {
-  return resource.Name()
-}
-
-// Recurse up cur's parents to ensure r is not present
-func checkIfParent(r Resource, cur Resource) bool {
-  if r == nil || cur == nil {
-    panic("Cannot recurse DAG with nil")
-  }
-
-  if r.ID() == cur.ID() {
+func checkIfChild(ctx * GraphContext, r ResourceState, r_id NodeID, cur ResourceState, cur_id NodeID) bool {
+  if r_id == cur_id {
     return true
   }
 
-  cur.LockConnections()
-  defer cur.UnlockConnections()
-  for _, p := range(cur.Parents()) {
-    if checkIfParent(r, p) == true {
+  for _, c := range(cur.children) {
+    val, _ := UseStates(ctx, []GraphNode{c}, func(states []NodeState) (interface{}, error) {
+      child_state := states[0].(ResourceState)
+      return checkIfChild(ctx, cur, cur_id, child_state, c.ID()), nil
+    })
+
+    is_child := val.(bool)
+    if is_child {
       return true
     }
   }
@@ -83,183 +171,158 @@ func checkIfParent(r Resource, cur Resource) bool {
   return false
 }
 
-// Recurse doen cur's children to ensure r is not present
-func checkIfChild(r Resource, cur Resource) bool {
-  if r == nil || cur == nil {
-    panic("Cannot recurse DAG with nil")
+func UnlockResource(ctx * GraphContext, resource Resource, node GraphNode, node_state NodeState) (NodeState, error) {
+  if node == nil || resource == nil{
+    panic("Cannot unlock without a specified node and resource")
   }
-
-  if r.ID() == cur.ID() {
-    return true
-  }
-
-  cur.LockConnections()
-  defer cur.UnlockConnections()
-  for _, c := range(cur.Children()) {
-    if checkIfChild(r, c) == true {
-      return true
+  _, err := UpdateStates(ctx, []GraphNode{resource}, func(states []NodeState) ([]NodeState, interface{}, error) {
+    if resource.ID() == node.ID() {
+      if node_state != nil {
+        panic("node_state must be nil if unlocking resource from itself")
+      }
+      node_state = states[0]
     }
-  }
+    resource_state := states[0].(ResourceState)
 
-  return false
-}
+    if resource_state.owner == nil {
+      return nil, nil, fmt.Errorf("Resource already unlocked")
+    }
 
-func UnlockResource(resource Resource, node GraphNode) error {
-  var err error = nil
-  resource.LockState()
-  defer resource.UnlockState()
-  if resource.Owner() == nil {
-    return errors.New("Resource already unlocked")
-  }
+    if resource_state.owner.ID() != node.ID() {
+      return nil, nil, fmt.Errorf("Resource %s not locked by %s", resource.ID(), node.ID())
+    }
 
-  if resource.Owner().ID() != node.ID() {
-    return errors.New("Resource not locked by parent, unlock failed")
-  }
+    var lock_err error = nil
+    for _, child := range(resource_state.children) {
+      var err error = nil
+      node_state, err = UnlockResource(ctx, child, node, node_state)
+      if err != nil {
+        lock_err = err
+        break
+      }
+    }
 
-  var lock_err error = nil
-  for _, child := range resource.Children() {
-    err := UnlockResource(child, node)
+    if lock_err != nil {
+      return nil, nil, fmt.Errorf("Resource %s failed to unlock: %e", resource.ID(), lock_err)
+    }
+
+    resource_state.owner = node_state.OriginalLockHolder(resource.ID())
+    unlock_state, err := resource.Unlock(node, resource_state)
+    resource_state = unlock_state.(ResourceState)
     if err != nil {
-      lock_err = err
-      break
+      return nil, nil, fmt.Errorf("Resource %s failed custom Unlock: %e", resource.ID(), err)
     }
-  }
 
-  if lock_err != nil {
-    return fmt.Errorf("Resource failed to unlock: %s", lock_err)
-  }
+    if resource_state.owner == nil {
+      ctx.Log.Logf("resource", "RESOURCE_UNLOCK: %s unlocked %s", node.ID(), resource.ID())
+    } else {
+      ctx.Log.Logf("resource", "RESOURCE_UNLOCK: %s passed lock of %s back to %s", node.ID(), resource.ID(), resource_state.owner.ID())
+    }
 
-  resource.SetOwner(node.Delegator(resource.ID()))
+    return []NodeState{resource_state}, nil, nil
+  })
 
-  err = resource.unlock(node)
   if err != nil {
-    return errors.New("Failed to unlock resource")
+    return nil, err
   }
 
-  return nil
+  return node_state, nil
 }
 
-func isAllowedToTakeLock(node GraphNode, current_owner GraphNode) bool {
-  for _, allowed := range(current_owner.Allowed()) {
-    if allowed.ID() == node.ID() {
-      return true
-    }
-  }
-  return false
-}
-
-func LockResource(resource Resource, node GraphNode) error {
-  resource.LockState()
-  defer resource.UnlockState()
-
-  if resource.Owner() != nil {
-    // Check if node is allowed to take a lock from resource.Owner()
-    if isAllowedToTakeLock(node, resource.Owner()) == false {
-      return fmt.Errorf("%s is not allowed to take a lock from %s, allowed: %+v", node.Name(), resource.Owner().Name(), resource.Owner().Allowed())
-    }
+// TODO: State
+func LockResource(ctx * GraphContext, resource Resource, node GraphNode, node_state NodeState) (NodeState, error) {
+  if node == nil || resource == nil {
+    panic("Cannot lock without a specified node and resource")
   }
 
-  err := resource.lock(node)
+  _, err := UpdateStates(ctx, []GraphNode{resource}, func(states []NodeState) ([]NodeState, interface{}, error) {
+    if resource.ID() == node.ID() {
+      if node_state != nil {
+        panic("node_state must be nil if locking resource from itself")
+      }
+      node_state = states[0]
+    }
+    resource_state := states[0].(ResourceState)
+    if resource_state.owner != nil {
+      var lock_pass_allowed bool = false
+
+      if resource_state.owner.ID() == resource.ID() {
+        lock_pass_allowed = resource_state.AllowedToTakeLock(node.ID())
+      } else {
+        tmp, _ := UseStates(ctx, []GraphNode{resource_state.owner}, func(states []NodeState)(interface{}, error){
+          return states[0].AllowedToTakeLock(node.ID()), nil
+        })
+        lock_pass_allowed = tmp.(bool)
+      }
+
+
+      if lock_pass_allowed == false {
+        return nil, nil, fmt.Errorf("%s is not allowed to take a lock from %s", node.ID(), resource_state.owner.ID())
+      }
+    }
+
+    lock_state, err := resource.Lock(node, resource_state)
+    if err != nil {
+      return nil, nil, fmt.Errorf("Failed to lock resource: %e", err)
+    }
+
+    resource_state = lock_state.(ResourceState)
+
+    var lock_err error = nil
+    locked_resources := []Resource{}
+    for _, child := range(resource_state.children) {
+      node_state, err = LockResource(ctx, child, node, node_state)
+      if err != nil {
+        lock_err = err
+        break
+      }
+      locked_resources = append(locked_resources, child)
+    }
+
+    if lock_err != nil {
+      for _, locked_resource := range(locked_resources) {
+        node_state, err = UnlockResource(ctx, locked_resource, node, node_state)
+        if err != nil {
+          panic(err)
+        }
+      }
+      return nil, nil, fmt.Errorf("Resource failed to lock: %e", lock_err)
+    }
+
+    old_owner := resource_state.owner
+    resource_state.owner = node
+    node_state = node_state.RecordLockHolder(node.ID(), old_owner)
+
+    if old_owner == nil {
+      ctx.Log.Logf("resource", "RESOURCE_LOCK: %s locked %s", node.ID(), resource.ID())
+    } else {
+      ctx.Log.Logf("resource", "RESOURCE_LOCK: %s took lock of %s from %s", node.ID(), resource.ID(), old_owner.ID())
+    }
+
+    return []NodeState{resource_state}, nil, nil
+  })
   if err != nil {
-    return fmt.Errorf("Failed to lock resource: %s", err)
+    return nil, err
   }
 
-  var lock_err error = nil
-  locked_resources := []Resource{}
-  for _, child := range resource.Children() {
-    err := LockResource(child, node)
-    if err != nil{
-      lock_err = err
-      break
-    }
-    locked_resources = append(locked_resources, child)
-  }
-
-  if lock_err != nil {
-    return fmt.Errorf("Resource failed to lock: %s", lock_err)
-  }
-
-  Log.Logf("resource", "Locked %s", resource.Name())
-  node.TakeLock(resource)
-  resource.SetOwner(node)
-
-  return nil
+  return node_state, nil
 }
 
-// BaseResource is the most basic resource that can exist in the DAG
-// It holds a single state variable, which contains a pointer to the event that is locking it
+// BaseResources represent simple resources in the DAG that can be used to create a hierarchy of locks that store names
 type BaseResource struct {
   BaseNode
-  parents []Resource
-  children []Resource
-  connection_lock sync.Mutex
-  lock_holder GraphNode
-  lock_holder_lock sync.Mutex
-  state_lock sync.Mutex
-}
-
-func (resource * BaseResource) SetOwner(owner GraphNode) {
-  resource.lock_holder_lock.Lock()
-  resource.lock_holder = owner
-  resource.lock_holder_lock.Unlock()
-}
-
-func (resource * BaseResource) LockState() {
-  resource.state_lock.Lock()
-}
-
-func (resource * BaseResource) UnlockState() {
-  resource.state_lock.Unlock()
-}
-
-func (resource * BaseResource) Owner() GraphNode {
-  return resource.lock_holder
 }
 
 //BaseResources don't check anything special when locking/unlocking
-func (resource * BaseResource) lock(node GraphNode) error {
-  return nil
+func (resource * BaseResource) Lock(node GraphNode, state NodeState) (NodeState, error) {
+  return state, nil
 }
 
-func (resource * BaseResource) unlock(node GraphNode) error {
-  return nil
+func (resource * BaseResource) Unlock(node GraphNode, state NodeState) (NodeState, error) {
+  return state, nil
 }
 
-func (resource * BaseResource) Children() []Resource {
-  return resource.children
-}
-
-func (resource * BaseResource) Parents() []Resource {
-  return resource.parents
-}
-
-func (resource * BaseResource) LockConnections() {
-  resource.connection_lock.Lock()
-}
-
-func (resource * BaseResource) UnlockConnections() {
-  resource.connection_lock.Unlock()
-}
-
-func (resource * BaseResource) AddParent(parent Resource) {
-  resource.parents = append(resource.parents, parent)
-}
-
-func (resource * BaseResource) AddChild(child Resource) {
-  resource.children = append(resource.children, child)
-}
-
-func NewBaseResource(name string, description string) BaseResource {
-  resource := BaseResource{
-    BaseNode: NewBaseNode(name, description, randid()),
-    parents: []Resource{},
-    children: []Resource{},
-  }
-
-  return resource
-}
-
-func FindResource(root Event, id string) Resource {
+/*func FindResource(root Event, id string) Resource {
   if root == nil || id == ""{
     panic("invalid input")
   }
@@ -276,48 +339,17 @@ func FindResource(root Event, id string) Resource {
     }
   }
   return nil
-}
+}*/
 
-func LinkResource(resource Resource, child Resource) error {
-  if child == nil || resource == nil {
-    return fmt.Errorf("Will not connect nil to resource DAG")
-  } else if child.ID() == resource.ID() {
-    return fmt.Errorf("Will not connect resource to itself")
+func NewResource(ctx * GraphContext, name string, children []Resource) (* BaseResource, error) {
+  resource := &BaseResource{
+    BaseNode: NewNode(ctx, RandID(), NewResourceState(name)),
   }
 
-  if checkIfChild(resource, child) {
-    return fmt.Errorf("%s is a child of %s, cannot add as parent", resource.Name(), child.Name())
-  }
-
-  for _, p := range(resource.Parents()) {
-    if checkIfParent(child, p) {
-      return fmt.Errorf("Will not add %s as a parent of itself", child.Name())
-    }
-  }
-
-  child.AddParent(resource)
-  resource.AddChild(child)
-  return nil
-}
-
-func LinkResources(resource Resource, children []Resource) error {
-  for _, c := range(children) {
-    err := LinkResource(resource, c)
-    if err != nil {
-      return err
-    }
-  }
-  return nil
-}
-
-func NewResource(name string, description string, children []Resource) (* BaseResource, error) {
-  resource := NewBaseResource(name, description)
-  resource_ptr := &resource
-
-  err := LinkResources(resource_ptr, children)
+  err := LinkResources(ctx, resource, children)
   if err != nil {
     return nil, err
   }
 
-  return resource_ptr, nil
+  return resource, nil
 }
