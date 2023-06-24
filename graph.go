@@ -8,6 +8,7 @@ import (
   "github.com/rs/zerolog"
   "fmt"
   badger "github.com/dgraph-io/badger/v3"
+  "encoding/json"
 )
 
 type GraphContext struct {
@@ -173,10 +174,7 @@ func NewCancelSignal(source GraphNode) BaseSignal {
 }
 
 type NodeState interface {
-  Serialize() []byte
-  OriginalLockHolder(id NodeID) GraphNode
-  AllowedToTakeLock(id NodeID) bool
-  RecordLockHolder(id NodeID, lock_holder GraphNode) NodeState
+
 }
 
 // GraphNode is the interface common to both DAG nodes and Event tree nodes
@@ -188,7 +186,6 @@ type GraphNode interface {
   StateLock() *sync.RWMutex
 
   SetState(new_state NodeState)
-  DeserializeState([]byte) NodeState
 
   // Signal propagation function for listener channels
   UpdateListeners(ctx * GraphContext, update GraphSignal)
@@ -246,16 +243,16 @@ func (node * BaseNode) StateLock() * sync.RWMutex {
   return &node.state_lock
 }
 
-func (node * BaseNode) DeserializeState([]byte) NodeState {
-  return nil
-}
-
 func WriteDBState(ctx * GraphContext, id NodeID, state NodeState) error {
   ctx.Log.Logf("db", "DB_WRITE: %s - %+v", id, state)
 
   var serialized_state []byte = nil
   if state != nil {
-    serialized_state = state.Serialize()
+    ser, err := json.Marshal(state)
+    if err != nil {
+      return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
+    }
+    serialized_state = ser
   } else {
     serialized_state = []byte{}
   }
@@ -272,6 +269,7 @@ func (node * BaseNode) SetState(new_state NodeState) {
   node.state = new_state
 }
 
+// How to prevent the states from being modified if they're pointer receivers?
 func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)(interface{}, error)) (interface{}, error) {
   for _, node := range(nodes) {
     node.StateLock().RLock()

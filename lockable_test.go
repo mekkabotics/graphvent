@@ -3,41 +3,42 @@ package graphvent
 import (
   "testing"
   "fmt"
+  "encoding/json"
 )
 
-func TestNewResource(t * testing.T) {
+func TestNewLockable(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  _, err = NewResource(ctx, "Test resource 2", []Resource{r1})
+  _, err = NewLockable(ctx, "Test lockable 2", []Lockable{r1})
   fatalErr(t, err)
 }
 
-func TestRepeatedChildResource(t * testing.T) {
+func TestRepeatedChildLockable(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  _, err = NewResource(ctx, "Test resource 2", []Resource{r1, r1})
+  _, err = NewLockable(ctx, "Test lockable 2", []Lockable{r1, r1})
   if err == nil {
-    t.Fatal("Added the same resource as a child twice to the same resource")
+    t.Fatal("Added the same lockable as a child twice to the same lockable")
   }
 }
 
-func TestResourceSelfLock(t * testing.T) {
+func TestLockableSelfLock(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  _, err = LockResource(ctx, r1, r1, nil)
+  err = LockLockable(ctx, r1, r1, nil)
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (interface{}, error) {
-    owner_id := states[0].(ResourceState).owner.ID()
+    owner_id := states[0].(LockableState).Owner().ID()
     if owner_id != r1.ID() {
       return nil, fmt.Errorf("r1 is owned by %s instead of self", owner_id)
     }
@@ -45,11 +46,11 @@ func TestResourceSelfLock(t * testing.T) {
   })
   fatalErr(t, err)
 
-  _, err = UnlockResource(ctx, r1, r1, nil)
+  err = UnlockLockable(ctx, r1, r1, nil)
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (interface{}, error) {
-    owner := states[0].(ResourceState).owner
+    owner := states[0].(LockableState).Owner()
     if owner != nil {
       return nil, fmt.Errorf("r1 is not unowned after unlock: %s", owner.ID())
     }
@@ -59,50 +60,53 @@ func TestResourceSelfLock(t * testing.T) {
   fatalErr(t, err)
 }
 
-func TestResourceSelfLockTiered(t * testing.T) {
+func TestLockableSelfLockTiered(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r2, err := NewLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  r3, err := NewResource(ctx, "Test resource 3", []Resource{r1, r2})
+  r3, err := NewLockable(ctx, "Test lockable 3", []Lockable{r1, r2})
   fatalErr(t, err)
 
-  _, err = LockResource(ctx, r3, r3, nil)
+  err = LockLockable(ctx, r3, r3, nil)
   fatalErr(t, err)
 
-  _, err = UseStates(ctx, []GraphNode{r1, r2}, func(states []NodeState) (interface{}, error) {
-    owner_1_id := states[0].(ResourceState).owner.ID()
+  _, err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states []NodeState) (interface{}, error) {
+    owner_1_id := states[0].(LockableState).Owner().ID()
     if owner_1_id != r3.ID() {
       return nil, fmt.Errorf("r1 is owned by %s instead of r3", owner_1_id)
     }
 
-    owner_2_id := states[1].(ResourceState).owner.ID()
+    owner_2_id := states[1].(LockableState).Owner().ID()
     if owner_2_id != r3.ID() {
       return nil, fmt.Errorf("r2 is owned by %s instead of r3", owner_2_id)
     }
+    ser, _ := json.MarshalIndent(states, "", "  ")
+    fmt.Printf("\n\n%s\n\n", ser)
+
     return nil, nil
   })
   fatalErr(t, err)
 
-  _, err = UnlockResource(ctx, r3, r3, nil)
+  err = UnlockLockable(ctx, r3, r3, nil)
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states []NodeState) (interface{}, error) {
-    owner_1 := states[0].(ResourceState).owner
+    owner_1 := states[0].(LockableState).Owner()
     if owner_1 != nil {
       return nil, fmt.Errorf("r1 is not unowned after unlocking: %s", owner_1.ID())
     }
 
-    owner_2 := states[1].(ResourceState).owner
+    owner_2 := states[1].(LockableState).Owner()
     if owner_2 != nil {
       return nil, fmt.Errorf("r2 is not unowned after unlocking: %s", owner_2.ID())
     }
 
-    owner_3 := states[2].(ResourceState).owner
+    owner_3 := states[2].(LockableState).Owner()
     if owner_3 != nil {
       return nil, fmt.Errorf("r3 is not unowned after unlocking: %s", owner_3.ID())
     }
@@ -112,24 +116,25 @@ func TestResourceSelfLockTiered(t * testing.T) {
   fatalErr(t, err)
 }
 
-func TestResourceLockOther(t * testing.T) {
+func TestLockableLockOther(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewResource(ctx, "Test resource 2", []Resource{})
+  r2, err := NewLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
   _, err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, interface{}, error) {
-    new_state, err := LockResource(ctx, r1, r2, states[0])
+    node_state := states[0].(LockHolderState)
+    err := LockLockable(ctx, r1, r2, node_state)
     fatalErr(t, err)
-    return []NodeState{new_state}, nil, nil
+    return []NodeState{node_state}, nil, nil
   })
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (interface{}, error) {
-    owner_id := states[0].(ResourceState).owner.ID()
+    owner_id := states[0].(LockableState).Owner().ID()
     if owner_id != r2.ID() {
       return nil, fmt.Errorf("r1 is owned by %s instead of r2", owner_id)
     }
@@ -139,14 +144,15 @@ func TestResourceLockOther(t * testing.T) {
   fatalErr(t, err)
 
   _, err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, interface{}, error) {
-    new_state, err := UnlockResource(ctx, r1, r2, states[0])
+    node_state := states[0].(LockHolderState)
+    err := UnlockLockable(ctx, r1, r2, node_state)
     fatalErr(t, err)
-    return []NodeState{new_state}, nil, nil
+    return []NodeState{node_state}, nil, nil
   })
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (interface{}, error) {
-    owner := states[0].(ResourceState).owner
+    owner := states[0].(LockableState).Owner()
     if owner != nil {
       return nil, fmt.Errorf("r1 is owned by %s instead of r2", owner.ID())
     }
@@ -157,30 +163,31 @@ func TestResourceLockOther(t * testing.T) {
 
 }
 
-func TestResourceLockSimpleConflict(t * testing.T) {
+func TestLockableLockSimpleConflict(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewResource(ctx, "Test resource 2", []Resource{})
+  r2, err := NewLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  _, err = LockResource(ctx, r1, r1, nil)
+  err = LockLockable(ctx, r1, r1, nil)
   fatalErr(t, err)
 
   _, err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, interface{}, error) {
-    new_state, err := LockResource(ctx, r1, r2, states[0])
+    node_state := states[0].(LockHolderState)
+    err := LockLockable(ctx, r1, r2, node_state)
     if err == nil {
       t.Fatal("r2 took r1's lock from itself")
     }
 
-    return []NodeState{new_state}, nil, nil
+    return []NodeState{node_state}, nil, nil
   })
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (interface{}, error) {
-    owner_id := states[0].(ResourceState).owner.ID()
+    owner_id := states[0].(LockableState).Owner().ID()
     if owner_id != r1.ID() {
       return nil, fmt.Errorf("r1 is owned by %s instead of r1", owner_id)
     }
@@ -189,11 +196,11 @@ func TestResourceLockSimpleConflict(t * testing.T) {
   })
   fatalErr(t, err)
 
-  _, err = UnlockResource(ctx, r1, r1, nil)
+  err = UnlockLockable(ctx, r1, r1, nil)
   fatalErr(t, err)
 
   _, err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (interface{}, error) {
-    owner := states[0].(ResourceState).owner
+    owner := states[0].(LockableState).Owner()
     if owner != nil {
       return nil, fmt.Errorf("r1 is owned by %s instead of r1", owner.ID())
     }
@@ -204,22 +211,22 @@ func TestResourceLockSimpleConflict(t * testing.T) {
 
 }
 
-func TestResourceLockTieredConflict(t * testing.T) {
+func TestLockableLockTieredConflict(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewResource(ctx, "Test resource 1", []Resource{})
+  r1, err := NewLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewResource(ctx, "Test resource 2", []Resource{r1})
+  r2, err := NewLockable(ctx, "Test lockable 2", []Lockable{r1})
   fatalErr(t, err)
 
-  r3, err := NewResource(ctx, "Test resource 3", []Resource{r1})
+  r3, err := NewLockable(ctx, "Test lockable 3", []Lockable{r1})
   fatalErr(t, err)
 
-  _, err = LockResource(ctx, r2, r2, nil)
+  err = LockLockable(ctx, r2, r2, nil)
   fatalErr(t, err)
 
-  _, err = LockResource(ctx, r3, r3, nil)
+  err = LockLockable(ctx, r3, r3, nil)
   if err == nil {
     t.Fatal("Locked r3 which depends on r1 while r2 which depends on r1 is already locked")
   }
