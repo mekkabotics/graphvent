@@ -5,7 +5,6 @@ import (
   "time"
   "errors"
   "reflect"
-  "sync"
   "encoding/json"
 )
 
@@ -82,8 +81,6 @@ type BaseThreadState struct {
   parent Thread
   children []Thread
   child_info map[NodeID] ThreadInfo
-  resources map[NodeID]Lockable
-  delegation_map map[NodeID]GraphNode
   info_type reflect.Type
 }
 
@@ -99,27 +96,35 @@ func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
     parent_id = &new_str
   }
 
-  resources := map[NodeID]*NodeID{}
-  for _, resource := range(state.resources) {
-    original_owner := state.delegation_map[resource.ID()]
-    if original_owner != nil {
-      owner := original_owner.ID()
-      resources[resource.ID()] = &owner
-    } else {
-      resources[resource.ID()] = nil
-    }
+  requirements := make([]NodeID, len(state.requirements))
+  for i, requirement := range(state.requirements) {
+    requirements[i] = requirement.ID()
+  }
+
+  dependencies := make([]NodeID, len(state.dependencies))
+  for i, dependency := range(state.dependencies) {
+    dependencies[i] = dependency.ID()
+  }
+
+  delegations := map[NodeID]NodeID{}
+  for lockable_id, node := range(state.delegation_map) {
+    delegations[lockable_id] = node.ID()
   }
 
   return json.Marshal(&struct{
     Name string `json:"name"`
     Parent *NodeID `json:"parent"`
     Children map[NodeID]interface{} `json:"children"`
-    Lockables map[NodeID]*NodeID `json:"resources"`
+    Dependencies []NodeID `json:"dependencies"`
+    Requirements []NodeID `json:"requirements"`
+    Delegations map[NodeID]NodeID `json:"delegations"`
   }{
     Name: state.Name(),
     Parent: parent_id,
     Children: children,
-    Lockables: resources,
+    Dependencies: dependencies,
+    Requirements: requirements,
+    Delegations: delegations,
   })
 }
 
@@ -224,29 +229,6 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
   return nil
 }
 
-// Threads allow locks to pass to their requirements, but they won't allow cycles
-func (state * BaseThreadState) OriginalLockHolder(id NodeID) GraphNode {
-  node, exists := state.delegation_map[id]
-  if exists == false {
-    panic("Attempted to take a get the original lock holder of a resource we don't own")
-  }
-  delete(state.delegation_map, id)
-  return node
-}
-
-func (state * BaseThreadState) AllowedToTakeLock(id NodeID) bool {
-  return false
-}
-
-func (state * BaseThreadState) RecordLockHolder(id NodeID, lock_holder GraphNode) {
-  _, exists := state.delegation_map[id]
-  if exists == true {
-    panic("Attempted to lock a resource we're already holding(lock cycle)")
-  }
-
-  state.delegation_map[id] = lock_holder
-}
-
 // Thread is the interface that thread tree nodes must implement
 type Thread interface {
   GraphNode
@@ -333,11 +315,6 @@ type ThreadHandlers map[string]ThreadHandler
 type BaseThread struct {
   BaseNode
 
-  resources_lock sync.Mutex
-  children_lock sync.Mutex
-  info_lock sync.Mutex
-  parent_lock sync.Mutex
-
   Actions ThreadActions
   Handlers ThreadHandlers
 
@@ -414,10 +391,8 @@ var ThreadCancel = func(ctx * GraphContext, thread Thread, signal GraphSignal) (
 func NewBaseThreadState(name string) BaseThreadState {
   return BaseThreadState{
     BaseLockableState: NewLockableState(name),
-    delegation_map: map[NodeID]GraphNode{},
     children: []Thread{},
     child_info: map[NodeID]ThreadInfo{},
-    resources: map[NodeID]Lockable{},
     parent: nil,
   }
 }

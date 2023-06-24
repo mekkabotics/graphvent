@@ -5,11 +5,16 @@ import (
   "encoding/json"
 )
 
-// Any struct that wants to hold a lock must implement this interface
+// LockHolderState is the interface that any node that wants to posses locks must implement
+//
+// ReturnLock returns the node that held the resource pointed to by ID before this node,
+// or nil if the resource was unlocked previously
+//
+// AllowedToTakeLock returns true if the node pointed to by ID is allowed to take a lock from this node
 type LockHolderState interface {
-  OriginalLockHolder(id NodeID) GraphNode
-  AllowedToTakeLock(id NodeID) bool
-  RecordLockHolder(id NodeID, lock_holder GraphNode)
+  ReturnLock(resource_id NodeID) GraphNode
+  AllowedToTakeLock(node_id NodeID, resource_id NodeID) bool
+  RecordLockHolder(resource_id NodeID, lock_holder GraphNode)
 }
 
 // Any node that wants to be connected to the lockable DAG must implement this interface
@@ -29,6 +34,7 @@ type BaseLockableState struct {
   owner GraphNode
   requirements []Lockable
   dependencies []Lockable
+  delegation_map map[NodeID]GraphNode
 }
 
 func (state * BaseLockableState) MarshalJSON() ([]byte, error) {
@@ -42,6 +48,16 @@ func (state * BaseLockableState) MarshalJSON() ([]byte, error) {
     dependency_ids[i] = dependency.ID()
   }
 
+  delegations := map[NodeID]*NodeID{}
+  for resource_id, node := range(state.delegation_map) {
+    if node == nil {
+      delegations[resource_id] = nil
+    } else {
+      str := node.ID()
+      delegations[resource_id] = &str
+    }
+  }
+
   var owner_id *NodeID = nil
   if state.owner != nil {
     new_str := state.owner.ID()
@@ -53,11 +69,13 @@ func (state * BaseLockableState) MarshalJSON() ([]byte, error) {
     Owner *NodeID `json:"owner"`
     Dependencies []NodeID `json:"dependencies"`
     Requirements []NodeID `json:"requirements"`
+    Delegations map[NodeID]*NodeID `json:"delegations"`
   }{
     Name: state.name,
     Owner: owner_id,
     Dependencies: dependency_ids,
     Requirements: requirement_ids,
+    Delegations: delegations,
   })
 }
 
@@ -67,19 +85,31 @@ func (state * BaseLockableState) Name() string {
 
 // Locks cannot be passed between base lockables, so the answer to
 // "who used to own this lock held by a base lockable" is always "nobody"
-func (state * BaseLockableState) OriginalLockHolder(id NodeID) GraphNode {
-  return nil
+func (state * BaseLockableState) ReturnLock(resource_id NodeID) GraphNode {
+  node, exists := state.delegation_map[resource_id]
+  if exists == false {
+    panic("Attempted to take a get the original lock holder of a resource we don't own")
+  }
+  delete(state.delegation_map, resource_id)
+  return node
 }
 
 // Nothing can take a lock from a base lockable either
-func (state * BaseLockableState) AllowedToTakeLock(id NodeID) bool {
+func (state * BaseLockableState) AllowedToTakeLock(node_id NodeID, resource_id NodeID) bool {
+  _, exists := state.delegation_map[resource_id]
+  if exists == false {
+    panic ("Trying to give away lock we don't own")
+  }
   return false
 }
 
-func (state * BaseLockableState) RecordLockHolder(id NodeID, lock_holder GraphNode) {
-  if lock_holder != nil {
-    panic("Attempted to delegate a lock to a lockable")
+func (state * BaseLockableState) RecordLockHolder(resource_id NodeID, lock_holder GraphNode) {
+  _, exists := state.delegation_map[resource_id]
+  if exists == true {
+    panic("Attempted to lock a resource we're already holding(lock cycle)")
   }
+
+  state.delegation_map[resource_id] = lock_holder
 }
 
 func (state * BaseLockableState) Owner() GraphNode {
@@ -119,6 +149,7 @@ func NewLockableState(name string) BaseLockableState {
     owner: nil,
     requirements: []Lockable{},
     dependencies: []Lockable{},
+    delegation_map: map[NodeID]GraphNode{},
   }
 }
 
@@ -240,7 +271,7 @@ func UnlockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_
       return nil, nil, fmt.Errorf("Lockable %s failed to unlock: %e", lockable.ID(), lock_err)
     }
 
-    new_owner := node_state.OriginalLockHolder(lockable.ID())
+    new_owner := node_state.ReturnLock(lockable.ID())
     lockable_state.SetOwner(new_owner)
     err := lockable.Unlock(node, lockable_state)
     if err != nil {
@@ -263,6 +294,7 @@ func LockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_st
   if node == nil || lockable == nil {
     panic("Cannot lock without a specified node and lockable")
   }
+  ctx.Log.Logf("resource", "LOCKING: %s from %s", lockable.ID(), node.ID())
 
   _, err := UpdateStates(ctx, []GraphNode{lockable}, func(states []NodeState) ([]NodeState, interface{}, error) {
     if lockable.ID() == node.ID() {
@@ -276,10 +308,10 @@ func LockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_st
       var lock_pass_allowed bool = false
 
       if lockable_state.Owner().ID() == lockable.ID() {
-        lock_pass_allowed = lockable_state.AllowedToTakeLock(node.ID())
+        lock_pass_allowed = lockable_state.AllowedToTakeLock(node.ID(), lockable.ID())
       } else {
         tmp, _ := UseStates(ctx, []GraphNode{lockable_state.Owner()}, func(states []NodeState)(interface{}, error){
-          return states[0].(LockHolderState).AllowedToTakeLock(node.ID()), nil
+          return states[0].(LockHolderState).AllowedToTakeLock(node.ID(), lockable.ID()), nil
         })
         lock_pass_allowed = tmp.(bool)
       }
@@ -318,7 +350,7 @@ func LockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_st
 
     old_owner := lockable_state.Owner()
     lockable_state.SetOwner(node)
-    node_state.RecordLockHolder(node.ID(), old_owner)
+    node_state.RecordLockHolder(lockable.ID(), old_owner)
 
     if old_owner == nil {
       ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s locked %s", node.ID(), lockable.ID())
