@@ -165,11 +165,11 @@ func NewDirectSignal(source GraphNode, _type string) BaseSignal {
   return NewBaseSignal(source, _type, Direct)
 }
 
-func NewAbortSignal(source GraphNode) BaseSignal {
+func AbortSignal(source GraphNode) BaseSignal {
   return NewBaseSignal(source, "abort", Down)
 }
 
-func NewCancelSignal(source GraphNode) BaseSignal {
+func CancelSignal(source GraphNode) BaseSignal {
   return NewBaseSignal(source, "cancel", Down)
 }
 
