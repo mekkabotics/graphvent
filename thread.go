@@ -84,6 +84,12 @@ type BaseThreadState struct {
   info_type reflect.Type
 }
 
+type BaseThreadStateJSON struct {
+  Parent *NodeID `json:"parent"`
+  Children map[NodeID]interface{} `json:"children"`
+  LockableState *BaseLockableState `json:"lockable_state"`
+}
+
 func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
   children := map[NodeID]interface{}{}
   for _, child := range(state.children) {
@@ -96,35 +102,10 @@ func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
     parent_id = &new_str
   }
 
-  requirements := make([]NodeID, len(state.requirements))
-  for i, requirement := range(state.requirements) {
-    requirements[i] = requirement.ID()
-  }
-
-  dependencies := make([]NodeID, len(state.dependencies))
-  for i, dependency := range(state.dependencies) {
-    dependencies[i] = dependency.ID()
-  }
-
-  delegations := map[NodeID]NodeID{}
-  for lockable_id, node := range(state.delegation_map) {
-    delegations[lockable_id] = node.ID()
-  }
-
-  return json.Marshal(&struct{
-    Name string `json:"name"`
-    Parent *NodeID `json:"parent"`
-    Children map[NodeID]interface{} `json:"children"`
-    Dependencies []NodeID `json:"dependencies"`
-    Requirements []NodeID `json:"requirements"`
-    Delegations map[NodeID]NodeID `json:"delegations"`
-  }{
-    Name: state.Name(),
+  return json.Marshal(&BaseThreadStateJSON{
     Parent: parent_id,
     Children: children,
-    Dependencies: dependencies,
-    Requirements: requirements,
-    Delegations: delegations,
+    LockableState: &state.BaseLockableState,
   })
 }
 
