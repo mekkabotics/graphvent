@@ -168,43 +168,65 @@ func NewLockHolderState() BaseLockHolderState {
   }
 }
 
-func NewLockableState(name string) BaseLockableState {
-  return BaseLockableState{
+func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockable) error {
+  if lockable == nil {
+    return fmt.Errorf("LOCKABLE_LINK_ERR: Will not link Lockables to nil as requirements")
+  }
+
+  for _, requirement := range(requirements) {
+    if requirement == nil {
+      return fmt.Errorf("LOCKABLE_LINK_ERR: Will not link nil to a Lockable as a requirement")
+    }
+
+    if lockable.ID() == requirement.ID() {
+      return fmt.Errorf("LOCKABLE_LINK_ERR: cannot link %s to itself", lockable.ID())
+    }
+  }
+
+  nodes := make([]GraphNode, len(requirements) + 1)
+  nodes[0] = lockable
+  for i, node := range(requirements) {
+    nodes[i+1] = node
+  }
+  _, err := UpdateStates(ctx, nodes, func(states []NodeState) ([]NodeState, interface{}, error) {
+    // Check that all the requirements can be added
+    lockable_state := states[0].(LockableState)
+    for i, requirement := range(requirements) {
+      requirement_state := states[i+1].(LockableState)
+
+
+      if checkIfRequirement(ctx, lockable.ID(), requirement_state, requirement.ID()) == true {
+        return nil, nil, fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
+      }
+
+      if checkIfRequirement(ctx, requirement.ID(), lockable_state, lockable.ID()) == true {
+        return nil, nil, fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
+      }
+    }
+    // Update the states of the requirements
+    for i, requirement := range(requirements) {
+      requirement_state := states[i+1].(LockableState)
+      requirement_state.AddDependency(lockable)
+      lockable_state.AddRequirement(requirement)
+    }
+
+    // Return no error
+    return states, nil, nil
+  })
+
+  return err
+}
+
+func NewBaseLockableState(name string) BaseLockableState {
+  state := BaseLockableState{
     BaseLockHolderState: NewLockHolderState(),
     name: name,
     owner: nil,
     requirements: []Lockable{},
     dependencies: []Lockable{},
   }
-}
 
-// Link a lockable with a requirement
-func LinkLockables(ctx * GraphContext, lockable Lockable, requirement Lockable) error {
-  if lockable == nil || requirement == nil {
-    return fmt.Errorf("Will not connect nil to DAG")
-  }
-
-  if lockable.ID() == requirement.ID() {
-    return fmt.Errorf("Will not link %s as requirement of itself", lockable.ID())
-  }
-
-  _, err := UpdateStates(ctx, []GraphNode{lockable, requirement}, func(states []NodeState) ([]NodeState, interface{}, error) {
-    lockable_state := states[0].(LockableState)
-    requirement_state := states[1].(LockableState)
-
-    if checkIfRequirement(ctx, lockable_state, lockable.ID(), requirement_state, requirement.ID()) == true {
-      return nil, nil, fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
-    }
-
-    if checkIfRequirement(ctx, requirement_state, requirement.ID(), lockable_state, lockable.ID()) == true {
-      return nil, nil, fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
-    }
-
-    lockable_state.AddRequirement(requirement)
-    requirement_state.AddDependency(lockable)
-    return []NodeState{lockable_state, requirement_state}, nil, nil
-  })
-  return err
+  return state
 }
 
 type Lockable interface {
@@ -246,14 +268,14 @@ func (lockable * BaseLockable) PropagateUpdate(ctx * GraphContext, signal GraphS
   })
 }
 
-func checkIfRequirement(ctx * GraphContext, r LockableState, r_id NodeID, cur LockableState, cur_id NodeID) bool {
+func checkIfRequirement(ctx * GraphContext, r_id NodeID, cur LockableState, cur_id NodeID) bool {
   for _, c := range(cur.Requirements()) {
     if c.ID() == r_id {
       return true
     }
     val, _ := UseStates(ctx, []GraphNode{c}, func(states []NodeState) (interface{}, error) {
       requirement_state := states[0].(LockableState)
-      return checkIfRequirement(ctx, cur, cur_id, requirement_state, c.ID()), nil
+      return checkIfRequirement(ctx, cur_id, requirement_state, c.ID()), nil
     })
 
     is_requirement := val.(bool)
@@ -408,16 +430,14 @@ func (lockable * BaseLockable) Unlock(node GraphNode, state LockableState) error
 }
 
 func NewLockable(ctx * GraphContext, name string, requirements []Lockable) (* BaseLockable, error) {
-  state := NewLockableState(name)
+  state := NewBaseLockableState(name)
   lockable := &BaseLockable{
     BaseNode: NewNode(ctx, RandID(), &state),
   }
 
-  for _, requirement := range(requirements) {
-    err := LinkLockables(ctx, lockable, requirement)
-    if err != nil {
-      return nil, err
-    }
+  err := LinkLockables(ctx, lockable, requirements)
+  if err != nil {
+    return nil, err
   }
 
   return lockable, nil

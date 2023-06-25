@@ -272,8 +272,28 @@ func (node * BaseNode) SetState(new_state NodeState) {
   node.state = new_state
 }
 
-// How to prevent the states from being modified if they're pointer receivers?
+func checkForDuplicate(nodes []GraphNode) error {
+  found := map[NodeID]bool{}
+  for _, node := range(nodes) {
+    if node == nil {
+      return fmt.Errorf("Cannot get state of nil node")
+    }
+
+    _, exists := found[node.ID()]
+    if exists == true {
+      return fmt.Errorf("Attempted to get state of %s twice", node.ID())
+    }
+    found[node.ID()] = true
+  }
+  return nil
+}
+
 func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)(interface{}, error)) (interface{}, error) {
+  err := checkForDuplicate(nodes)
+  if err != nil {
+    return nil, err
+  }
+
   for _, node := range(nodes) {
     node.StateLock().RLock()
   }
@@ -293,6 +313,11 @@ func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []No
 }
 
 func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)([]NodeState, interface{}, error)) (interface{}, error) {
+  err := checkForDuplicate(nodes)
+  if err != nil {
+    return nil, err
+  }
+
   for _, node := range(nodes) {
     node.StateLock().Lock()
   }

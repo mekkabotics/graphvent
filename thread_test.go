@@ -10,7 +10,7 @@ import (
 func TestNewEvent(t * testing.T) {
   ctx := testContext(t)
 
-  t1, err := NewThread(ctx, "Test thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
+  t1, err := NewSimpleBaseThread(ctx, "Test thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
   fatalErr(t, err)
 
   go func(thread Thread) {
@@ -37,7 +37,7 @@ func TestEventWithRequirement(t * testing.T) {
   l1, err := NewLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  t1, err := NewThread(ctx, "Test Thread 1", []Lockable{l1}, ThreadActions{}, ThreadHandlers{})
+  t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{l1}, ThreadActions{}, ThreadHandlers{})
   fatalErr(t, err)
 
   go func (thread Thread) {
@@ -65,4 +65,12 @@ func TestEventWithRequirement(t * testing.T) {
     return nil, nil
   })
   fatalErr(t, err)
+}
+
+func TestCustomEventState(t * testing.T ) {
+  ctx := logTestContext(t, []string{"lockable", "thread"})
+
+  t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
+  fatalErr(t, err)
+  println(t1)
 }
