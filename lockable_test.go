@@ -4,6 +4,7 @@ import (
   "testing"
   "fmt"
   "encoding/json"
+  "time"
 )
 
 func TestNewLockable(t * testing.T) {
@@ -230,4 +231,80 @@ func TestLockableLockTieredConflict(t * testing.T) {
   if err == nil {
     t.Fatal("Locked r3 which depends on r1 while r2 which depends on r1 is already locked")
   }
+}
+
+func TestLockableSimpleUpdate(t * testing.T) {
+  ctx := testContext(t)
+
+  l1, err := NewLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+
+  update_channel := l1.UpdateChannel(0)
+
+  go func() {
+    SendUpdate(ctx, l1, NewDirectSignal(l1, "test_update"))
+  }()
+
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l1, 100*time.Millisecond, "Didn't receive test_update sent to l1")
+}
+
+func TestLockableDownUpdate(t * testing.T) {
+  ctx := testContext(t)
+
+  l1, err := NewLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+
+  l2, err := NewLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  fatalErr(t, err)
+
+  _, err = NewLockable(ctx, "Test Lockable 3", []Lockable{l2})
+  fatalErr(t, err)
+
+  update_channel := l1.UpdateChannel(0)
+
+  go func() {
+    SendUpdate(ctx, l2, NewDownSignal(l2, "test_update"))
+  }()
+
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l2, 100*time.Millisecond, "Didn't receive test_update on l3 sent on l2")
+}
+
+func TestLockableUpUpdate(t * testing.T) {
+  ctx := testContext(t)
+
+  l1, err := NewLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+
+  l2, err := NewLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  fatalErr(t, err)
+
+  l3, err := NewLockable(ctx, "Test Lockable 3", []Lockable{l2})
+  fatalErr(t, err)
+
+  update_channel := l3.UpdateChannel(0)
+
+  go func() {
+    SendUpdate(ctx, l2, NewSignal(l2, "test_update"))
+  }()
+
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l2, 100*time.Millisecond, "Didn't receive test_update on l3 sent on l2")
+}
+
+func TestOwnerNotUpdatedTwice(t * testing.T) {
+  ctx := testContext(t)
+
+  l1, err := NewLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+
+  l2, err := NewLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  fatalErr(t, err)
+
+  update_channel := l2.UpdateChannel(0)
+
+  go func() {
+    SendUpdate(ctx, l1, NewSignal(l1, "test_update"))
+  }()
+
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l1, 100*time.Millisecond, "Dicn't received test_update on l2 from l1")
+  (*GraphTester)(t).CheckForNone(update_channel, "Second update received on dependency")
 }

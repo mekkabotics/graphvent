@@ -13,22 +13,22 @@ func (thread * BaseThread) PropagateUpdate(ctx * GraphContext, signal GraphSigna
   UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (interface{}, error) {
     thread_state := states[0].(ThreadState)
     if signal.Direction() == Up {
-      // Child->Parent, thread updates parent and connected resources
+      // Child->Parent, thread updates parent and connected requirement
       if thread_state.Parent() != nil {
         SendUpdate(ctx, thread_state.Parent(), signal)
       }
 
-      for _, resource := range(thread_state.Requirements()) {
-        SendUpdate(ctx, resource, signal)
+      for _, dep := range(thread_state.Dependencies()) {
+        SendUpdate(ctx, dep, signal)
       }
     } else if signal.Direction() == Down {
-      // Parent->Child, thread updated children
+      // Parent->Child, updates children and dependencies
       for _, child := range(thread_state.Children()) {
         SendUpdate(ctx, child, signal)
       }
 
-      for _, dep := range(thread_state.Dependencies()) {
-        SendUpdate(ctx, dep, signal)
+      for _, requirement := range(thread_state.Requirements()) {
+        SendUpdate(ctx, requirement, signal)
       }
     } else if signal.Direction() == Direct {
 
@@ -193,7 +193,7 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
 
 // Thread is the interface that thread tree nodes must implement
 type Thread interface {
-  GraphNode
+  Lockable
 
   Action(action string) (ThreadAction, bool)
   Handler(signal_type string) (ThreadHandler, bool)
@@ -231,7 +231,12 @@ func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id N
 func RunThread(ctx * GraphContext, thread Thread) error {
   ctx.Log.Logf("thread", "EVENT_RUN: %s", thread.ID())
 
-  _, err := UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (interface{}, error) {
+  err := LockLockable(ctx, thread, thread, nil)
+  if err != nil {
+    return err
+  }
+
+  _, err = UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (interface{}, error) {
     thread_state := states[0].(ThreadState)
     if thread_state.Owner() == nil {
       return nil, fmt.Errorf("EVENT_RUN_NOT_LOCKED: %s", thread_state.Name())
@@ -275,7 +280,7 @@ type ThreadHandlers map[string]ThreadHandler
 // This node by itself doesn't implement any special behaviours for children, so they will be ignored.
 // When started, this thread automatically transitions to completion
 type BaseThread struct {
-  BaseNode
+  BaseLockable
 
   Actions ThreadActions
   Handlers ThreadHandlers
@@ -327,17 +332,23 @@ var ThreadDefaultStart = func(ctx * GraphContext, thread Thread) (string, error)
 
 var ThreadWait = func(ctx * GraphContext, thread Thread) (string, error) {
   ctx.Log.Logf("thread", "THREAD_WAIT: %s TIMEOUT: %+v", thread.ID(), thread.Timeout())
-  select {
-    case signal := <- thread.SignalChannel():
-      ctx.Log.Logf("thread", "THREAD_SIGNAL: %s %+v", thread.ID(), signal)
-      signal_fn, exists := thread.Handler(signal.Type())
-      if exists == true {
-        ctx.Log.Logf("thread", "THREAD_HANDLER: %s - %s", thread.ID(), signal.Type())
-        return signal_fn(ctx, thread, signal)
-      }
-    case <- thread.Timeout():
-      ctx.Log.Logf("thread", "THREAD_TIMEOUT %s - NEXT_STATE: %s", thread.ID(), thread.TimeoutAction())
-      return thread.TimeoutAction(), nil
+  for {
+    select {
+      case signal := <- thread.SignalChannel():
+        ctx.Log.Logf("thread", "THREAD_SIGNAL: %s %+v", thread.ID(), signal)
+        if signal.Source() == thread.ID() {
+          ctx.Log.Logf("thread", "THREAD_SIGNAL_INTERNAL")
+          continue
+        }
+        signal_fn, exists := thread.Handler(signal.Type())
+        if exists == true {
+          ctx.Log.Logf("thread", "THREAD_HANDLER: %s - %s", thread.ID(), signal.Type())
+          return signal_fn(ctx, thread, signal)
+        }
+      case <- thread.Timeout():
+        ctx.Log.Logf("thread", "THREAD_TIMEOUT %s - NEXT_STATE: %s", thread.ID(), thread.TimeoutAction())
+        return thread.TimeoutAction(), nil
+    }
   }
   return "wait", nil
 }
@@ -362,7 +373,7 @@ func NewBaseThreadState(name string) BaseThreadState {
 func NewBaseThread(ctx * GraphContext, name string) (BaseThread, error) {
   state := NewBaseThreadState(name)
   thread := BaseThread{
-    BaseNode: NewNode(ctx, RandID(), &state),
+    BaseLockable: BaseLockable{BaseNode: NewNode(ctx, RandID(), &state)},
     Actions: ThreadActions{
       "wait": ThreadWait,
       "start": ThreadDefaultStart,

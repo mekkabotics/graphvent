@@ -192,6 +192,9 @@ type GraphNode interface {
   // Signal propagation function for connected nodes(defined in state)
   PropagateUpdate(ctx * GraphContext, update GraphSignal)
 
+  // Get an update channel for the node to be notified of signals
+  UpdateChannel(buffer int) chan GraphSignal
+
   // Register and unregister a channel to propogate updates to
   RegisterChannel(listener chan GraphSignal)
   UnregisterChannel(listener chan GraphSignal)
@@ -384,7 +387,7 @@ func (node * BaseNode) SignalChannel() chan GraphSignal {
 }
 
 // Create a new GraphSinal channel with a buffer of size buffer and register it to a node
-func GetUpdateChannel(node * BaseNode, buffer int) chan GraphSignal {
+func (node * BaseNode) UpdateChannel(buffer int) chan GraphSignal {
   new_listener := make(chan GraphSignal, buffer)
   node.RegisterChannel(new_listener)
   return new_listener

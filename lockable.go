@@ -7,16 +7,16 @@ import (
 
 // LockHolderState is the interface that any node that wants to posses locks must implement
 //
-// ReturnLock returns the node that held the resource pointed to by ID before this node and
-// removes the mapping from it's state, or nil if the resource was unlocked previously
+// ReturnLock returns the node that held the lockable pointed to by ID before this node and
+// removes the mapping from it's state, or nil if the lockable was unlocked previously
 //
 // AllowedToTakeLock returns true if the node pointed to by ID is allowed to take a lock from this node
 //
-// RecordLockHolder records that resource_id needs to be passed back to lock_holder
+// RecordLockHolder records that lockable_id needs to be passed back to lock_holder
 type LockHolderState interface {
-  ReturnLock(resource_id NodeID) GraphNode
-  AllowedToTakeLock(node_id NodeID, resource_id NodeID) bool
-  RecordLockHolder(resource_id NodeID, lock_holder GraphNode)
+  ReturnLock(lockable_id NodeID) GraphNode
+  AllowedToTakeLock(node_id NodeID, lockable_id NodeID) bool
+  RecordLockHolder(lockable_id NodeID, lock_holder GraphNode)
 }
 
 // LockableState is the interface that a lockables state must have to allow it to connect to the DAG
@@ -104,31 +104,31 @@ func (state * BaseLockableState) Name() string {
 
 // Locks cannot be passed between base lockables, so the answer to
 // "who used to own this lock held by a base lockable" is always "nobody"
-func (state * BaseLockHolderState) ReturnLock(resource_id NodeID) GraphNode {
-  node, exists := state.delegation_map[resource_id]
+func (state * BaseLockHolderState) ReturnLock(lockable_id NodeID) GraphNode {
+  node, exists := state.delegation_map[lockable_id]
   if exists == false {
-    panic("Attempted to take a get the original lock holder of a resource we don't own")
+    panic("Attempted to take a get the original lock holder of a lockable we don't own")
   }
-  delete(state.delegation_map, resource_id)
+  delete(state.delegation_map, lockable_id)
   return node
 }
 
 // Nothing can take a lock from a base lockable either
-func (state * BaseLockHolderState) AllowedToTakeLock(node_id NodeID, resource_id NodeID) bool {
-  _, exists := state.delegation_map[resource_id]
+func (state * BaseLockHolderState) AllowedToTakeLock(node_id NodeID, lockable_id NodeID) bool {
+  _, exists := state.delegation_map[lockable_id]
   if exists == false {
     panic ("Trying to give away lock we don't own")
   }
   return false
 }
 
-func (state * BaseLockHolderState) RecordLockHolder(resource_id NodeID, lock_holder GraphNode) {
-  _, exists := state.delegation_map[resource_id]
+func (state * BaseLockHolderState) RecordLockHolder(lockable_id NodeID, lock_holder GraphNode) {
+  _, exists := state.delegation_map[lockable_id]
   if exists == true {
-    panic("Attempted to lock a resource we're already holding(lock cycle)")
+    panic("Attempted to lock a lockable we're already holding(lock cycle)")
   }
 
-  state.delegation_map[resource_id] = lock_holder
+  state.delegation_map[lockable_id] = lock_holder
 }
 
 func (state * BaseLockableState) Owner() GraphNode {
@@ -215,25 +215,29 @@ type Lockable interface {
   Unlock(node GraphNode, state LockableState) error
 }
 
-// Lockables propagate update up to multiple dependencies, and not downwards
-// (subscriber to team won't get update to alliance, but subscriber to alliance will get update to team)
 func (lockable * BaseLockable) PropagateUpdate(ctx * GraphContext, signal GraphSignal) {
   UseStates(ctx, []GraphNode{lockable}, func(states []NodeState) (interface{}, error){
     lockable_state := states[0].(LockableState)
     if signal.Direction() == Up {
       // Child->Parent, lockable updates dependency lockables
+      owner_sent := false
       for _, dependency := range lockable_state.Dependencies() {
         SendUpdate(ctx, dependency, signal)
+        if lockable_state.Owner() != nil {
+          if dependency.ID() != lockable_state.Owner().ID() {
+            owner_sent = true
+          }
+        }
+      }
+      if lockable_state.Owner() != nil && owner_sent == false {
+        SendUpdate(ctx, lockable_state.Owner(), signal)
       }
     } else if signal.Direction() == Down {
       // Parent->Child, lockable updates lock holder
-      if lockable_state.Owner() != nil {
-        SendUpdate(ctx, lockable_state.Owner(), signal)
-      }
-
       for _, requirement := range(lockable_state.Requirements()) {
         SendUpdate(ctx, requirement, signal)
       }
+
     } else if signal.Direction() == Direct {
     } else {
       panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
@@ -317,14 +321,14 @@ func UnlockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_
 
 func LockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_state LockHolderState) error {
   if node == nil || lockable == nil {
-    panic("Cannot lock without a specified node and lockable")
+    return fmt.Errorf("Cannot lock without a specified node and lockable")
   }
-  ctx.Log.Logf("resource", "LOCKING: %s from %s", lockable.ID(), node.ID())
+  ctx.Log.Logf("lockable", "LOCKING: %s from %s", lockable.ID(), node.ID())
 
   _, err := UpdateStates(ctx, []GraphNode{lockable}, func(states []NodeState) ([]NodeState, interface{}, error) {
     if lockable.ID() == node.ID() {
       if node_state != nil {
-        panic("node_state must be nil if locking lockable from itself")
+        return nil, nil, fmt.Errorf("node_state must be nil if locking lockable from itself")
       }
       node_state = states[0].(LockHolderState)
     }

@@ -17,10 +17,20 @@ func (t * GraphTester) WaitForValue(ctx * GraphContext, listener chan GraphSigna
   for true {
     select {
     case signal := <- listener:
+      if signal == nil {
+        ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
+        t.Fatal(str)
+      }
       if signal.Type() == signal_type {
         ctx.Log.Logf("test", "SIGNAL_TYPE_FOUND: %s - %s %+v\n", signal.Type(), signal.Source(), listener)
-        if signal.Source() == source.ID() {
-          return signal
+        if source == nil {
+          if signal.Source() == "" {
+            return signal
+          }
+        } else {
+          if signal.Source() == source.ID() {
+            return signal
+          }
         }
       }
     case <-timeout_channel:
