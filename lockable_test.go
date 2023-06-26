@@ -7,23 +7,23 @@ import (
   "time"
 )
 
-func TestNewBaseLockable(t * testing.T) {
+func TestNewSimpleBaseLockable(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  _, err = NewBaseLockable(ctx, "Test lockable 2", []Lockable{r1})
+  _, err = NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{r1})
   fatalErr(t, err)
 }
 
 func TestRepeatedChildLockable(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  _, err = NewBaseLockable(ctx, "Test lockable 2", []Lockable{r1, r1})
+  _, err = NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{r1, r1})
   if err == nil {
     t.Fatal("Added the same lockable as a child twice to the same lockable")
   }
@@ -32,7 +32,7 @@ func TestRepeatedChildLockable(t * testing.T) {
 func TestLockableSelfLock(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
   err = LockLockable(ctx, r1, r1, nil)
@@ -64,13 +64,13 @@ func TestLockableSelfLock(t * testing.T) {
 func TestLockableSelfLockTiered(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewBaseLockable(ctx, "Test lockable 2", []Lockable{})
+  r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  r3, err := NewBaseLockable(ctx, "Test lockable 3", []Lockable{r1, r2})
+  r3, err := NewSimpleBaseLockable(ctx, "Test lockable 3", []Lockable{r1, r2})
   fatalErr(t, err)
 
   err = LockLockable(ctx, r3, r3, nil)
@@ -120,10 +120,10 @@ func TestLockableSelfLockTiered(t * testing.T) {
 func TestLockableLockOther(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewBaseLockable(ctx, "Test lockable 2", []Lockable{})
+  r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
   _, err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, interface{}, error) {
@@ -167,10 +167,10 @@ func TestLockableLockOther(t * testing.T) {
 func TestLockableLockSimpleConflict(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewBaseLockable(ctx, "Test lockable 2", []Lockable{})
+  r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
   err = LockLockable(ctx, r1, r1, nil)
@@ -215,13 +215,13 @@ func TestLockableLockSimpleConflict(t * testing.T) {
 func TestLockableLockTieredConflict(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  r2, err := NewBaseLockable(ctx, "Test lockable 2", []Lockable{r1})
+  r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{r1})
   fatalErr(t, err)
 
-  r3, err := NewBaseLockable(ctx, "Test lockable 3", []Lockable{r1})
+  r3, err := NewSimpleBaseLockable(ctx, "Test lockable 3", []Lockable{r1})
   fatalErr(t, err)
 
   err = LockLockable(ctx, r2, r2, nil)
@@ -236,7 +236,7 @@ func TestLockableLockTieredConflict(t * testing.T) {
 func TestLockableSimpleUpdate(t * testing.T) {
   ctx := testContext(t)
 
-  l1, err := NewBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
   update_channel := l1.UpdateChannel(0)
@@ -251,13 +251,13 @@ func TestLockableSimpleUpdate(t * testing.T) {
 func TestLockableDownUpdate(t * testing.T) {
   ctx := testContext(t)
 
-  l1, err := NewBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  l2, err := NewBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
   fatalErr(t, err)
 
-  _, err = NewBaseLockable(ctx, "Test Lockable 3", []Lockable{l2})
+  _, err = NewSimpleBaseLockable(ctx, "Test Lockable 3", []Lockable{l2})
   fatalErr(t, err)
 
   update_channel := l1.UpdateChannel(0)
@@ -272,13 +272,13 @@ func TestLockableDownUpdate(t * testing.T) {
 func TestLockableUpUpdate(t * testing.T) {
   ctx := testContext(t)
 
-  l1, err := NewBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  l2, err := NewBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
   fatalErr(t, err)
 
-  l3, err := NewBaseLockable(ctx, "Test Lockable 3", []Lockable{l2})
+  l3, err := NewSimpleBaseLockable(ctx, "Test Lockable 3", []Lockable{l2})
   fatalErr(t, err)
 
   update_channel := l3.UpdateChannel(0)
@@ -293,10 +293,10 @@ func TestLockableUpUpdate(t * testing.T) {
 func TestOwnerNotUpdatedTwice(t * testing.T) {
   ctx := testContext(t)
 
-  l1, err := NewBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  l2, err := NewBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
   fatalErr(t, err)
 
   update_channel := l2.UpdateChannel(0)

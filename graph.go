@@ -202,22 +202,23 @@ type GraphNode interface {
   SignalChannel() chan GraphSignal
 }
 
-// Create a new base node with the given ID
-func NewNode(ctx * GraphContext, id NodeID, state NodeState) BaseNode {
+// Create a new base node with a new ID
+func NewNode(ctx * GraphContext, state NodeState) (BaseNode, error) {
+
   node := BaseNode{
-    id: id,
+    id: RandID(),
     signal: make(chan GraphSignal, 512),
     listeners: map[chan GraphSignal]chan GraphSignal{},
     state: state,
   }
 
-  err := WriteDBState(ctx, id, state)
+  err := WriteDBState(ctx, node.id, state)
   if err != nil {
-    panic(fmt.Sprintf("DB_NEW_WRITE_ERROR: %s", err))
+    return node, fmt.Errorf("DB_NEW_WRITE_ERROR: %e", err)
   }
 
-  ctx.Log.Logf("graph", "NEW_NODE: %s - %+v", id, state)
-  return node
+  ctx.Log.Logf("graph", "NEW_NODE: %s - %+v", node.id, state)
+  return node, nil
 }
 
 // BaseNode is the minimum set of fields needed to implement a GraphNode,

@@ -429,16 +429,30 @@ func (lockable * BaseLockable) Unlock(node GraphNode, state LockableState) error
   return nil
 }
 
-func NewBaseLockable(ctx * GraphContext, name string, requirements []Lockable) (* BaseLockable, error) {
-  state := NewBaseLockableState(name)
-  lockable := &BaseLockable{
-    BaseNode: NewNode(ctx, RandID(), &state),
+func NewBaseLockable(ctx * GraphContext, state LockableState) (BaseLockable, error) {
+  base_node, err := NewNode(ctx, state)
+  if err != nil {
+    return BaseLockable{}, err
   }
 
-  err := LinkLockables(ctx, lockable, requirements)
+  lockable := BaseLockable{
+    BaseNode: base_node,
+  }
+
+  return lockable, nil
+}
+
+func NewSimpleBaseLockable(ctx * GraphContext, name string, requirements []Lockable) (*BaseLockable, error) {
+  state := NewBaseLockableState(name)
+  lockable, err := NewBaseLockable(ctx, &state)
+  if err != nil {
+    return nil, err
+  }
+  lockable_ptr := &lockable
+  err = LinkLockables(ctx, lockable_ptr, requirements)
   if err != nil {
     return nil, err
   }
 
-  return lockable, nil
+  return lockable_ptr, nil
 }
