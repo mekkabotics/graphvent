@@ -335,15 +335,17 @@ var ThreadWait = func(ctx * GraphContext, thread Thread) (string, error) {
   for {
     select {
       case signal := <- thread.SignalChannel():
-        ctx.Log.Logf("thread", "THREAD_SIGNAL: %s %+v", thread.ID(), signal)
         if signal.Source() == thread.ID() {
           ctx.Log.Logf("thread", "THREAD_SIGNAL_INTERNAL")
-          continue
+        } else {
+          ctx.Log.Logf("thread", "THREAD_SIGNAL: %s %+v", thread.ID(), signal)
         }
         signal_fn, exists := thread.Handler(signal.Type())
         if exists == true {
           ctx.Log.Logf("thread", "THREAD_HANDLER: %s - %s", thread.ID(), signal.Type())
           return signal_fn(ctx, thread, signal)
+        } else {
+          ctx.Log.Logf("thread", "THREAD_NOHANDLER: %s - %s", thread.ID(), signal.Type())
         }
       case <- thread.Timeout():
         ctx.Log.Logf("thread", "THREAD_TIMEOUT %s - NEXT_STATE: %s", thread.ID(), thread.TimeoutAction())

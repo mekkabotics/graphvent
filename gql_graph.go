@@ -4,7 +4,6 @@ import (
   "github.com/graphql-go/graphql"
   "reflect"
   "fmt"
-  "time"
 )
 
 var gql_interface_graph_node *graphql.Interface = nil
@@ -606,7 +605,15 @@ func GQLSignalSource(p graphql.ResolveParams) (interface{}, error) {
 
 func GQLSignalDirection(p graphql.ResolveParams) (interface{}, error) {
     return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
-      return signal.Direction(), nil
+      direction := signal.Direction()
+      if direction == Up {
+        return "up", nil
+      } else if direction == Down {
+        return "down", nil
+      } else if direction == Direct {
+        return "direct", nil
+      }
+      return nil, fmt.Errorf("Invalid direction: %+v", direction)
     })
 }
 
@@ -638,7 +645,7 @@ func GQLTypeSignal() *graphql.Object {
       Resolve: GQLSignalSource,
     })
     gql_type_signal.AddFieldConfig("Direction", &graphql.Field{
-      Type: graphql.Boolean,
+      Type: graphql.String,
       Resolve: GQLSignalDirection,
     })
     gql_type_signal.AddFieldConfig("String", &graphql.Field{
@@ -658,14 +665,11 @@ func GQLTypeSignalInput() *graphql.InputObject {
     })
     gql_type_signal_input.AddFieldConfig("Type", &graphql.InputObjectFieldConfig{
       Type: graphql.String,
+      DefaultValue: "cancel",
     })
-    gql_type_signal_input.AddFieldConfig("Description", &graphql.InputObjectFieldConfig{
+    gql_type_signal_input.AddFieldConfig("Direction", &graphql.InputObjectFieldConfig{
       Type: graphql.String,
-      DefaultValue: "",
-    })
-    gql_type_signal_input.AddFieldConfig("Time", &graphql.InputObjectFieldConfig{
-      Type: graphql.DateTime,
-      DefaultValue: time.Now(),
+      DefaultValue: "down",
     })
   }
   return gql_type_signal_input
@@ -751,24 +755,24 @@ func GQLMutationSendUpdate() *graphql.Field {
           return nil, fmt.Errorf("Failed to cast arg signal to GraphSignal: %+v", p.Args["signal"])
         }
         var signal GraphSignal = nil
-        if signal_map["Direction"] == Up {
+        if signal_map["Direction"] == "up" {
           signal = NewSignal(server, signal_map["Type"].(string))
-        } else if signal_map["Direction"] == Down {
+        } else if signal_map["Direction"] == "down" {
           signal = NewDownSignal(server, signal_map["Type"].(string))
-        } else if signal_map["Direction"] == Direct {
+        } else if signal_map["Direction"] == "direct" {
           signal = NewDirectSignal(server, signal_map["Type"].(string))
         } else {
           return nil, fmt.Errorf("Bad direction: %d", signal_map["Direction"])
         }
 
-        id , ok := p.Args["id"].(NodeID)
+        id , ok := p.Args["id"].(string)
         if ok == false {
           return nil, fmt.Errorf("Failed to cast arg id to string")
         }
 
         node_if, err := UseStates(ctx, []GraphNode{server}, func(states []NodeState) (interface{}, error){
           server_state := states[0].(*GQLThreadState)
-          node := FindChild(ctx, server, server_state, id)
+          node := FindChild(ctx, server, server_state, NodeID(id))
           if node == nil {
             return nil, fmt.Errorf("Failed to find ID: %s as child of server thread", id)
           }

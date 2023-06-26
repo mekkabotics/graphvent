@@ -202,6 +202,7 @@ func GQLWSDo(ctx * GraphContext, p graphql.Params) chan *graphql.Result {
 func GQLWSHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Context) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
+    enableCORS(&w)
     header_map := map[string]interface{}{}
     for header, value := range(r.Header) {
       header_map[header] = value
@@ -210,7 +211,10 @@ func GQLWSHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Con
     u := ws.HTTPUpgrader{
       Protocol: func(protocol string) bool {
         ctx.Log.Logf("gqlws", "UPGRADE_PROTOCOL: %s", string(protocol))
-        return string(protocol) == "graphql-transport-ws"
+        if string(protocol) == "graphql-transport-ws" || string(protocol) == "graphql-ws" {
+          return true
+        }
+        return false
       },
     }
     conn, _, _, err := u.Upgrade(r, w)

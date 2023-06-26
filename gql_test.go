@@ -5,7 +5,7 @@ import (
 )
 
 func TestGQLThread(t * testing.T) {
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"gqlws", "gql", "thread", "update"})
   gql_thread, err := NewGQLThread(ctx, ":8080", []Lockable{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
   fatalErr(t, err)
 
