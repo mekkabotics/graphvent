@@ -14,6 +14,7 @@ import (
 //
 // RecordLockHolder records that lockable_id needs to be passed back to lock_holder
 type LockHolderState interface {
+  NodeState
   ReturnLock(lockable_id NodeID) GraphNode
   AllowedToTakeLock(node_id NodeID, lockable_id NodeID) bool
   RecordLockHolder(lockable_id NodeID, lock_holder GraphNode)
@@ -22,7 +23,6 @@ type LockHolderState interface {
 // LockableState is the interface that a lockables state must have to allow it to connect to the DAG
 type LockableState interface {
   LockHolderState
-  Name() string
   Requirements() []Lockable
   AddRequirement(requirement Lockable)
   Dependencies() []Lockable

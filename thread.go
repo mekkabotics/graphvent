@@ -370,7 +370,7 @@ func NewBaseThreadState(name string) BaseThreadState {
   }
 }
 
-func NewBaseThread(ctx * GraphContext, name string, actions ThreadActions, handlers ThreadHandlers, state ThreadState) (BaseThread, error) {
+func NewBaseThread(ctx * GraphContext, actions ThreadActions, handlers ThreadHandlers, state ThreadState) (BaseThread, error) {
   thread := BaseThread{
     BaseLockable: BaseLockable{BaseNode: NewNode(ctx, RandID(), state)},
     Actions: ThreadActions{
@@ -398,7 +398,7 @@ func NewBaseThread(ctx * GraphContext, name string, actions ThreadActions, handl
 
 func NewSimpleBaseThread(ctx * GraphContext, name string, requirements []Lockable, actions ThreadActions, handlers ThreadHandlers) (* BaseThread, error) {
   state := NewBaseThreadState(name)
-  thread, err := NewBaseThread(ctx, name, actions, handlers, &state)
+  thread, err := NewBaseThread(ctx, actions, handlers, &state)
   if err != nil {
     return nil, err
   }

@@ -174,7 +174,7 @@ func CancelSignal(source GraphNode) BaseSignal {
 }
 
 type NodeState interface {
-
+  Name() string
 }
 
 // GraphNode is the interface common to both DAG nodes and Event tree nodes
