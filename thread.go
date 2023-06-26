@@ -62,7 +62,7 @@ type BaseThreadState struct {
   parent Thread
   children []Thread
   child_info map[NodeID] ThreadInfo
-  info_type reflect.Type
+  InfoType reflect.Type
 }
 
 type BaseThreadStateJSON struct {
@@ -116,11 +116,11 @@ func (state * BaseThreadState) AddChild(child Thread, info ThreadInfo) error {
     return fmt.Errorf("Will not connect the same child twice")
   }
 
-  if info == nil && state.info_type != nil {
+  if info == nil && state.InfoType != nil {
     return fmt.Errorf("nil info passed when expecting info")
   } else if info != nil {
-    if reflect.TypeOf(info) != state.info_type {
-      return fmt.Errorf("info type mismatch, expecting %+v", state.info_type)
+    if reflect.TypeOf(info) != state.InfoType {
+      return fmt.Errorf("info type mismatch, expecting %+v", state.InfoType)
     }
   }
 
