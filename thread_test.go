@@ -34,7 +34,7 @@ func TestNewEvent(t * testing.T) {
 func TestEventWithRequirement(t * testing.T) {
   ctx := logTestContext(t, []string{"lockable", "thread"})
 
-  l1, err := NewLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
   t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{l1}, ThreadActions{}, ThreadHandlers{})
