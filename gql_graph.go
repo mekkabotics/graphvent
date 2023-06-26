@@ -72,9 +72,29 @@ func GQLInterfaceThread() *graphql.Interface {
     gql_interface_thread.AddFieldConfig("ID", &graphql.Field{
       Type: graphql.String,
     })
+
+    gql_interface_thread.AddFieldConfig("Name", &graphql.Field{
+      Type: graphql.String,
+    })
+
+    gql_interface_thread.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListThread(),
+    })
+
+    gql_interface_thread.AddFieldConfig("Parent", &graphql.Field{
+      Type: GQLInterfaceThread(),
+    })
   }
 
   return gql_interface_thread
+}
+
+var gql_list_lockable *graphql.List = nil
+func GQLListLockable() *graphql.List {
+  if gql_list_lockable == nil {
+    gql_list_lockable = graphql.NewList(GQLInterfaceLockable())
+  }
+  return gql_list_lockable
 }
 
 var gql_interface_lockable *graphql.Interface = nil
@@ -105,6 +125,23 @@ func GQLInterfaceLockable() *graphql.Interface {
     gql_interface_lockable.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
     })
+
+    if gql_list_lockable == nil {
+      gql_list_lockable = graphql.NewList(gql_interface_lockable)
+    }
+
+    gql_interface_lockable.AddFieldConfig("Requirements", &graphql.Field{
+      Type: GQLListLockable(),
+    })
+
+    gql_interface_lockable.AddFieldConfig("Dependencies", &graphql.Field{
+      Type: GQLListLockable(),
+    })
+
+    gql_interface_lockable.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceLockable(),
+    })
+
   }
 
   return gql_interface_lockable
@@ -176,6 +213,163 @@ func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
   return listen_str, nil
 }
 
+func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(Thread)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to Thread")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to GraphContext")
+  }
+
+  parent, err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (interface{}, error) {
+    gql_thread, ok := states[0].(ThreadState)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast state to ThreadState")
+    }
+    return gql_thread.Parent(), nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  parent_node, ok := parent.(Thread)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast parent to node %+v", parent)
+  }
+
+  return parent_node, nil
+}
+
+func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(Thread)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to Thread")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to GraphContext")
+  }
+
+  children, err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (interface{}, error) {
+    gql_thread, ok := states[0].(ThreadState)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast state to ThreadState")
+    }
+    return gql_thread.Children(), nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  children_nodes, ok := children.([]Thread)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast children to threads %+v", children)
+  }
+
+  return children_nodes, nil
+}
+
+func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(Lockable)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to Lockable")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to GraphContext")
+  }
+
+  requirements, err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (interface{}, error) {
+    gql_thread, ok := states[0].(LockableState)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast state to LockableState")
+    }
+    return gql_thread.Requirements(), nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  requirement_nodes, ok := requirements.([]Lockable)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast requirements to lockables %+v", requirements)
+  }
+
+  return requirement_nodes, nil
+}
+
+func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(Lockable)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to Lockable")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to GraphContext")
+  }
+
+  dependencies, err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (interface{}, error) {
+    gql_thread, ok := states[0].(LockableState)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast state to LockableState")
+    }
+    return gql_thread.Dependencies(), nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  dependency_nodes, ok := dependencies.([]Lockable)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast dependencies to lockables %+v", dependencies)
+  }
+
+  return dependency_nodes, nil
+}
+
+func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(Lockable)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to Lockable")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to GraphContext")
+  }
+
+  owner, err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (interface{}, error) {
+    gql_thread, ok := states[0].(LockableState)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast state to LockableState")
+    }
+    return gql_thread.Owner(), nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  // TODO actually cast to LockHolder and add gql interface for it
+  owner_node, ok := owner.(Lockable)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast owner to Lockable %+v", owner)
+  }
+
+  return owner_node, nil
+}
+
+
 var gql_type_gql_thread *graphql.Object = nil
 func GQLTypeGQLThread() * graphql.Object {
   if gql_type_gql_thread == nil {
@@ -184,6 +378,7 @@ func GQLTypeGQLThread() * graphql.Object {
       Interfaces: []*graphql.Interface{
         GQLInterfaceGraphNode(),
         GQLInterfaceThread(),
+        GQLInterfaceLockable(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         _, ok := p.Value.(*GQLThread)
@@ -202,9 +397,34 @@ func GQLTypeGQLThread() * graphql.Object {
       Resolve: GQLNodeName,
     })
 
+    gql_type_gql_thread.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListThread(),
+      Resolve: GQLThreadChildren,
+    })
+
+    gql_type_gql_thread.AddFieldConfig("Parent", &graphql.Field{
+      Type: GQLInterfaceThread(),
+      Resolve: GQLThreadParent,
+    })
+
     gql_type_gql_thread.AddFieldConfig("Listen", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLThreadListen,
+    })
+
+    gql_type_gql_thread.AddFieldConfig("Requirements", &graphql.Field{
+      Type: GQLListLockable(),
+      Resolve: GQLLockableRequirements,
+    })
+
+    gql_type_gql_thread.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceLockable(),
+      Resolve: GQLLockableOwner,
+    })
+
+    gql_type_gql_thread.AddFieldConfig("Dependencies", &graphql.Field{
+      Type: GQLListLockable(),
+      Resolve: GQLLockableDependencies,
     })
   }
   return gql_type_gql_thread
@@ -218,6 +438,7 @@ func GQLTypeBaseThread() * graphql.Object {
       Interfaces: []*graphql.Interface{
         GQLInterfaceGraphNode(),
         GQLInterfaceThread(),
+        GQLInterfaceLockable(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         valid_threads, ok := p.Context.Value("valid_threads").(map[reflect.Type]*graphql.Object)
@@ -242,6 +463,31 @@ func GQLTypeBaseThread() * graphql.Object {
     gql_type_base_thread.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLNodeName,
+    })
+
+    gql_type_base_thread.AddFieldConfig("Children", &graphql.Field{
+      Type: GQLListThread(),
+      Resolve: GQLThreadChildren,
+    })
+
+    gql_type_base_thread.AddFieldConfig("Parent", &graphql.Field{
+      Type: GQLInterfaceThread(),
+      Resolve: GQLThreadParent,
+    })
+
+    gql_type_base_thread.AddFieldConfig("Requirements", &graphql.Field{
+      Type: GQLListLockable(),
+      Resolve: GQLLockableRequirements,
+    })
+
+    gql_type_base_thread.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceLockable(),
+      Resolve: GQLLockableOwner,
+    })
+
+    gql_type_base_thread.AddFieldConfig("Dependencies", &graphql.Field{
+      Type: GQLListLockable(),
+      Resolve: GQLLockableDependencies,
     })
   }
   return gql_type_base_thread
@@ -280,6 +526,21 @@ func GQLTypeBaseLockable() * graphql.Object {
     gql_type_base_lockable.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLNodeName,
+    })
+
+    gql_type_base_lockable.AddFieldConfig("Requirements", &graphql.Field{
+      Type: GQLListLockable(),
+      Resolve: GQLLockableRequirements,
+    })
+
+    gql_type_base_lockable.AddFieldConfig("Owner", &graphql.Field{
+      Type: GQLInterfaceLockable(),
+      Resolve: GQLLockableOwner,
+    })
+
+    gql_type_base_lockable.AddFieldConfig("Dependencies", &graphql.Field{
+      Type: GQLListLockable(),
+      Resolve: GQLLockableDependencies,
     })
   }
 
