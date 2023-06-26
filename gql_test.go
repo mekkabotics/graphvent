@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "testing"
+  "time"
 )
 
 func TestGQLThread(t * testing.T) {
@@ -14,6 +15,11 @@ func TestGQLThread(t * testing.T) {
 
   err = LinkThreads(ctx, gql_thread, test_thread, nil)
   fatalErr(t, err)
+
+  go func(thread Thread){
+    time.Sleep(10*time.Millisecond)
+    SendUpdate(ctx, thread, CancelSignal(nil))
+  }(gql_thread)
 
   err = RunThread(ctx, gql_thread)
   fatalErr(t, err)
