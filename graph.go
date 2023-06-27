@@ -27,6 +27,8 @@ type Logger interface {
   Logf(component string, format string, items ... interface{})
   // Log a map of attributes and a format string
   Logm(component string, fields map[string]interface{}, format string, items ... interface{})
+  // Log a structure to a file by marshalling and unmarshalling the json
+  Logj(component string, s interface{}, format string, items ... interface{})
 }
 
 func NewConsoleLogger(components []string) *ConsoleLogger {
@@ -91,6 +93,19 @@ func (logger * ConsoleLogger) Logf(component string, format string, items ... in
   if exists == true {
     l.Log().Msg(fmt.Sprintf(format, items...))
   }
+}
+
+func (logger * ConsoleLogger) Logj(component string, s interface{}, format string, items ... interface{}) {
+  m := map[string]interface{}{}
+  ser, err := json.Marshal(s)
+  if err != nil {
+    panic("LOG_MARSHAL_ERR")
+  }
+  err = json.Unmarshal(ser, &m)
+  if err != nil {
+    panic("LOG_UNMARSHAL_ERR")
+  }
+  logger.Logm(component, m, format, items...)
 }
 
 type NodeID string
