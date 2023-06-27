@@ -22,7 +22,7 @@ func GQLInterfaceGraphNode() *graphql.Interface {
           return nil
         }
 
-        node_type, ok := p.Context.Value("node_type").(reflect.Type)
+        node_type, ok := p.Context.Value("node_type").(*reflect.Type)
         if ok == false {
           ctx.Log.Logf("gql", "Failed to get node_type from Context: %+v", p.Context.Value("node_type"))
           return nil
@@ -36,7 +36,7 @@ func GQLInterfaceGraphNode() *graphql.Interface {
           }
         }
 
-        if p_type.Implements(node_type) {
+        if p_type.Implements(*node_type) {
           return GQLTypeBaseNode()
         }
 
@@ -81,7 +81,7 @@ func GQLInterfaceThread() *graphql.Interface {
           return nil
         }
 
-        thread_type, ok := p.Context.Value("thread_type").(reflect.Type)
+        thread_type, ok := p.Context.Value("thread_type").(*reflect.Type)
         if ok == false {
           ctx.Log.Logf("gql", "Failed to get thread_type from Context: %+v", p.Context.Value("thread_type"))
           return nil
@@ -96,11 +96,11 @@ func GQLInterfaceThread() *graphql.Interface {
           }
         }
 
-        if p_type.Implements(thread_type) {
+        if p_type.Implements(*thread_type) {
           return GQLTypeBaseThread()
         }
 
-        ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(thread_type))
+        ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(*thread_type))
 
         return nil
       },
@@ -151,7 +151,7 @@ func GQLInterfaceLockable() *graphql.Interface {
           return nil
         }
 
-        lockable_type, ok := p.Context.Value("lockable_type").(reflect.Type)
+        lockable_type, ok := p.Context.Value("lockable_type").(*reflect.Type)
         if ok == false {
           ctx.Log.Logf("gql", "Failed to get lockable_type from Context: %+v", p.Context.Value("lockable_type"))
           return nil
@@ -165,7 +165,7 @@ func GQLInterfaceLockable() *graphql.Interface {
           }
         }
 
-        if p_type.Implements(lockable_type) {
+        if p_type.Implements(*lockable_type) {
           return GQLTypeBaseLockable()
         }
         return nil
