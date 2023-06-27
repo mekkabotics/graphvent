@@ -471,9 +471,9 @@ func MakeGQLHandlers(ctx * GraphContext, server * GQLThread) (func(http.Response
     gql_types = append(gql_types, v)
   }
 
-  node_type := reflect.TypeOf((GraphNode)(nil))
-  lockable_type := reflect.TypeOf((Lockable)(nil))
-  thread_type := reflect.TypeOf((Thread)(nil))
+  node_type := reflect.TypeOf((*GraphNode)(nil)).Elem()
+  lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
+  thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
 
   for go_t, gql_t := range(server.extended_types) {
     if go_t.Implements(node_type) {
