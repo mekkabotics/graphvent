@@ -12,13 +12,19 @@ func GQLInterfaceGraphNode() *graphql.Interface {
     gql_interface_graph_node = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "GraphNode",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+        ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+        if ok == false {
+          return nil
+        }
         valid_nodes, ok := p.Context.Value("valid_nodes").(map[reflect.Type]*graphql.Object)
         if ok == false {
+          ctx.Log.Logf("gql", "Failed to get valid_nodes from Context")
           return nil
         }
 
         node_type, ok := p.Context.Value("node_type").(reflect.Type)
         if ok == false {
+          ctx.Log.Logf("gql", "Failed to get node_type from Context")
           return nil
         }
 
@@ -65,13 +71,19 @@ func GQLInterfaceThread() *graphql.Interface {
     gql_interface_thread = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Thread",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+        ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+        if ok == false {
+          return nil
+        }
         valid_threads, ok := p.Context.Value("valid_threads").(map[reflect.Type]*graphql.Object)
         if ok == false {
+          ctx.Log.Logf("gql", "Failed to get valid_threads from Context")
           return nil
         }
 
         thread_type, ok := p.Context.Value("thread_type").(reflect.Type)
         if ok == false {
+          ctx.Log.Logf("gql", "Failed to get thread_type from Context")
           return nil
         }
 
@@ -87,6 +99,8 @@ func GQLInterfaceThread() *graphql.Interface {
         if p_type.Implements(thread_type) {
           return GQLTypeBaseThread()
         }
+
+        ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(thread_type))
 
         return nil
       },
@@ -127,13 +141,19 @@ func GQLInterfaceLockable() *graphql.Interface {
     gql_interface_lockable = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Lockable",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+        ctx, ok := p.Context.Value("graph_context").(*GraphContext)
+        if ok == false {
+          return nil
+        }
         valid_lockables, ok := p.Context.Value("valid_lockables").(map[reflect.Type]*graphql.Object)
         if ok == false {
+          ctx.Log.Logf("gql", "Failed to get valid_lockables from Context")
           return nil
         }
 
         lockable_type, ok := p.Context.Value("lockable_type").(reflect.Type)
         if ok == false {
+          ctx.Log.Logf("gql", "Failed to get lockable_type from Context")
           return nil
         }
 
