@@ -118,9 +118,9 @@ type GraphSignal interface {
 
 // BaseSignal is the most basic type of signal, it has no additional data
 type BaseSignal struct {
-  direction SignalDirection `json:"direction"`
-  source NodeID `json:"source"`
-  _type string `json:"type"`
+  FDirection SignalDirection `json:"direction"`
+  FSource NodeID `json:"source"`
+  FType string `json:"type"`
 }
 
 func (state BaseSignal) String() string {
@@ -132,15 +132,15 @@ func (state BaseSignal) String() string {
 }
 
 func (signal BaseSignal) Direction() SignalDirection {
-  return signal.direction
+  return signal.FDirection
 }
 
 func (signal BaseSignal) Source() NodeID {
-  return signal.source
+  return signal.FSource
 }
 
 func (signal BaseSignal) Type() string {
-  return signal._type
+  return signal.FType
 }
 
 func NewBaseSignal(source GraphNode, _type string, direction SignalDirection) BaseSignal {
@@ -150,9 +150,9 @@ func NewBaseSignal(source GraphNode, _type string, direction SignalDirection) Ba
   }
 
   signal := BaseSignal{
-    direction: direction,
-    source: source_id,
-    _type: _type,
+    FDirection: direction,
+    FSource: source_id,
+    FType: _type,
   }
   return signal
 }
