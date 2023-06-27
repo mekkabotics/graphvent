@@ -496,16 +496,23 @@ func GQLTypeBaseThread() * graphql.Object {
         GQLInterfaceLockable(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-        valid_threads, ok := p.Context.Value("valid_threads").(map[reflect.Type]*graphql.Object)
+        ctx, ok := p.Context.Value("graph_context").(*GraphContext)
         if ok == false {
           return false
         }
-        value_type := reflect.TypeOf(p.Value)
-        for go_type, _ := range(valid_threads) {
-          if value_type == go_type {
-            return true
-          }
+
+        thread_type, ok := p.Context.Value("thread_type").(*reflect.Type)
+        if ok == false {
+          ctx.Log.Logf("gql", "Failed to get thread_type from Context: %+v", p.Context.Value("thread_type"))
+          return false
         }
+
+        value_type := reflect.TypeOf(p.Value)
+
+        if value_type.Implements(*thread_type) {
+          return true
+        }
+
         return false
       },
       Fields: graphql.Fields{},
@@ -558,16 +565,23 @@ func GQLTypeBaseLockable() * graphql.Object {
         GQLInterfaceLockable(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-        valid_lockables, ok := p.Context.Value("valid_lockables").(map[reflect.Type]*graphql.Object)
+        ctx, ok := p.Context.Value("graph_context").(*GraphContext)
         if ok == false {
           return false
         }
-        value_type := reflect.TypeOf(p.Value)
-        for go_type, _ := range(valid_lockables) {
-          if value_type == go_type {
-            return true
-          }
+
+        lockable_type, ok := p.Context.Value("lockable_type").(*reflect.Type)
+        if ok == false {
+          ctx.Log.Logf("gql", "Failed to get lockable_type from Context: %+v", p.Context.Value("lockable_type"))
+          return false
         }
+
+        value_type := reflect.TypeOf(p.Value)
+
+        if value_type.Implements(*lockable_type) {
+          return true
+        }
+
         return false
       },
       Fields: graphql.Fields{},
@@ -611,16 +625,23 @@ func GQLTypeBaseNode() * graphql.Object {
         GQLInterfaceGraphNode(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-        valid_nodes, ok := p.Context.Value("valid_nodes").(map[reflect.Type]*graphql.Object)
+        ctx, ok := p.Context.Value("graph_context").(*GraphContext)
         if ok == false {
           return false
         }
-        value_type := reflect.TypeOf(p.Value)
-        for go_type, _ := range(valid_nodes) {
-          if value_type == go_type {
-            return true
-          }
+
+        node_type, ok := p.Context.Value("node_type").(*reflect.Type)
+        if ok == false {
+          ctx.Log.Logf("gql", "Failed to get node_type from Context: %+v", p.Context.Value("node_type"))
+          return false
         }
+
+        value_type := reflect.TypeOf(p.Value)
+
+        if value_type.Implements(*node_type) {
+          return true
+        }
+
         return false
       },
       Fields: graphql.Fields{},
