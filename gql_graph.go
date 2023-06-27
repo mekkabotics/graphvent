@@ -24,7 +24,7 @@ func GQLInterfaceGraphNode() *graphql.Interface {
 
         node_type, ok := p.Context.Value("node_type").(reflect.Type)
         if ok == false {
-          ctx.Log.Logf("gql", "Failed to get node_type from Context")
+          ctx.Log.Logf("gql", "Failed to get node_type from Context: %+v", p.Context.Value("node_type"))
           return nil
         }
 
@@ -83,7 +83,7 @@ func GQLInterfaceThread() *graphql.Interface {
 
         thread_type, ok := p.Context.Value("thread_type").(reflect.Type)
         if ok == false {
-          ctx.Log.Logf("gql", "Failed to get thread_type from Context")
+          ctx.Log.Logf("gql", "Failed to get thread_type from Context: %+v", p.Context.Value("thread_type"))
           return nil
         }
 
@@ -153,7 +153,7 @@ func GQLInterfaceLockable() *graphql.Interface {
 
         lockable_type, ok := p.Context.Value("lockable_type").(reflect.Type)
         if ok == false {
-          ctx.Log.Logf("gql", "Failed to get lockable_type from Context")
+          ctx.Log.Logf("gql", "Failed to get lockable_type from Context: %+v", p.Context.Value("lockable_type"))
           return nil
         }
 
