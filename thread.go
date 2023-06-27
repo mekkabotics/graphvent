@@ -323,9 +323,16 @@ func RunThread(ctx * GraphContext, thread Thread) error {
     thread_state := states[0].(ThreadState)
     err := thread_state.Stop()
     return nil, err
+
   })
   if err != nil {
     ctx.Log.Logf("thread", "THREAD_RUN_STOP_ERR: %e", err)
+    return err
+  }
+
+  err = UnlockLockable(ctx, thread, thread, nil)
+  if err != nil {
+    ctx.Log.Logf("thread", "THREAD_RUN_UNLOCK_ERR: %e", err)
     return err
   }
 
