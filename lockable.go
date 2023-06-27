@@ -69,7 +69,7 @@ type BaseLockableStateJSON struct {
   Owner *NodeID `json:"owner"`
   Dependencies []NodeID `json:"dependencies"`
   Requirements []NodeID `json:"requirements"`
-  HolderState *BaseLockHolderState `json:"holder_state"`
+  HolderState *BaseLockHolderState `json:"holder"`
 }
 
 func (state * BaseLockableState) MarshalJSON() ([]byte, error) {

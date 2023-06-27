@@ -73,7 +73,7 @@ type BaseThreadState struct {
 type BaseThreadStateJSON struct {
   Parent *NodeID `json:"parent"`
   Children map[NodeID]interface{} `json:"children"`
-  LockableState *BaseLockableState `json:"lockable_state"`
+  LockableState *BaseLockableState `json:"lockable"`
 }
 
 func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
