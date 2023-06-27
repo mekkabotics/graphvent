@@ -266,6 +266,29 @@ func (node * BaseNode) StateLock() * sync.RWMutex {
   return &node.state_lock
 }
 
+func ReadDBStateCopy(ctx * GraphContext, id NodeID) ([]byte, error) {
+  ctx.Log.Logf("db", "DB_READ: %s", id)
+
+  var val []byte = nil
+  err := ctx.DB.View(func(txn *badger.Txn) error {
+    item, err := txn.Get([]byte(id))
+    if err != nil {
+      return err
+    }
+
+    val, err = item.ValueCopy(nil)
+    if err != nil {
+      return err
+    }
+    return nil
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  return val, nil
+}
+
 func WriteDBState(ctx * GraphContext, id NodeID, state NodeState) error {
   ctx.Log.Logf("db", "DB_WRITE: %s - %+v", id, state)
 
