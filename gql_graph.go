@@ -17,11 +17,23 @@ func GQLInterfaceGraphNode() *graphql.Interface {
           return nil
         }
 
+        node_type, ok := p.Context.Value("node_type").(reflect.Type)
+        if ok == false {
+          return nil
+        }
+
+        p_type := reflect.TypeOf(p.Value)
+
         for key, value := range(valid_nodes) {
-          if reflect.TypeOf(p.Value) == key {
+          if p_type == key {
             return value
           }
         }
+
+        if p_type.Implements(node_type) {
+          return GQLTypeBaseNode()
+        }
+
         return nil
       },
       Fields: graphql.Fields{},
@@ -53,16 +65,29 @@ func GQLInterfaceThread() *graphql.Interface {
     gql_interface_thread = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Thread",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-        valid_nodes, ok := p.Context.Value("valid_threads").(map[reflect.Type]*graphql.Object)
+        valid_threads, ok := p.Context.Value("valid_threads").(map[reflect.Type]*graphql.Object)
         if ok == false {
           return nil
         }
 
-        for key, value := range(valid_nodes) {
-          if reflect.TypeOf(p.Value) == key {
+        thread_type, ok := p.Context.Value("thread_type").(reflect.Type)
+        if ok == false {
+          return nil
+        }
+
+        p_type := reflect.TypeOf(p.Value)
+
+
+        for key, value := range(valid_threads) {
+          if p_type == key {
             return value
           }
         }
+
+        if p_type.Implements(thread_type) {
+          return GQLTypeBaseThread()
+        }
+
         return nil
       },
       Fields: graphql.Fields{},
@@ -102,15 +127,26 @@ func GQLInterfaceLockable() *graphql.Interface {
     gql_interface_lockable = graphql.NewInterface(graphql.InterfaceConfig{
       Name: "Lockable",
       ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-        valid_nodes, ok := p.Context.Value("valid_lockables").(map[reflect.Type]*graphql.Object)
+        valid_lockables, ok := p.Context.Value("valid_lockables").(map[reflect.Type]*graphql.Object)
         if ok == false {
           return nil
         }
 
-        for key, value := range(valid_nodes) {
-          if reflect.TypeOf(p.Value) == key {
+        lockable_type, ok := p.Context.Value("lockable_type").(reflect.Type)
+        if ok == false {
+          return nil
+        }
+
+        p_type := reflect.TypeOf(p.Value)
+
+        for key, value := range(valid_lockables) {
+          if p_type == key {
             return value
           }
+        }
+
+        if p_type.Implements(lockable_type) {
+          return GQLTypeBaseLockable()
         }
         return nil
       },
