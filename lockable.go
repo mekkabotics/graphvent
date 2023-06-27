@@ -381,7 +381,7 @@ func LockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_st
     var lock_err error = nil
     locked_requirements := []Lockable{}
     for _, requirement := range(lockable_state.Requirements()) {
-      err = LockLockable(ctx, requirement, node, node_state)
+      err = LockLockable(ctx, requirement, lockable, lockable_state)
       if err != nil {
         lock_err = err
         break
