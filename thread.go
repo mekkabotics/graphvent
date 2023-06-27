@@ -3,6 +3,7 @@ package graphvent
 import (
   "fmt"
   "time"
+  "sync"
   "errors"
   "reflect"
   "encoding/json"
@@ -53,8 +54,11 @@ type ThreadState interface {
   Parent() Thread
   SetParent(parent Thread)
   Children() []Thread
+  Child(id NodeID) Thread
   ChildInfo(child NodeID) ThreadInfo
   AddChild(child Thread, info ThreadInfo) error
+  Start() error
+  Stop() error
 }
 
 type BaseThreadState struct {
@@ -63,6 +67,7 @@ type BaseThreadState struct {
   children []Thread
   child_info map[NodeID] ThreadInfo
   InfoType reflect.Type
+  running bool
 }
 
 type BaseThreadStateJSON struct {
@@ -90,6 +95,22 @@ func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
   })
 }
 
+func (state * BaseThreadState) Start() error {
+  if state.running == true {
+    return fmt.Errorf("Cannot start a running thread")
+  }
+  state.running = true
+  return nil
+}
+
+func (state * BaseThreadState) Stop() error {
+  if state.running == false {
+    return fmt.Errorf("Cannot stop a thread that's not running")
+  }
+  state.running = false
+  return nil
+}
+
 func (state * BaseThreadState) Parent() Thread {
   return state.parent
 }
@@ -101,6 +122,17 @@ func (state * BaseThreadState) SetParent(parent Thread) {
 func (state * BaseThreadState) Children() []Thread {
   return state.children
 }
+
+func (state * BaseThreadState) Child(id NodeID) Thread {
+  for _, child := range(state.children) {
+    if child.ID() == id {
+      return child
+    }
+  }
+  return nil
+}
+
+
 
 func (state * BaseThreadState) ChildInfo(child NodeID) ThreadInfo {
   return state.child_info[child]
@@ -188,6 +220,8 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
     return err
   }
 
+  SendUpdate(ctx, thread, NewSignal(child, "child_added"))
+
   return nil
 }
 
@@ -202,6 +236,8 @@ type Thread interface {
   ClearTimeout()
   Timeout() <-chan time.Time
   TimeoutAction() string
+
+  ChildWaits() *sync.WaitGroup
 }
 
 func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id NodeID) Thread {
@@ -228,8 +264,26 @@ func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id N
   return nil
 }
 
+func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_id NodeID) {
+  child := thread_state.Child(child_id)
+  if child == nil {
+    panic(fmt.Errorf("Child not in thread, can't start %s", child_id))
+  }
+  thread.ChildWaits().Add(1)
+  go func(child Thread) {
+    ctx.Log.Logf("gql", "THREAD_START_CHILD: %s", child.ID())
+    defer thread.ChildWaits().Done()
+    err := RunThread(ctx, child)
+    if err != nil {
+      ctx.Log.Logf("gql", "THREAD_CHILD_RUN_ERR: %s %e", child.ID(), err)
+    } else {
+      ctx.Log.Logf("gql", "THREAD_CHILD_RUN_DONE: %s", child.ID())
+    }
+  }(child)
+}
+
 func RunThread(ctx * GraphContext, thread Thread) error {
-  ctx.Log.Logf("thread", "EVENT_RUN: %s", thread.ID())
+  ctx.Log.Logf("thread", "THREAD_RUN: %s", thread.ID())
 
   err := LockLockable(ctx, thread, thread, nil)
   if err != nil {
@@ -239,9 +293,11 @@ func RunThread(ctx * GraphContext, thread Thread) error {
   _, err = UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (interface{}, error) {
     thread_state := states[0].(ThreadState)
     if thread_state.Owner() == nil {
-      return nil, fmt.Errorf("EVENT_RUN_NOT_LOCKED: %s", thread_state.Name())
+      return nil, fmt.Errorf("THREAD_RUN_NOT_LOCKED: %s", thread_state.Name())
     } else if thread_state.Owner().ID() != thread.ID() {
-      return nil, fmt.Errorf("EVENT_RUN_RESOURCE_ALREADY_LOCKED: %s, %s", thread_state.Name(), thread_state.Owner().ID())
+      return nil, fmt.Errorf("THREAD_RUN_RESOURCE_ALREADY_LOCKED: %s, %s", thread_state.Name(), thread_state.Owner().ID())
+    } else if err := thread_state.Start(); err != nil {
+      return nil, fmt.Errorf("THREAD_START_ERR: %e", err)
     }
     return nil, nil
   })
@@ -256,16 +312,26 @@ func RunThread(ctx * GraphContext, thread Thread) error {
       return errors.New(error_str)
     }
 
-    ctx.Log.Logf("thread", "EVENT_ACTION: %s - %s", thread.ID(), next_action)
+    ctx.Log.Logf("thread", "THREAD_ACTION: %s - %s", thread.ID(), next_action)
     next_action, err = action(ctx, thread)
     if err != nil {
       return err
     }
   }
 
+  _, err = UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (interface{}, error) {
+    thread_state := states[0].(ThreadState)
+    err := thread_state.Stop()
+    return nil, err
+  })
+  if err != nil {
+    ctx.Log.Logf("thread", "THREAD_RUN_STOP_ERR: %e", err)
+    return err
+  }
+
   SendUpdate(ctx, thread, NewSignal(thread, "thread_done"))
 
-  ctx.Log.Logf("thread", "EVENT_RUN_DONE: %s", thread.ID())
+  ctx.Log.Logf("thread", "THREAD_RUN_DONE: %s", thread.ID())
 
   return nil
 }
@@ -287,6 +353,12 @@ type BaseThread struct {
 
   timeout <-chan time.Time
   timeout_action string
+
+  child_waits sync.WaitGroup
+}
+
+func (thread * BaseThread) ChildWaits() *sync.WaitGroup {
+  return &thread.child_waits
 }
 
 func (thread * BaseThread) Lock(node GraphNode, state LockableState) error {
