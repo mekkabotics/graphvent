@@ -32,25 +32,25 @@ type LockableState interface {
 }
 
 type BaseLockHolderState struct {
-  delegation_map map[NodeID] GraphNode
+  locks_held map[NodeID] GraphNode
 }
 
 type BaseLockHolderStateJSON struct {
-    Delegations map[NodeID]*NodeID `json:"delegations"`
+    LocksHeld map[NodeID]*NodeID `json:"locks_held"`
 }
 
 func (state * BaseLockHolderState) MarshalJSON() ([]byte, error) {
-  delegations := map[NodeID]*NodeID{}
-  for lockable_id, node := range(state.delegation_map) {
+  locks_held := map[NodeID]*NodeID{}
+  for lockable_id, node := range(state.locks_held) {
     if node == nil {
-      delegations[lockable_id] = nil
+      locks_held[lockable_id] = nil
     } else {
       str := node.ID()
-      delegations[lockable_id] = &str
+      locks_held[lockable_id] = &str
     }
   }
   return json.Marshal(&BaseLockHolderStateJSON{
-    Delegations: delegations,
+    LocksHeld: locks_held,
   })
 }
 
@@ -105,17 +105,17 @@ func (state * BaseLockableState) Name() string {
 // Locks cannot be passed between base lockables, so the answer to
 // "who used to own this lock held by a base lockable" is always "nobody"
 func (state * BaseLockHolderState) ReturnLock(lockable_id NodeID) GraphNode {
-  node, exists := state.delegation_map[lockable_id]
+  node, exists := state.locks_held[lockable_id]
   if exists == false {
     panic("Attempted to take a get the original lock holder of a lockable we don't own")
   }
-  delete(state.delegation_map, lockable_id)
+  delete(state.locks_held, lockable_id)
   return node
 }
 
 // Nothing can take a lock from a base lockable either
 func (state * BaseLockHolderState) AllowedToTakeLock(node_id NodeID, lockable_id NodeID) bool {
-  _, exists := state.delegation_map[lockable_id]
+  _, exists := state.locks_held[lockable_id]
   if exists == false {
     panic ("Trying to give away lock we don't own")
   }
@@ -123,12 +123,12 @@ func (state * BaseLockHolderState) AllowedToTakeLock(node_id NodeID, lockable_id
 }
 
 func (state * BaseLockHolderState) RecordLockHolder(lockable_id NodeID, lock_holder GraphNode) {
-  _, exists := state.delegation_map[lockable_id]
+  _, exists := state.locks_held[lockable_id]
   if exists == true {
     panic("Attempted to lock a lockable we're already holding(lock cycle)")
   }
 
-  state.delegation_map[lockable_id] = lock_holder
+  state.locks_held[lockable_id] = lock_holder
 }
 
 func (state * BaseLockableState) Owner() GraphNode {
@@ -164,7 +164,7 @@ func (state * BaseLockableState) AddDependency(dependency Lockable) {
 
 func NewLockHolderState() BaseLockHolderState {
   return BaseLockHolderState{
-    delegation_map: map[NodeID]GraphNode{},
+    locks_held: map[NodeID]GraphNode{},
   }
 }
 
