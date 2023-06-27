@@ -311,7 +311,7 @@ func UnlockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_
     var lock_err error = nil
     for _, requirement := range(lockable_state.Requirements()) {
       var err error = nil
-      err = UnlockLockable(ctx, requirement, node, node_state)
+      err = UnlockLockable(ctx, requirement, lockable, lockable_state)
       if err != nil {
         lock_err = err
         break
@@ -391,7 +391,7 @@ func LockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_st
 
     if lock_err != nil {
       for _, locked_lockable := range(locked_requirements) {
-        err = UnlockLockable(ctx, locked_lockable, node, node_state)
+        err = UnlockLockable(ctx, locked_lockable, lockable, lockable_state)
         if err != nil {
           panic(err)
         }
