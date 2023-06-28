@@ -555,11 +555,12 @@ func GQLTypeBaseLockable() * graphql.Object {
       Name: "BaseLockable",
       Interfaces: []*graphql.Interface{
         GQLInterfaceGraphNode(),
-        gql_interface_lockable,
+        GQLInterfaceLockable(),
       },
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         ctx, ok := p.Context.Value("graph_context").(*GraphContext)
         if ok == false {
+          panic("PANIC_AT_THE_DISCO")
           return false
         }
 
