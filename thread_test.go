@@ -21,13 +21,13 @@ func TestNewEvent(t * testing.T) {
   err = RunThread(ctx, t1)
   fatalErr(t, err)
 
-  _, err = UseStates(ctx, []GraphNode{t1}, func(states []NodeState) (interface{}, error) {
+  err = UseStates(ctx, []GraphNode{t1}, func(states []NodeState) (error) {
     ser, err := json.MarshalIndent(states, "", "  ")
     fatalErr(t, err)
 
     fmt.Printf("\n%s\n", ser)
 
-    return nil, nil
+    return nil
   })
 }
 
@@ -42,12 +42,12 @@ func TestEventWithRequirement(t * testing.T) {
 
   go func (thread Thread) {
     time.Sleep(10*time.Millisecond)
-    _, err := UseStates(ctx, []GraphNode{l1}, func(states []NodeState) (interface{}, error) {
+    err := UseStates(ctx, []GraphNode{l1}, func(states []NodeState) (error) {
       ser, err := json.MarshalIndent(states[0], "", "  ")
       fatalErr(t, err)
 
       fmt.Printf("\n%s\n", ser)
-      return nil, nil
+      return nil
     })
     fatalErr(t, err)
     SendUpdate(ctx, t1, CancelSignal(nil))
@@ -57,12 +57,12 @@ func TestEventWithRequirement(t * testing.T) {
   err = RunThread(ctx, t1)
   fatalErr(t, err)
 
-  _, err = UseStates(ctx, []GraphNode{l1}, func(states []NodeState) (interface{}, error) {
+  err = UseStates(ctx, []GraphNode{l1}, func(states []NodeState) (error) {
     ser, err := json.MarshalIndent(states[0], "", "  ")
     fatalErr(t, err)
 
     fmt.Printf("\n%s\n", ser)
-    return nil, nil
+    return nil
   })
   fatalErr(t, err)
 }

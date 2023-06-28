@@ -331,10 +331,10 @@ func checkForDuplicate(nodes []GraphNode) error {
   return nil
 }
 
-func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)(interface{}, error)) (interface{}, error) {
+func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)(error)) error {
   err := checkForDuplicate(nodes)
   if err != nil {
-    return nil, err
+    return err
   }
 
   for _, node := range(nodes) {
@@ -346,19 +346,19 @@ func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []No
     states[i] = node.State()
   }
 
-  val, err := states_fn(states)
+  err = states_fn(states)
 
   for _, node := range(nodes) {
     node.StateLock().RUnlock()
   }
 
-  return val, err
+  return err
 }
 
-func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)([]NodeState, interface{}, error)) (interface{}, error) {
+func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)([]NodeState, error)) error {
   err := checkForDuplicate(nodes)
   if err != nil {
-    return nil, err
+    return err
   }
 
   for _, node := range(nodes) {
@@ -370,7 +370,7 @@ func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states [
     states[i] = node.State()
   }
 
-  new_states, val, err := states_fn(states)
+  new_states, err := states_fn(states)
 
   if new_states != nil {
     if len(new_states) != len(nodes) {
@@ -400,7 +400,7 @@ func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states [
     node.StateLock().Unlock()
   }
 
-  return val, err
+  return err
 }
 
 func (node * BaseNode) UpdateListeners(ctx * GraphContext, update GraphSignal) {
