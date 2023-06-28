@@ -181,22 +181,13 @@ func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockabl
       if lockable_state.Owner() == nil {
         // If the new owner isn't locked, we can add the requirement
       } else if requirement_state.Owner() == nil {
-        // See if the requirement can be locked by the owner right now
-        //TODO TODO
-      }
-
-      if requirement_state.Owner() != nil && lockable_state.Owner() == nil {
-        // If the requirement is locked but not the owner, we can add and don't have to lock
-        
-      } else if requirement_state.Owner() == nil && lockable_state.Owner() == nil {
-        // If the requirement and the owner is unlocked, we can add and don't have to lock
-        
-      } else if requirement_state.Owner() != nil && lockable_state.Owner() != nil {
-        // If the requirement and the owner are locked, we can't add them unless the owner is already the owner
-        
-      } else if requirement_state.Owner() == nil && lockable_state.Owner() != nil {
-        // If the requirement is unlocked and the owner is locked, we need to lock the requirement first
-
+        // if the new requirement isn't already locked but the owner is, the requirement needs to be locked first
+        return nil, fmt.Errorf("LOCKABLE_LINK_ERR: %s is locked, %s must be locked to add", lockable.ID(), requirement.ID())
+      } else {
+        // If the new requirement is already locked and the owner is already locked, their owners need to match
+        if requirement_state.Owner().ID() != lockable_state.Owner().ID() {
+          return nil, fmt.Errorf("LOCKABLE_LINK_ERR: %s is not locked by the same owner as %s, can't link as requirement", requirement.ID(), lockable.ID())
+        }
       }
     }
     // Update the states of the requirements
