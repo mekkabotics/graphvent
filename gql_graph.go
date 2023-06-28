@@ -157,6 +157,7 @@ func GQLInterfaceLockable() *graphql.Interface {
         if ok == false {
           return nil
         }
+        ctx.Log.Logf("gql", "LOCKABLE_RESOLVE: %+v", p.Value)
         valid_lockables, ok := p.Context.Value("valid_lockables").(map[reflect.Type]*graphql.Object)
         if ok == false {
           ctx.Log.Logf("gql", "Failed to get valid_lockables from Context")
