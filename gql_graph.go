@@ -123,15 +123,15 @@ func GQLInterfaceThread() *graphql.Interface {
       Type: GQLInterfaceThread(),
     })
 
-    gql_interface_lockable.AddFieldConfig("Requirements", &graphql.Field{
+    gql_interface_thread.AddFieldConfig("Requirements", &graphql.Field{
       Type: GQLListLockable(),
     })
 
-    gql_interface_lockable.AddFieldConfig("Dependencies", &graphql.Field{
+    gql_interface_thread.AddFieldConfig("Dependencies", &graphql.Field{
       Type: GQLListLockable(),
     })
 
-    gql_interface_lockable.AddFieldConfig("Owner", &graphql.Field{
+    gql_interface_thread.AddFieldConfig("Owner", &graphql.Field{
       Type: GQLInterfaceLockable(),
     })
   }
