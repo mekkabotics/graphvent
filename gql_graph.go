@@ -180,9 +180,9 @@ func GQLInterfaceLockable() *graphql.Interface {
         }
 
         if p_type.Implements(*lockable_type) {
+          ctx.Log.Logf("gql", "LOCKABLE_RESOLVE_DEFAULT")
           return GQLTypeBaseLockable()
         }
-        ctx.Log.Logf("gql", "LOCKABLE_RESOLVE_DEFAULT")
         return nil
       },
       Fields: graphql.Fields{},
