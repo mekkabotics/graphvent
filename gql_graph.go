@@ -560,7 +560,6 @@ func GQLTypeBaseLockable() * graphql.Object {
       IsTypeOf: func(p graphql.IsTypeOfParams) bool {
         ctx, ok := p.Context.Value("graph_context").(*GraphContext)
         if ok == false {
-          panic("PANIC_AT_THE_DISCO")
           return false
         }
 

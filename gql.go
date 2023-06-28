@@ -454,7 +454,7 @@ func MakeGQLHandlers(ctx * GraphContext, server * GQLThread) (func(http.Response
   valid_nodes := map[reflect.Type]*graphql.Object{}
   valid_lockables := map[reflect.Type]*graphql.Object{}
   valid_threads := map[reflect.Type]*graphql.Object{}
-  valid_lockables[reflect.TypeOf((*BaseLockable)(nil))] = GQLTypeBaseNode()
+  valid_lockables[reflect.TypeOf((*BaseLockable)(nil))] = GQLTypeBaseLockable()
   for t, v := range(valid_lockables) {
     valid_nodes[t] = v
   }
