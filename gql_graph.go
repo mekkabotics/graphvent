@@ -209,7 +209,7 @@ func GQLInterfaceLockable() *graphql.Interface {
     })
 
     gql_interface_lockable.AddFieldConfig("Owner", &graphql.Field{
-      Type: GQLInterfaceLockable(),
+      Type: gql_interface_lockable,
     })
 
   }
