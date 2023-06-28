@@ -171,6 +171,7 @@ func GQLInterfaceLockable() *graphql.Interface {
         }
 
         p_type := reflect.TypeOf(p.Value)
+        ctx.Log.Logf("gql", "Value Type: %+v, Lockable Type: %+v", p_type, *lockable_type)
 
         for key, value := range(valid_lockables) {
           if p_type == key {
@@ -569,6 +570,7 @@ func GQLTypeBaseLockable() * graphql.Object {
         }
 
         value_type := reflect.TypeOf(p.Value)
+        ctx.Log.Logf("gql", "BASE_VALUE_TYPE: %+v", value_type)
 
         if value_type.Implements(*lockable_type) {
           return true
