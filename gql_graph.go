@@ -606,7 +606,7 @@ func GQLTypeBaseLockable() * graphql.Object {
       Resolve: GQLLockableDependencies,
     })
   }
-
+  fmt.Printf("\n\n%+v\n\n", gql_type_base_lockable)
   return gql_type_base_lockable
 }
 
