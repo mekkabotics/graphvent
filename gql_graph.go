@@ -201,11 +201,11 @@ func GQLInterfaceLockable() *graphql.Interface {
     }
 
     gql_interface_lockable.AddFieldConfig("Requirements", &graphql.Field{
-      Type: GQLListLockable(),
+      Type: gql_list_lockable,
     })
 
     gql_interface_lockable.AddFieldConfig("Dependencies", &graphql.Field{
-      Type: GQLListLockable(),
+      Type: gql_list_lockable,
     })
 
     gql_interface_lockable.AddFieldConfig("Owner", &graphql.Field{
@@ -606,7 +606,6 @@ func GQLTypeBaseLockable() * graphql.Object {
       Resolve: GQLLockableDependencies,
     })
   }
-  fmt.Printf("\n\n%+v\n\n", gql_type_base_lockable)
   return gql_type_base_lockable
 }
 
