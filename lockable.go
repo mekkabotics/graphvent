@@ -291,6 +291,7 @@ func UnlockLockable(ctx * GraphContext, lockable Lockable, node GraphNode, node_
   if node == nil || lockable == nil{
     panic("Cannot unlock without a specified node and lockable")
   }
+  ctx.Log.Logf("lockable", "Unlocking %s", lockable.ID())
   _, err := UpdateStates(ctx, []GraphNode{lockable}, func(states []NodeState) ([]NodeState, interface{}, error) {
     if lockable.ID() == node.ID() {
       if node_state != nil {
