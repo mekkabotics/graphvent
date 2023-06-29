@@ -190,9 +190,9 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
   }
 
 
-  err := UpdateStates(ctx, []GraphNode{thread, child}, func(states NodeStateMap) error {
-    thread_state := states[thread.ID()].(ThreadState)
-    child_state := states[child.ID()].(ThreadState)
+  err := UpdateStates(ctx, []GraphNode{thread, child}, func(nodes NodeMap) error {
+    thread_state := thread.State().(ThreadState)
+    child_state := child.State().(ThreadState)
 
     if child_state.Parent() != nil {
       return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
@@ -284,7 +284,9 @@ func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_
 func RunThread(ctx * GraphContext, thread Thread) error {
   ctx.Log.Logf("thread", "THREAD_RUN: %s", thread.ID())
 
-  err := LockLockables(ctx, []Lockable{thread}, thread, nil, NodeStateMap{})
+  err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
+    return LockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
+  })
   if err != nil {
     return err
   }
@@ -332,7 +334,9 @@ func RunThread(ctx * GraphContext, thread Thread) error {
     return err
   }
 
-  err = UnlockLockables(ctx, []Lockable{thread}, thread, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
+    return UnlockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
+  })
   if err != nil {
     ctx.Log.Logf("thread", "THREAD_RUN_UNLOCK_ERR: %e", err)
     return err

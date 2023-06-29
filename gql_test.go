@@ -26,7 +26,6 @@ func TestGQLThread(t * testing.T) {
 
   go func(thread Thread){
     time.Sleep(10*time.Millisecond)
-    // Check that test_thread_1 is running and test_thread_2 is not
     SendUpdate(ctx, thread, CancelSignal(nil))
   }(gql_thread)
 

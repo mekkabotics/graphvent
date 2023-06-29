@@ -24,7 +24,7 @@ func TestRepeatedChildLockable(t * testing.T) {
 
   _, err = NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{r1, r1})
   if err == nil {
-    t.Fatal("Added the same lockable as a child twice to the same lockable")
+    t.Fatal("Added the same lockable as a requirement twice to the same lockable")
   }
 }
 
@@ -34,7 +34,9 @@ func TestLockableSelfLock(t * testing.T) {
   r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r1}, func(nodes NodeMap) error {
+    return LockLockables(ctx, []Lockable{r1}, r1, nil, nodes)
+  })
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
@@ -46,7 +48,9 @@ func TestLockableSelfLock(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UnlockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r1}, func(nodes NodeMap) error {
+    return UnlockLockables(ctx, []Lockable{r1}, r1, nil, nodes)
+  })
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
@@ -72,7 +76,9 @@ func TestLockableSelfLockTiered(t * testing.T) {
   r3, err := NewSimpleBaseLockable(ctx, "Test lockable 3", []Lockable{r1, r2})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r3}, r3, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r3}, func(nodes NodeMap) error {
+    return LockLockables(ctx, []Lockable{r3}, r3, nil, nodes)
+  })
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states NodeStateMap) (error) {
@@ -89,7 +95,9 @@ func TestLockableSelfLockTiered(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UnlockLockables(ctx, []Lockable{r3}, r3, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r3}, func(nodes NodeMap) error {
+    return UnlockLockables(ctx, []Lockable{r3}, r3, nil, nodes)
+  })
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states NodeStateMap) (error) {
@@ -122,9 +130,9 @@ func TestLockableLockOther(t * testing.T) {
   r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  err = UpdateStates(ctx, []GraphNode{r2}, func(states NodeStateMap) (error) {
-    node_state := states[r2.ID()].(LockableState)
-    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r1, r2}, func(nodes NodeMap) (error) {
+    node_state := r2.State().(LockableState)
+    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, nodes)
     fatalErr(t, err)
     return nil
   })
@@ -140,9 +148,9 @@ func TestLockableLockOther(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UpdateStates(ctx, []GraphNode{r2}, func(states NodeStateMap) (error) {
-    node_state := states[r2.ID()].(LockableState)
-    err := UnlockLockables(ctx, []Lockable{r1}, r2, node_state, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r2}, func(nodes NodeMap) (error) {
+    node_state := r2.State().(LockableState)
+    err := UnlockLockables(ctx, []Lockable{r1}, r2, node_state, nodes)
     fatalErr(t, err)
     return nil
   })
@@ -169,12 +177,14 @@ func TestLockableLockSimpleConflict(t * testing.T) {
   r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r1}, func(nodes NodeMap) error {
+    return LockLockables(ctx, []Lockable{r1}, r1, nil, nodes)
+  })
   fatalErr(t, err)
 
-  err = UpdateStates(ctx, []GraphNode{r2}, func(states NodeStateMap) (error) {
-    node_state := states[r2.ID()].(LockableState)
-    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r2}, func(nodes NodeMap) (error) {
+    node_state := r2.State().(LockableState)
+    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, nodes)
     if err == nil {
       t.Fatal("r2 took r1's lock from itself")
     }
@@ -193,7 +203,9 @@ func TestLockableLockSimpleConflict(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UnlockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r1}, func(nodes NodeMap) error {
+    return UnlockLockables(ctx, []Lockable{r1}, r1, nil, nodes)
+  })
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
@@ -220,10 +232,14 @@ func TestLockableLockTieredConflict(t * testing.T) {
   r3, err := NewSimpleBaseLockable(ctx, "Test lockable 3", []Lockable{r1})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r2}, r2, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r2}, func(nodes NodeMap) error {
+    return LockLockables(ctx, []Lockable{r2}, r2, nil, nodes)
+  })
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r3}, r3, nil, NodeStateMap{})
+  err = UpdateStates(ctx, []GraphNode{r3}, func(nodes NodeMap) error {
+    return LockLockables(ctx, []Lockable{r3}, r3, nil, nodes)
+  })
   if err == nil {
     t.Fatal("Locked r3 which depends on r1 while r2 which depends on r1 is already locked")
   }
@@ -328,6 +344,13 @@ func TestLockableDBLoad(t * testing.T){
   l4, err := NewSimpleBaseLockable(ctx, "Test Lockable 4", []Lockable{l3})
   fatalErr(t, err)
   _, err = NewSimpleBaseLockable(ctx, "Test Lockable 5", []Lockable{l4})
+  fatalErr(t, err)
+  l6, err := NewSimpleBaseLockable(ctx, "Test Lockable 6", []Lockable{})
+  err = UpdateStates(ctx, []GraphNode{l6, l3}, func(nodes NodeMap) error {
+    l6_state := l6.State().(LockableState)
+    err := LockLockables(ctx, []Lockable{l3}, l6, l6_state, nodes)
+    return err
+  })
   fatalErr(t, err)
 
   _, err = LoadNode(ctx, l3.ID())

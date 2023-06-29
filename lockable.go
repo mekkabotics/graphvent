@@ -161,6 +161,7 @@ func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockabl
     return nil
   }
 
+  found := map[NodeID]bool{}
   for _, requirement := range(requirements) {
     if requirement == nil {
       return fmt.Errorf("LOCKABLE_LINK_ERR: Will not link nil to a Lockable as a requirement")
@@ -169,32 +170,39 @@ func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockabl
     if lockable.ID() == requirement.ID() {
       return fmt.Errorf("LOCKABLE_LINK_ERR: cannot link %s to itself", lockable.ID())
     }
+
+    _, exists := found[requirement.ID()]
+    if exists == true {
+      return fmt.Errorf("LOCKABLE_LINK_ERR: cannot link %s twice", requirement.ID())
+    }
+    found[requirement.ID()] = true
   }
 
-  nodes := make([]GraphNode, len(requirements) + 1)
-  nodes[0] = lockable
+  gnodes := make([]GraphNode, len(requirements) + 1)
+  gnodes[0] = lockable
   for i, node := range(requirements) {
-    nodes[i+1] = node
+    gnodes[i+1] = node
   }
-  err := UpdateStates(ctx, nodes, func(states NodeStateMap) error {
+
+  err := UpdateStates(ctx, gnodes, func(nodes NodeMap) error {
     // Check that all the requirements can be added
-    lockable_state := states[lockable.ID()].(LockableState)
+    lockable_state := lockable.State().(LockableState)
     // If the lockable is already locked, need to lock this resource as well before we can add it
     for _, requirement := range(requirements) {
-      requirement_state := states[requirement.ID()].(LockableState)
+      requirement_state := requirement.State().(LockableState)
       for _, req := range(requirements) {
         if req.ID() == requirement.ID() {
           continue
         }
-        if checkIfRequirement(ctx, req.ID(), requirement_state, requirement.ID(), states) == true {
+        if checkIfRequirement(ctx, req.ID(), requirement_state, requirement.ID(), nodes) == true {
           return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependenyc of %s so cannot add the same dependency", req.ID(), requirement.ID())
         }
       }
-      if checkIfRequirement(ctx, lockable.ID(), requirement_state, requirement.ID(), states) == true {
+      if checkIfRequirement(ctx, lockable.ID(), requirement_state, requirement.ID(), nodes) == true {
         return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
       }
 
-      if checkIfRequirement(ctx, requirement.ID(), lockable_state, lockable.ID(), states) == true {
+      if checkIfRequirement(ctx, requirement.ID(), lockable_state, lockable.ID(), nodes) == true {
         return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
       }
       if lockable_state.Owner() == nil {
@@ -211,7 +219,7 @@ func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockabl
     }
     // Update the states of the requirements
     for _, requirement := range(requirements) {
-      requirement_state := states[requirement.ID()].(LockableState)
+      requirement_state := requirement.State().(LockableState)
       requirement_state.AddDependency(lockable)
       lockable_state.AddRequirement(requirement)
       ctx.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
@@ -281,15 +289,15 @@ func (lockable * BaseLockable) PropagateUpdate(ctx * GraphContext, signal GraphS
   })
 }
 
-func checkIfRequirement(ctx * GraphContext, r_id NodeID, cur LockableState, cur_id NodeID, states NodeStateMap) bool {
+func checkIfRequirement(ctx * GraphContext, r_id NodeID, cur LockableState, cur_id NodeID, nodes NodeMap) bool {
   for _, c := range(cur.Requirements()) {
     if c.ID() == r_id {
       return true
     }
     is_requirement := false
-    UpdateMoreStates(ctx, []GraphNode{c}, states, func(states NodeStateMap) (error) {
-      requirement_state := states[c.ID()].(LockableState)
-      is_requirement = checkIfRequirement(ctx, cur_id, requirement_state, c.ID(), states)
+    UpdateMoreStates(ctx, []GraphNode{c}, nodes, func(nodes NodeMap) (error) {
+      requirement_state := c.State().(LockableState)
+      is_requirement = checkIfRequirement(ctx, cur_id, requirement_state, c.ID(), nodes)
       return nil
     })
 
@@ -301,7 +309,7 @@ func checkIfRequirement(ctx * GraphContext, r_id NodeID, cur LockableState, cur_
   return false
 }
 
-func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, holder_state LockableState, states NodeStateMap) error {
+func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, holder_state LockableState, nodes NodeMap) error {
   if to_lock == nil {
     return fmt.Errorf("LOCKABLE_LOCK_ERR: no list provided")
   }
@@ -333,15 +341,11 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
     node_list[i] = l
   }
 
-  err := UpdateMoreStates(ctx, node_list, states, func(states NodeStateMap) error {
+  err := UpdateMoreStates(ctx, node_list, nodes, func(nodes NodeMap) error {
     // First loop is to check that the states can be locked, and locks all requirements
     for _, req := range(to_lock) {
-      state := states[req.ID()]
-      req_state, ok := state.(LockableState)
+      req_state := req.State().(LockableState)
       ctx.Log.Logf("lockable", "LOCKABLE_LOCKING: %s from %s", req.ID(), holder.ID())
-      if ok == false {
-        return fmt.Errorf("LOCKABLE_LOCK_ERR: %s(requirement of %s) does not have a LockableState", req.ID(), holder.ID())
-      }
 
       // Check custom lock conditions
       err := req.CanLock(holder, req_state)
@@ -367,21 +371,17 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
           //   a) in this case, we're holding every state mutex up to the resource being locked
           //      and all the owners passing a lock, so we can start to change state
           // 2) req has children, and we will recurse(checking that locking is allowed) until we reach a leaf and can release the locks as we change state. The call will either return nil if state has changed, on an error if no state has changed
-          err := LockLockables(ctx, req_state.Requirements(), req, req_state, states)
+          err := LockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
           if err != nil {
             return err
           }
         } else {
-          err := UpdateMoreStates(ctx, []GraphNode{owner}, states, func(states NodeStateMap)(error){
-            owner_state, ok := states[owner.ID()].(LockableState)
-            if ok == false {
-              return fmt.Errorf("LOCKABLE_LOCK_ERR: %s does not have a LockableState", owner.ID())
-            }
-
+          err := UpdateMoreStates(ctx, []GraphNode{owner}, nodes, func(nodes NodeMap)(error){
+            owner_state := owner.State().(LockableState)
             if owner_state.AllowedToTakeLock(holder.ID(), req.ID()) == false {
               return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", holder.ID(), req.ID(), owner.ID())
             }
-            err := LockLockables(ctx, req_state.Requirements(), req, req_state, states)
+            err := LockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
             return err
           })
           if err != nil {
@@ -389,7 +389,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
           }
         }
       } else {
-        err := LockLockables(ctx, req_state.Requirements(), req, req_state, states)
+        err := LockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
         if err != nil {
           return err
         }
@@ -398,7 +398,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
 
     // At this point state modification will be started, so no errors can be returned
     for _, req := range(to_lock) {
-      req_state := states[req.ID()].(LockableState)
+      req_state := req.State().(LockableState)
       old_owner := req_state.Owner()
       req_state.SetOwner(holder)
       if req.ID() == holder.ID() {
@@ -418,7 +418,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
   return err
 }
 
-func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, holder_state LockableState, states NodeStateMap) error {
+func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, holder_state LockableState, nodes NodeMap) error {
   if to_unlock == nil {
     return fmt.Errorf("LOCKABLE_UNLOCK_ERR: no list provided")
   }
@@ -449,14 +449,11 @@ func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, 
     node_list[i] = l
   }
 
-  err := UpdateMoreStates(ctx, node_list, states, func(states NodeStateMap) error {
+  err := UpdateMoreStates(ctx, node_list, nodes, func(nodes NodeMap) error {
     // First loop is to check that the states can be locked, and locks all requirements
     for _, req := range(to_unlock) {
-      req_state, ok := states[req.ID()].(LockableState)
+      req_state := req.State().(LockableState)
       ctx.Log.Logf("lockable", "LOCKABLE_UNLOCKING: %s from %s", req.ID(), holder.ID())
-      if ok == false {
-        return fmt.Errorf("LOCKABLE_UNLOCK_ERR: %s(requirement of %s) does not have a LockableState", req.ID(), holder.ID())
-      }
 
       // Check if the owner is correct
       if req_state.Owner() != nil {
@@ -473,7 +470,7 @@ func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, 
         return err
       }
 
-      err = UnlockLockables(ctx, req_state.Requirements(), req, req_state, states)
+      err = UnlockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
       if err != nil {
         return err
       }
@@ -481,7 +478,7 @@ func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, 
 
     // At this point state modification will be started, so no errors can be returned
     for _, req := range(to_unlock) {
-      req_state := states[req.ID()].(LockableState)
+      req_state := req.State().(LockableState)
       var new_owner Lockable = nil
       if holder_state == nil {
         new_owner = req_state.ReturnLock(req.ID())

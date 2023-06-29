@@ -347,6 +347,33 @@ func ReadDBState(ctx * GraphContext, id NodeID) ([]byte, error) {
   return bytes, nil
 }
 
+func WriteDBStates(ctx * GraphContext, nodes NodeMap) error{
+  ctx.Log.Logf("db", "DB_WRITES: %d", len(nodes))
+  var serialized_states [][]byte = make([][]byte, len(nodes))
+  i := 0
+  for _, node := range(nodes) {
+    ser, err := json.Marshal(node.State())
+    if err != nil {
+      return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
+    }
+    serialized_states[i] = ser
+    i++
+  }
+
+  err := ctx.DB.Update(func(txn *badger.Txn) error {
+    i := 0
+    for id, _ := range(nodes) {
+      err := txn.Set([]byte(id), serialized_states[i])
+      if err != nil {
+        return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
+      }
+      i++
+    }
+    return nil
+  })
+  return err
+}
+
 func WriteDBState(ctx * GraphContext, id NodeID, state NodeState) error {
   ctx.Log.Logf("db", "DB_WRITE: %s - %+v", id, state)
 
@@ -390,7 +417,9 @@ func checkForDuplicate(nodes []GraphNode) error {
 }
 
 type NodeStateMap map[NodeID]NodeState
-type StatesFn func(states NodeStateMap)(error)
+type NodeMap map[NodeID]GraphNode
+type StatesFn func(states NodeStateMap) error
+type NodesFn func(nodes NodeMap) error
 func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn StatesFn) error {
   states := NodeStateMap{}
   return UseMoreStates(ctx, nodes, states, states_fn)
@@ -421,42 +450,28 @@ func UseMoreStates(ctx * GraphContext, nodes []GraphNode, states NodeStateMap, s
   return err
 }
 
-func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn StatesFn) error {
-  states := NodeStateMap{}
-  return UpdateMoreStates(ctx, nodes, states, states_fn)
-}
-func UpdateMoreStates(ctx * GraphContext, nodes []GraphNode, states NodeStateMap, states_fn StatesFn) error {
-  err := checkForDuplicate(nodes)
-  if err != nil {
-    return err
-  }
-
-  locked_nodes := []GraphNode{}
-  for _, node := range(nodes) {
-    _, locked := states[node.ID()]
-    if locked == false {
-      node.StateLock().Lock()
-      states[node.ID()] = node.State()
-      locked_nodes = append(locked_nodes, node)
-    }
-  }
-
-  err = states_fn(states)
+func UpdateStates(ctx * GraphContext, nodes []GraphNode, nodes_fn NodesFn) error {
+  locked_nodes := NodeMap{}
+  err := UpdateMoreStates(ctx, nodes, locked_nodes, nodes_fn)
   if err == nil {
-    for _, node := range(nodes) {
-      err := WriteDBState(ctx, node.ID(), node.State())
-      if err != nil {
-        panic(fmt.Sprintf("DB_WRITE_ERROR: %s", err))
-      }
-    }
+    err = WriteDBStates(ctx, locked_nodes)
   }
 
   for _, node := range(locked_nodes) {
-    delete(states, node.ID())
     node.StateLock().Unlock()
   }
-
   return err
+}
+func UpdateMoreStates(ctx * GraphContext, nodes []GraphNode, locked_nodes NodeMap, nodes_fn NodesFn) error {
+  for _, node := range(nodes) {
+    _, locked := locked_nodes[node.ID()]
+    if locked == false {
+      node.StateLock().Lock()
+      locked_nodes[node.ID()] = node
+    }
+  }
+
+  return nodes_fn(locked_nodes)
 }
 
 func (node * BaseNode) UpdateListeners(ctx * GraphContext, update GraphSignal) {
