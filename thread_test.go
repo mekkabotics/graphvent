@@ -3,11 +3,10 @@ package graphvent
 import (
   "testing"
   "time"
-  "encoding/json"
   "fmt"
 )
 
-func TestNewEvent(t * testing.T) {
+func TestNewThread(t * testing.T) {
   ctx := testContext(t)
 
   t1, err := NewSimpleBaseThread(ctx, "Test thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
@@ -21,18 +20,17 @@ func TestNewEvent(t * testing.T) {
   err = RunThread(ctx, t1)
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{t1}, func(states []NodeState) (error) {
-    ser, err := json.MarshalIndent(states, "", "  ")
-    fatalErr(t, err)
-
-    fmt.Printf("\n%s\n", ser)
-
+  err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) (error) {
+    owner := states[t1.ID()].(ThreadState).Owner()
+    if owner != nil {
+      return fmt.Errorf("Wrong owner %+v", owner)
+    }
     return nil
   })
 }
 
-func TestEventWithRequirement(t * testing.T) {
-  ctx := logTestContext(t, []string{"lockable", "thread"})
+func TestThreadWithRequirement(t * testing.T) {
+  ctx := testContext(t)
 
   l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
@@ -42,14 +40,6 @@ func TestEventWithRequirement(t * testing.T) {
 
   go func (thread Thread) {
     time.Sleep(10*time.Millisecond)
-    err := UseStates(ctx, []GraphNode{l1}, func(states []NodeState) (error) {
-      ser, err := json.MarshalIndent(states[0], "", "  ")
-      fatalErr(t, err)
-
-      fmt.Printf("\n%s\n", ser)
-      return nil
-    })
-    fatalErr(t, err)
     SendUpdate(ctx, t1, CancelSignal(nil))
   }(t1)
   fatalErr(t, err)
@@ -57,18 +47,18 @@ func TestEventWithRequirement(t * testing.T) {
   err = RunThread(ctx, t1)
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{l1}, func(states []NodeState) (error) {
-    ser, err := json.MarshalIndent(states[0], "", "  ")
-    fatalErr(t, err)
-
-    fmt.Printf("\n%s\n", ser)
+  err = UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) (error) {
+    owner := states[l1.ID()].(LockableState).Owner()
+    if owner != nil {
+      return fmt.Errorf("Wrong owner %+v", owner)
+    }
     return nil
   })
   fatalErr(t, err)
 }
 
-func TestCustomEventState(t * testing.T ) {
-  ctx := logTestContext(t, []string{"lockable", "thread"})
+func TestCustomThreadState(t * testing.T ) {
+  ctx := testContext(t)
 
   t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
   fatalErr(t, err)

@@ -350,7 +350,7 @@ type GQLThreadState struct {
 
 func NewGQLThreadState(listen string) GQLThreadState {
   state := GQLThreadState{
-    BaseThreadState: NewBaseThreadState("GQL Server"),
+    BaseThreadState: NewBaseThreadState("GQL Server", "gql_thread"),
     Listen: listen,
   }
   state.InfoType = reflect.TypeOf((*GQLThreadInfo)(nil))
@@ -370,8 +370,8 @@ var gql_actions ThreadActions = ThreadActions{
     fs := http.FileServer(http.Dir("./site"))
     mux.Handle("/site/", http.StripPrefix("/site", fs))
 
-    UseStates(ctx, []GraphNode{server}, func(states []NodeState)(error){
-      server_state := states[0].(*GQLThreadState)
+    UseStates(ctx, []GraphNode{server}, func(states NodeStateMap)(error){
+      server_state := states[server.ID()].(*GQLThreadState)
       server.http_server = &http.Server{
         Addr: server_state.Listen,
         Handler: mux,
@@ -395,8 +395,8 @@ var gql_actions ThreadActions = ThreadActions{
 var gql_handlers ThreadHandlers = ThreadHandlers{
   "child_added": func(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: %+v", signal)
-    UseStates(ctx, []GraphNode{thread}, func(states []NodeState)(error) {
-      server_state := states[0].(*GQLThreadState)
+    UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap)(error) {
+      server_state := states[thread.ID()].(*GQLThreadState)
       should_run, exists := server_state.child_info[signal.Source()].(*GQLThreadInfo)
       if exists == false {
         ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: tried to start %s whis is not a child")

@@ -3,7 +3,6 @@ package graphvent
 import (
   "testing"
   "fmt"
-  "encoding/json"
   "time"
 )
 
@@ -35,11 +34,11 @@ func TestLockableSelfLock(t * testing.T) {
   r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r1}, r1, nil, map[NodeID]LockableState{})
+  err = LockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (error) {
-    owner_id := states[0].(LockableState).Owner().ID()
+  err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
+    owner_id := states[r1.ID()].(LockableState).Owner().ID()
     if owner_id != r1.ID() {
       return fmt.Errorf("r1 is owned by %s instead of self", owner_id)
     }
@@ -47,11 +46,11 @@ func TestLockableSelfLock(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UnlockLockables(ctx, []Lockable{r1}, r1, nil, map[NodeID]LockableState{})
+  err = UnlockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (error) {
-    owner := states[0].(LockableState).Owner()
+  err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
+    owner := states[r1.ID()].(LockableState).Owner()
     if owner != nil {
       return fmt.Errorf("r1 is not unowned after unlock: %s", owner.ID())
     }
@@ -62,7 +61,7 @@ func TestLockableSelfLock(t * testing.T) {
 }
 
 func TestLockableSelfLockTiered(t * testing.T) {
-  ctx := logTestContext(t, []string{"lockable"})
+  ctx := testContext(t)
 
   r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
@@ -73,41 +72,38 @@ func TestLockableSelfLockTiered(t * testing.T) {
   r3, err := NewSimpleBaseLockable(ctx, "Test lockable 3", []Lockable{r1, r2})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r3}, r3, nil, map[NodeID]LockableState{})
+  err = LockLockables(ctx, []Lockable{r3}, r3, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states []NodeState) (error) {
-    owner_1_id := states[0].(LockableState).Owner().ID()
+  err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states NodeStateMap) (error) {
+    owner_1_id := states[r1.ID()].(LockableState).Owner().ID()
     if owner_1_id != r3.ID() {
       return fmt.Errorf("r1 is owned by %s instead of r3", owner_1_id)
     }
 
-    owner_2_id := states[1].(LockableState).Owner().ID()
+    owner_2_id := states[r2.ID()].(LockableState).Owner().ID()
     if owner_2_id != r3.ID() {
       return fmt.Errorf("r2 is owned by %s instead of r3", owner_2_id)
     }
-    ser, _ := json.MarshalIndent(states, "", "  ")
-    fmt.Printf("\n\n%s\n\n", ser)
-
     return nil
   })
   fatalErr(t, err)
 
-  err = UnlockLockables(ctx, []Lockable{r3}, r3, nil, map[NodeID]LockableState{})
+  err = UnlockLockables(ctx, []Lockable{r3}, r3, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states []NodeState) (error) {
-    owner_1 := states[0].(LockableState).Owner()
+  err = UseStates(ctx, []GraphNode{r1, r2, r3}, func(states NodeStateMap) (error) {
+    owner_1 := states[r1.ID()].(LockableState).Owner()
     if owner_1 != nil {
       return fmt.Errorf("r1 is not unowned after unlocking: %s", owner_1.ID())
     }
 
-    owner_2 := states[1].(LockableState).Owner()
+    owner_2 := states[r2.ID()].(LockableState).Owner()
     if owner_2 != nil {
       return fmt.Errorf("r2 is not unowned after unlocking: %s", owner_2.ID())
     }
 
-    owner_3 := states[2].(LockableState).Owner()
+    owner_3 := states[r3.ID()].(LockableState).Owner()
     if owner_3 != nil {
       return fmt.Errorf("r3 is not unowned after unlocking: %s", owner_3.ID())
     }
@@ -126,16 +122,16 @@ func TestLockableLockOther(t * testing.T) {
   r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, error) {
-    node_state := states[0].(LockableState)
-    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, map[NodeID]LockableState{})
+  err = UpdateStates(ctx, []GraphNode{r2}, func(states NodeStateMap) (error) {
+    node_state := states[r2.ID()].(LockableState)
+    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, NodeStateMap{})
     fatalErr(t, err)
-    return []NodeState{node_state}, nil
+    return nil
   })
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (error) {
-    owner_id := states[0].(LockableState).Owner().ID()
+  err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
+    owner_id := states[r1.ID()].(LockableState).Owner().ID()
     if owner_id != r2.ID() {
       return fmt.Errorf("r1 is owned by %s instead of r2", owner_id)
     }
@@ -144,16 +140,16 @@ func TestLockableLockOther(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, error) {
-    node_state := states[0].(LockableState)
-    err := UnlockLockables(ctx, []Lockable{r1}, r2, node_state, map[NodeID]LockableState{})
+  err = UpdateStates(ctx, []GraphNode{r2}, func(states NodeStateMap) (error) {
+    node_state := states[r2.ID()].(LockableState)
+    err := UnlockLockables(ctx, []Lockable{r1}, r2, node_state, NodeStateMap{})
     fatalErr(t, err)
-    return []NodeState{node_state}, nil
+    return nil
   })
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (error) {
-    owner := states[0].(LockableState).Owner()
+  err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
+    owner := states[r1.ID()].(LockableState).Owner()
     if owner != nil {
       return fmt.Errorf("r1 is owned by %s instead of r2", owner.ID())
     }
@@ -173,22 +169,22 @@ func TestLockableLockSimpleConflict(t * testing.T) {
   r2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r1}, r1, nil, map[NodeID]LockableState{})
+  err = LockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = UpdateStates(ctx, []GraphNode{r2}, func(states []NodeState) ([]NodeState, error) {
-    node_state := states[0].(LockableState)
-    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, map[NodeID]LockableState{})
+  err = UpdateStates(ctx, []GraphNode{r2}, func(states NodeStateMap) (error) {
+    node_state := states[r2.ID()].(LockableState)
+    err := LockLockables(ctx, []Lockable{r1}, r2, node_state, NodeStateMap{})
     if err == nil {
       t.Fatal("r2 took r1's lock from itself")
     }
 
-    return []NodeState{node_state}, nil
+    return nil
   })
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (error) {
-    owner_id := states[0].(LockableState).Owner().ID()
+  err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
+    owner_id := states[r1.ID()].(LockableState).Owner().ID()
     if owner_id != r1.ID() {
       return fmt.Errorf("r1 is owned by %s instead of r1", owner_id)
     }
@@ -197,11 +193,11 @@ func TestLockableLockSimpleConflict(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UnlockLockables(ctx, []Lockable{r1}, r1, nil, map[NodeID]LockableState{})
+  err = UnlockLockables(ctx, []Lockable{r1}, r1, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{r1}, func(states []NodeState) (error) {
-    owner := states[0].(LockableState).Owner()
+  err = UseStates(ctx, []GraphNode{r1}, func(states NodeStateMap) (error) {
+    owner := states[r1.ID()].(LockableState).Owner()
     if owner != nil {
       return fmt.Errorf("r1 is owned by %s instead of r1", owner.ID())
     }
@@ -224,10 +220,10 @@ func TestLockableLockTieredConflict(t * testing.T) {
   r3, err := NewSimpleBaseLockable(ctx, "Test lockable 3", []Lockable{r1})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r2}, r2, nil, map[NodeID]LockableState{})
+  err = LockLockables(ctx, []Lockable{r2}, r2, nil, NodeStateMap{})
   fatalErr(t, err)
 
-  err = LockLockables(ctx, []Lockable{r3}, r3, nil, map[NodeID]LockableState{})
+  err = LockLockables(ctx, []Lockable{r3}, r3, nil, NodeStateMap{})
   if err == nil {
     t.Fatal("Locked r3 which depends on r1 while r2 which depends on r1 is already locked")
   }
@@ -307,4 +303,33 @@ func TestOwnerNotUpdatedTwice(t * testing.T) {
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l1, 100*time.Millisecond, "Dicn't received test_update on l2 from l1")
   (*GraphTester)(t).CheckForNone(update_channel, "Second update received on dependency")
+}
+
+func TestLockableDependencyOverlap(t * testing.T) {
+  ctx := testContext(t)
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+  l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  fatalErr(t, err)
+  _, err = NewSimpleBaseLockable(ctx, "Test Lockable 3", []Lockable{l1, l2})
+  if err == nil {
+    t.Fatal("Should have thrown an error because of dependency overlap")
+  }
+}
+
+func TestLockableDBLoad(t * testing.T){
+  ctx := testContext(t)
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+  l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{})
+  fatalErr(t, err)
+  l3, err := NewSimpleBaseLockable(ctx, "Test Lockable 3", []Lockable{l1, l2})
+  fatalErr(t, err)
+  l4, err := NewSimpleBaseLockable(ctx, "Test Lockable 4", []Lockable{l3})
+  fatalErr(t, err)
+  _, err = NewSimpleBaseLockable(ctx, "Test Lockable 5", []Lockable{l4})
+  fatalErr(t, err)
+
+  _, err = LoadNode(ctx, l3.ID())
+  fatalErr(t, err)
 }

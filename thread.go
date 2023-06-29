@@ -11,8 +11,8 @@ import (
 
 // Update the threads listeners, and notify the parent to do the same
 func (thread * BaseThread) PropagateUpdate(ctx * GraphContext, signal GraphSignal) {
-  UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (error) {
-    thread_state := states[0].(ThreadState)
+  UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) (error) {
+    thread_state := states[thread.ID()].(ThreadState)
     if signal.Direction() == Up {
       // Child->Parent, thread updates parent and connected requirement
       if thread_state.Parent() != nil {
@@ -167,8 +167,8 @@ func checkIfChild(ctx * GraphContext, thread_id NodeID, cur_state ThreadState, c
       return true
     }
     is_child := false
-    UseStates(ctx, []GraphNode{child}, func(states []NodeState) (error) {
-      child_state := states[0].(ThreadState)
+    UseStates(ctx, []GraphNode{child}, func(states NodeStateMap) (error) {
+      child_state := states[child.ID()].(ThreadState)
       is_child = checkIfChild(ctx, cur_id, child_state, child.ID())
       return nil
     })
@@ -190,29 +190,29 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
   }
 
 
-  err := UpdateStates(ctx, []GraphNode{thread, child}, func(states []NodeState) ([]NodeState, error) {
-    thread_state := states[0].(ThreadState)
-    child_state := states[1].(ThreadState)
+  err := UpdateStates(ctx, []GraphNode{thread, child}, func(states NodeStateMap) error {
+    thread_state := states[thread.ID()].(ThreadState)
+    child_state := states[child.ID()].(ThreadState)
 
     if child_state.Parent() != nil {
-      return nil, fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
+      return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
     }
 
     if checkIfChild(ctx, thread.ID(), child_state, child.ID()) == true {
-      return nil, fmt.Errorf("EVENT_LINK_ERR: %s is a child of %s so cannot add as parent", thread.ID(), child.ID())
+      return fmt.Errorf("EVENT_LINK_ERR: %s is a child of %s so cannot add as parent", thread.ID(), child.ID())
     }
 
     if checkIfChild(ctx, child.ID(), thread_state, thread.ID()) == true {
-      return nil, fmt.Errorf("EVENT_LINK_ERR: %s is already a parent of %s so will not add again", thread.ID(), child.ID())
+      return fmt.Errorf("EVENT_LINK_ERR: %s is already a parent of %s so will not add again", thread.ID(), child.ID())
     }
 
     err := thread_state.AddChild(child, info)
     if err != nil {
-      return nil, fmt.Errorf("EVENT_LINK_ERR: error adding %s as child to %s: %e", child.ID(), thread.ID(), err)
+      return fmt.Errorf("EVENT_LINK_ERR: error adding %s as child to %s: %e", child.ID(), thread.ID(), err)
     }
     child_state.SetParent(thread)
 
-    return states, nil
+    return nil
   })
 
   if err != nil {
@@ -250,8 +250,8 @@ func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id N
 
   for _, child := range thread_state.Children() {
     var result Thread = nil
-    UseStates(ctx, []GraphNode{child}, func(states []NodeState) (error) {
-      child_state := states[0].(ThreadState)
+    UseStates(ctx, []GraphNode{child}, func(states NodeStateMap) (error) {
+      child_state := states[child.ID()].(ThreadState)
       result = FindChild(ctx, child, child_state, id)
       return nil
     })
@@ -284,13 +284,13 @@ func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_
 func RunThread(ctx * GraphContext, thread Thread) error {
   ctx.Log.Logf("thread", "THREAD_RUN: %s", thread.ID())
 
-  err := LockLockables(ctx, []Lockable{thread}, thread, nil, map[NodeID]LockableState{})
+  err := LockLockables(ctx, []Lockable{thread}, thread, nil, NodeStateMap{})
   if err != nil {
     return err
   }
 
-  err = UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (error) {
-    thread_state := states[0].(ThreadState)
+  err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) (error) {
+    thread_state := states[thread.ID()].(ThreadState)
     if thread_state.Owner() == nil {
       return fmt.Errorf("THREAD_RUN_NOT_LOCKED: %s", thread_state.Name())
     } else if thread_state.Owner().ID() != thread.ID() {
@@ -321,8 +321,8 @@ func RunThread(ctx * GraphContext, thread Thread) error {
     }
   }
 
-  err = UseStates(ctx, []GraphNode{thread}, func(states []NodeState) (error) {
-    thread_state := states[0].(ThreadState)
+  err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) (error) {
+    thread_state := states[thread.ID()].(ThreadState)
     err := thread_state.Stop()
     return err
 
@@ -332,7 +332,7 @@ func RunThread(ctx * GraphContext, thread Thread) error {
     return err
   }
 
-  err = UnlockLockables(ctx, []Lockable{thread}, thread, nil, map[NodeID]LockableState{})
+  err = UnlockLockables(ctx, []Lockable{thread}, thread, nil, NodeStateMap{})
   if err != nil {
     ctx.Log.Logf("thread", "THREAD_RUN_UNLOCK_ERR: %e", err)
     return err
@@ -452,9 +452,9 @@ var ThreadCancel = func(ctx * GraphContext, thread Thread, signal GraphSignal) (
   return "", nil
 }
 
-func NewBaseThreadState(name string) BaseThreadState {
+func NewBaseThreadState(name string, _type string) BaseThreadState {
   return BaseThreadState{
-    BaseLockableState: NewBaseLockableState(name),
+    BaseLockableState: NewBaseLockableState(name, _type),
     children: []Thread{},
     child_info: map[NodeID]ThreadInfo{},
     parent: nil,
@@ -493,7 +493,7 @@ func NewBaseThread(ctx * GraphContext, actions ThreadActions, handlers ThreadHan
 }
 
 func NewSimpleBaseThread(ctx * GraphContext, name string, requirements []Lockable, actions ThreadActions, handlers ThreadHandlers) (* BaseThread, error) {
-  state := NewBaseThreadState(name)
+  state := NewBaseThreadState(name, "base_thread")
   thread, err := NewBaseThread(ctx, actions, handlers, &state)
   if err != nil {
     return nil, err

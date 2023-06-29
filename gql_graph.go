@@ -237,8 +237,8 @@ func GQLNodeName(p graphql.ResolveParams) (interface{}, error) {
   }
 
   name := ""
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    name = states[0].Name()
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    name = states[node.ID()].Name()
     return nil
   })
 
@@ -261,8 +261,8 @@ func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
   }
 
   listen := ""
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    gql_thread, ok := states[0].(*GQLThreadState)
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    gql_thread, ok := states[node.ID()].(*GQLThreadState)
     if ok == false {
       return fmt.Errorf("Failed to cast state to GQLThreadState")
     }
@@ -289,8 +289,8 @@ func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var parent Thread = nil
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    gql_thread, ok := states[0].(ThreadState)
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    gql_thread, ok := states[node.ID()].(ThreadState)
     if ok == false {
       return fmt.Errorf("Failed to cast state to ThreadState")
     }
@@ -317,8 +317,8 @@ func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var children []Thread = nil
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    gql_thread, ok := states[0].(ThreadState)
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    gql_thread, ok := states[node.ID()].(ThreadState)
     if ok == false {
       return fmt.Errorf("Failed to cast state to ThreadState")
     }
@@ -345,8 +345,8 @@ func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var requirements []Lockable = nil
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    gql_thread, ok := states[0].(LockableState)
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    gql_thread, ok := states[node.ID()].(LockableState)
     if ok == false {
       return fmt.Errorf("Failed to cast state to LockableState")
     }
@@ -373,8 +373,8 @@ func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var dependencies []Lockable = nil
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    gql_thread, ok := states[0].(LockableState)
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    gql_thread, ok := states[node.ID()].(LockableState)
     if ok == false {
       return fmt.Errorf("Failed to cast state to LockableState")
     }
@@ -401,8 +401,8 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var owner GraphNode = nil
-  err := UseStates(ctx, []GraphNode{node}, func(states []NodeState) (error) {
-    gql_thread, ok := states[0].(LockableState)
+  err := UseStates(ctx, []GraphNode{node}, func(states NodeStateMap) (error) {
+    gql_thread, ok := states[node.ID()].(LockableState)
     if ok == false {
       return fmt.Errorf("Failed to cast state to LockableState")
     }
@@ -841,8 +841,8 @@ func GQLMutationSendUpdate() *graphql.Field {
         }
 
         var node GraphNode = nil
-        err := UseStates(ctx, []GraphNode{server}, func(states []NodeState) (error){
-          server_state := states[0].(*GQLThreadState)
+        err := UseStates(ctx, []GraphNode{server}, func(states NodeStateMap) (error){
+          server_state := states[server.ID()].(*GQLThreadState)
           node = FindChild(ctx, server, server_state, NodeID(id))
           if node == nil {
             return fmt.Errorf("Failed to find ID: %s as child of server thread", id)

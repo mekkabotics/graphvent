@@ -2,7 +2,6 @@ package graphvent
 
 import (
   "sync"
-  "reflect"
   "github.com/google/uuid"
   "os"
   "github.com/rs/zerolog"
@@ -11,13 +10,32 @@ import (
   "encoding/json"
 )
 
+type StateLoadFunc func(*GraphContext, NodeID, []byte, map[NodeID]GraphNode)(NodeState, error)
+type StateLoadMap map[string]StateLoadFunc
+type NodeLoadFunc func(*GraphContext, NodeID)(GraphNode, error)
+type NodeLoadMap map[string]NodeLoadFunc
 type GraphContext struct {
   DB * badger.DB
   Log Logger
+  NodeLoadFuncs NodeLoadMap
+  StateLoadFuncs StateLoadMap
 }
 
 func NewGraphContext(db * badger.DB, log Logger) * GraphContext {
-  return &GraphContext{DB: db, Log: log}
+  ctx := GraphContext{
+    DB: db,
+    Log: log,
+    NodeLoadFuncs: NodeLoadMap{
+      "base_lockable": LoadBaseLockable,
+    },
+    StateLoadFuncs: StateLoadMap{
+      "base_lockable": LoadBaseLockableState,
+    },
+  }
+
+
+
+  return &ctx
 }
 
 // A Logger is passed around to record events happening to components enabled by SetComponents
@@ -193,7 +211,10 @@ func CancelSignal(source GraphNode) BaseSignal {
 }
 
 type NodeState interface {
+  // Human-readable name of the node, not guaranteed to be unique
   Name() string
+  // Type of the node this state is attached to. Used to deserialize the state to a node from the database
+  Type() string
 }
 
 // GraphNode is the interface common to both DAG nodes and Event tree nodes
@@ -221,12 +242,25 @@ type GraphNode interface {
   SignalChannel() chan GraphSignal
 }
 
+const NODE_SIGNAL_BUFFER = 256
+
+func RestoreNode(ctx * GraphContext, id NodeID) BaseNode {
+  node := BaseNode{
+    id: id,
+    signal: make(chan GraphSignal, NODE_SIGNAL_BUFFER),
+    listeners: map[chan GraphSignal]chan GraphSignal{},
+    state: nil,
+  }
+
+  ctx.Log.Logf("graph", "RESTORE_NODE: %s", node.id)
+  return node
+}
+
 // Create a new base node with a new ID
 func NewNode(ctx * GraphContext, state NodeState) (BaseNode, error) {
-
   node := BaseNode{
     id: RandID(),
-    signal: make(chan GraphSignal, 512),
+    signal: make(chan GraphSignal, NODE_SIGNAL_BUFFER),
     listeners: map[chan GraphSignal]chan GraphSignal{},
     state: state,
   }
@@ -289,6 +323,30 @@ func ReadDBStateCopy(ctx * GraphContext, id NodeID) ([]byte, error) {
   return val, nil
 }
 
+func ReadDBState(ctx * GraphContext, id NodeID) ([]byte, error) {
+  var bytes []byte
+  err := ctx.DB.View(func(txn *badger.Txn) error {
+    item, err := txn.Get([]byte(id))
+    if err != nil {
+      return err
+    }
+
+    return item.Value(func(val []byte) error {
+      bytes = append([]byte{}, val...)
+      return nil
+    })
+  })
+
+  if err != nil {
+    ctx.Log.Logf("db", "DB_READ_ERR: %s - %e", id, err)
+    return nil, err
+  }
+
+  ctx.Log.Logf("db", "DB_READ: %s - %s", id, string(bytes))
+
+  return bytes, nil
+}
+
 func WriteDBState(ctx * GraphContext, id NodeID, state NodeState) error {
   ctx.Log.Logf("db", "DB_WRITE: %s - %+v", id, state)
 
@@ -331,72 +389,70 @@ func checkForDuplicate(nodes []GraphNode) error {
   return nil
 }
 
-func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)(error)) error {
+type NodeStateMap map[NodeID]NodeState
+type StatesFn func(states NodeStateMap)(error)
+func UseStates(ctx * GraphContext, nodes []GraphNode, states_fn StatesFn) error {
+  states := NodeStateMap{}
+  return UseMoreStates(ctx, nodes, states, states_fn)
+}
+func UseMoreStates(ctx * GraphContext, nodes []GraphNode, states NodeStateMap, states_fn StatesFn) error {
   err := checkForDuplicate(nodes)
   if err != nil {
     return err
   }
 
+  locked_nodes := []GraphNode{}
   for _, node := range(nodes) {
-    node.StateLock().RLock()
-  }
-
-  states := make([]NodeState, len(nodes))
-  for i, node := range(nodes) {
-    states[i] = node.State()
+    _, locked := states[node.ID()]
+    if locked == false {
+      node.StateLock().RLock()
+      states[node.ID()] = node.State()
+      locked_nodes = append(locked_nodes, node)
+    }
   }
 
   err = states_fn(states)
 
-  for _, node := range(nodes) {
+  for _, node := range(locked_nodes) {
+    delete(states, node.ID())
     node.StateLock().RUnlock()
   }
 
   return err
 }
 
-func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn func(states []NodeState)([]NodeState, error)) error {
+func UpdateStates(ctx * GraphContext, nodes []GraphNode, states_fn StatesFn) error {
+  states := NodeStateMap{}
+  return UpdateMoreStates(ctx, nodes, states, states_fn)
+}
+func UpdateMoreStates(ctx * GraphContext, nodes []GraphNode, states NodeStateMap, states_fn StatesFn) error {
   err := checkForDuplicate(nodes)
   if err != nil {
     return err
   }
 
+  locked_nodes := []GraphNode{}
   for _, node := range(nodes) {
-    node.StateLock().Lock()
-  }
-
-  states := make([]NodeState, len(nodes))
-  for i, node := range(nodes) {
-    states[i] = node.State()
-  }
-
-  new_states, err := states_fn(states)
-
-  if new_states != nil {
-    if len(new_states) != len(nodes) {
-      panic(fmt.Sprintf("NODE_NEW_STATE_LEN_MISMATCH: %d/%d", len(new_states), len(nodes)))
+    _, locked := states[node.ID()]
+    if locked == false {
+      node.StateLock().Lock()
+      states[node.ID()] = node.State()
+      locked_nodes = append(locked_nodes, node)
     }
+  }
 
-    for i, new_state := range(new_states) {
-      if new_state != nil {
-        old_state_type := reflect.TypeOf(states[i])
-        new_state_type := reflect.TypeOf(new_state)
-
-        if old_state_type != new_state_type {
-          panic(fmt.Sprintf("NODE_STATE_MISMATCH: old - %+v, new - %+v", old_state_type, new_state_type))
-        }
-
-        err := WriteDBState(ctx, nodes[i].ID(), new_state)
-        if err != nil {
-          panic(fmt.Sprintf("DB_WRITE_ERROR: %s", err))
-        }
-
-        nodes[i].SetState(new_state)
+  err = states_fn(states)
+  if err == nil {
+    for _, node := range(nodes) {
+      err := WriteDBState(ctx, node.ID(), node.State())
+      if err != nil {
+        panic(fmt.Sprintf("DB_WRITE_ERROR: %s", err))
       }
     }
   }
 
-  for _, node := range(nodes) {
+  for _, node := range(locked_nodes) {
+    delete(states, node.ID())
     node.StateLock().Unlock()
   }
 
