@@ -10,7 +10,7 @@ import (
   "encoding/json"
 )
 
-type StateLoadFunc func(*GraphContext, NodeID, []byte, map[NodeID]GraphNode)(NodeState, error)
+type StateLoadFunc func(*GraphContext, []byte, NodeMap)(NodeState, error)
 type StateLoadMap map[string]StateLoadFunc
 type NodeLoadFunc func(*GraphContext, NodeID)(GraphNode, error)
 type NodeLoadMap map[string]NodeLoadFunc
@@ -21,15 +21,72 @@ type GraphContext struct {
   StateLoadFuncs StateLoadMap
 }
 
+func LoadNode(ctx * GraphContext, id NodeID) (GraphNode, error) {
+  // Initialize an empty list of loaded nodes, then start loading them from id
+  loaded_nodes := map[NodeID]GraphNode{}
+  return LoadNodeRecurse(ctx, id, loaded_nodes)
+}
+
+type DBJSONBase struct {
+  Type string `json:"type"`
+}
+
+// Check if a node is already loaded, load it's state bytes from the DB and parse the type if it's not already loaded
+// Call the node load function related to the type, which will call this parse function recusively as needed
+func LoadNodeRecurse(ctx * GraphContext, id NodeID, loaded_nodes map[NodeID]GraphNode) (GraphNode, error) {
+  node, exists := loaded_nodes[id]
+  if exists == false {
+    state_bytes, err := ReadDBState(ctx, id)
+    if err != nil {
+      return nil, err
+    }
+
+    var base DBJSONBase
+    err = json.Unmarshal(state_bytes, &base)
+    if err != nil {
+      return nil, err
+    }
+
+    ctx.Log.Logf("graph", "GRAPH_DB_LOAD: %s(%s)", base.Type, id)
+
+    node_fn, exists := ctx.NodeLoadFuncs[base.Type]
+    if exists == false {
+      return nil, fmt.Errorf("%s is not a known node type", base.Type)
+    }
+
+    node, err = node_fn(ctx, id)
+    if err != nil {
+      return nil, err
+    }
+
+    loaded_nodes[id] = node
+
+    state_fn, exists := ctx.StateLoadFuncs[base.Type]
+    if exists == false {
+      return nil, fmt.Errorf("%s is not a known node state type", base.Type)
+    }
+
+    state, err := state_fn(ctx, state_bytes, loaded_nodes)
+    if err != nil {
+      return nil, err
+    }
+
+    node.SetState(state)
+  }
+  return node, nil
+}
+
 func NewGraphContext(db * badger.DB, log Logger) * GraphContext {
   ctx := GraphContext{
     DB: db,
     Log: log,
     NodeLoadFuncs: NodeLoadMap{
       "base_lockable": LoadBaseLockable,
+      "base_thread": LoadBaseThread,
     },
     StateLoadFuncs: StateLoadMap{
       "base_lockable": LoadBaseLockableState,
+      "base_thread": LoadBaseThreadState,
     },
   }
 
@@ -300,29 +357,6 @@ func (node * BaseNode) StateLock() * sync.RWMutex {
   return &node.state_lock
 }
 
-func ReadDBStateCopy(ctx * GraphContext, id NodeID) ([]byte, error) {
-  ctx.Log.Logf("db", "DB_READ: %s", id)
-
-  var val []byte = nil
-  err := ctx.DB.View(func(txn *badger.Txn) error {
-    item, err := txn.Get([]byte(id))
-    if err != nil {
-      return err
-    }
-
-    val, err = item.ValueCopy(nil)
-    if err != nil {
-      return err
-    }
-    return nil
-  })
-  if err != nil {
-    return nil, err
-  }
-
-  return val, nil
-}
-
 func ReadDBState(ctx * GraphContext, id NodeID) ([]byte, error) {
   var bytes []byte
   err := ctx.DB.View(func(txn *badger.Txn) error {
@@ -349,21 +383,20 @@ func ReadDBState(ctx * GraphContext, id NodeID) ([]byte, error) {
 
 func WriteDBStates(ctx * GraphContext, nodes NodeMap) error{
   ctx.Log.Logf("db", "DB_WRITES: %d", len(nodes))
-  var serialized_states [][]byte = make([][]byte, len(nodes))
-  i := 0
+  serialized_states := map[NodeID][]byte{}
   for _, node := range(nodes) {
     ser, err := json.Marshal(node.State())
     if err != nil {
       return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
     }
-    serialized_states[i] = ser
-    i++
+    serialized_states[node.ID()] = ser
   }
 
   err := ctx.DB.Update(func(txn *badger.Txn) error {
     i := 0
     for id, _ := range(nodes) {
-      err := txn.Set([]byte(id), serialized_states[i])
+      ctx.Log.Logf("db", "DB_WRITE: %s - %s", id, string(serialized_states[id]))
+      err := txn.Set([]byte(id), serialized_states[id])
       if err != nil {
         return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
       }

@@ -4,15 +4,43 @@ import (
   "testing"
   "fmt"
   "time"
+  "encoding/json"
 )
 
 func TestNewSimpleBaseLockable(t * testing.T) {
   ctx := testContext(t)
 
-  r1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
+  l1, err := NewSimpleBaseLockable(ctx, "Test lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  _, err = NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{r1})
+  l2, err := NewSimpleBaseLockable(ctx, "Test lockable 2", []Lockable{l1})
+  fatalErr(t, err)
+
+  err = UseStates(ctx, []GraphNode{l1, l2}, func(states NodeStateMap) error {
+    l1_state := states[l1.ID()].(LockableState)
+    l2_state := states[l2.ID()].(LockableState)
+
+    l1_deps := len(l1_state.Dependencies())
+    if l1_deps != 1 {
+      return fmt.Errorf("l1 has wront amount of dependencies %d/1", l1_deps)
+    }
+
+    l1_dep1 := l1_state.Dependencies()[0]
+    if l1_dep1.ID() != l2.ID() {
+      return fmt.Errorf("Wrong dependency for l1, %s instead of %s", l1_dep1.ID(), l2.ID())
+    }
+
+    l2_reqs := len(l2_state.Requirements())
+    if l2_reqs != 1 {
+      return fmt.Errorf("l2 has wrong amount of requirements %d/1", l2_reqs)
+    }
+
+    l2_req1 := l2_state.Requirements()[0]
+    if l2_req1.ID() != l1.ID() {
+      return fmt.Errorf("Wrong requirement for l2, %s instead of %s", l2_req1.ID(), l1.ID())
+    }
+    return nil
+  })
   fatalErr(t, err)
 }
 
@@ -334,13 +362,18 @@ func TestLockableDependencyOverlap(t * testing.T) {
 }
 
 func TestLockableDBLoad(t * testing.T){
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"db"})
   l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
   l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{})
   fatalErr(t, err)
   l3, err := NewSimpleBaseLockable(ctx, "Test Lockable 3", []Lockable{l1, l2})
   fatalErr(t, err)
+  err = UseStates(ctx, []GraphNode{l3}, func(states NodeStateMap) error {
+    ser, err := json.MarshalIndent(states[l3.ID()], "", "  ")
+    fmt.Printf("\n%s\n\n", ser)
+    return err
+  })
   l4, err := NewSimpleBaseLockable(ctx, "Test Lockable 4", []Lockable{l3})
   fatalErr(t, err)
   _, err = NewSimpleBaseLockable(ctx, "Test Lockable 5", []Lockable{l4})
@@ -352,6 +385,11 @@ func TestLockableDBLoad(t * testing.T){
     return err
   })
   fatalErr(t, err)
+  err = UseStates(ctx, []GraphNode{l3}, func(states NodeStateMap) error {
+    ser, err := json.MarshalIndent(states[l3.ID()], "", "  ")
+    fmt.Printf("\n%s\n\n", ser)
+    return err
+  })
 
   _, err = LoadNode(ctx, l3.ID())
   fatalErr(t, err)

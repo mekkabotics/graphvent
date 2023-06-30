@@ -72,10 +72,10 @@ type BaseThreadState struct {
 type BaseThreadStateJSON struct {
   Parent *NodeID `json:"parent"`
   Children map[NodeID]interface{} `json:"children"`
-  LockableState *BaseLockableState `json:"lockable"`
+  LockableState BaseLockableStateJSON `json:"lockable"`
 }
 
-func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
+func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
   children := map[NodeID]interface{}{}
   for _, child := range(state.children) {
     children[child.ID()] = state.child_info[child.ID()]
@@ -87,11 +87,18 @@ func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
     parent_id = &new_str
   }
 
-  return json.Marshal(&BaseThreadStateJSON{
+  lockable_state := SaveBaseLockableState(&state.BaseLockableState)
+
+  return BaseThreadStateJSON{
     Parent: parent_id,
     Children: children,
-    LockableState: &state.BaseLockableState,
-  })
+    LockableState: lockable_state,
+  }
+}
+
+func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
+  thread_state := SaveBaseThreadState(state)
+  return json.Marshal(&thread_state)
 }
 
 func (state * BaseThreadState) Start() error {

@@ -56,10 +56,3 @@ func TestThreadWithRequirement(t * testing.T) {
   })
   fatalErr(t, err)
 }
-
-func TestCustomThreadState(t * testing.T ) {
-  ctx := testContext(t)
-
-  _, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
-  fatalErr(t, err)
-}

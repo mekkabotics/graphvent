@@ -51,7 +51,7 @@ func (state * BaseLockableState) Type() string {
   return state._type
 }
 
-func (state * BaseLockableState) MarshalJSON() ([]byte, error) {
+func SaveBaseLockableState(state * BaseLockableState) BaseLockableStateJSON {
   requirement_ids := make([]NodeID, len(state.requirements))
   for i, requirement := range(state.requirements) {
     requirement_ids[i] = requirement.ID()
@@ -77,15 +77,19 @@ func (state * BaseLockableState) MarshalJSON() ([]byte, error) {
       locks_held[lockable_id] = &str
     }
   }
-
-  return json.Marshal(&BaseLockableStateJSON{
+  return BaseLockableStateJSON{
     Type: state._type,
     Name: state.name,
     Owner: owner_id,
     Dependencies: dependency_ids,
     Requirements: requirement_ids,
     LocksHeld: locks_held,
-  })
+  }
+}
+
+func (state * BaseLockableState) MarshalJSON() ([]byte, error) {
+  lockable_state := SaveBaseLockableState(state)
+  return json.Marshal(&lockable_state)
 }
 
 func (state * BaseLockableState) Name() string {
@@ -534,6 +538,78 @@ func NewBaseLockable(ctx * GraphContext, state LockableState) (BaseLockable, err
   return lockable, nil
 }
 
+func LoadBaseThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
+  base_node := RestoreNode(ctx, id)
+  thread := BaseThread{
+    BaseLockable: BaseLockable{
+      BaseNode: base_node,
+    },
+  }
+
+  return &thread, nil
+}
+
+func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_nodes NodeMap) (*BaseThreadState, error) {
+  lockable_state, err := RestoreBaseLockableState(ctx, j.LockableState, loaded_nodes)
+  if err != nil {
+    return nil, err
+  }
+  lockable_state._type = "thread_state"
+
+  state := BaseThreadState{
+    BaseLockableState: *lockable_state,
+    parent: nil,
+    children: make([]Thread, len(j.Children)),
+    child_info: map[NodeID]ThreadInfo{},
+    InfoType: nil,
+    running: false,
+  }
+
+  if j.Parent != nil {
+    p, err := LoadNodeRecurse(ctx, *j.Parent, loaded_nodes)
+    if err != nil {
+      return nil, err
+    }
+    p_t, ok := p.(Thread)
+    if ok == false {
+      return nil, err
+    }
+    state.owner = p_t
+  }
+
+  i := 0
+  for id, info := range(j.Children) {
+    child_node, err := LoadNodeRecurse(ctx, id, loaded_nodes)
+    if err != nil {
+      return nil, err
+    }
+    child_t, ok := child_node.(Thread)
+    if ok == false {
+      return nil, fmt.Errorf("%+v is not a Thread as expected", child_node)
+    }
+    state.children[i] = child_t
+    state.child_info[id] = info
+    i++
+  }
+
+  return &state, nil
+}
+
+func LoadBaseThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
+  var j BaseThreadStateJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  state, err := RestoreBaseThreadState(ctx, j, loaded_nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  return state, nil
+}
+
 func LoadBaseLockable(ctx * GraphContext, id NodeID) (GraphNode, error) {
   // call LoadNodeRecurse on any connected nodes to ensure they're loaded and return the id
   base_node := RestoreNode(ctx, id)
@@ -544,14 +620,16 @@ func LoadBaseLockable(ctx * GraphContext, id NodeID) (GraphNode, error) {
   return &lockable, nil
 }
 
-func LoadBaseLockableState(ctx * GraphContext, id NodeID, data []byte, loaded_nodes map[NodeID]GraphNode)(NodeState, error){
-  var j BaseLockableStateJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
+func RestoreBaseLockableState(ctx * GraphContext, j BaseLockableStateJSON, loaded_nodes NodeMap) (*BaseLockableState, error) {
+  state := BaseLockableState{
+    _type: "base_lockable",
+    name: j.Name,
+    owner: nil,
+    dependencies: make([]Lockable, len(j.Dependencies)),
+    requirements: make([]Lockable, len(j.Requirements)),
+    locks_held: map[NodeID]Lockable{},
   }
 
-  var owner Lockable = nil
   if j.Owner != nil {
     o, err := LoadNodeRecurse(ctx, *j.Owner, loaded_nodes)
     if err != nil {
@@ -561,16 +639,7 @@ func LoadBaseLockableState(ctx * GraphContext, id NodeID, data []byte, loaded_no
     if ok == false {
       return nil, err
     }
-    owner = o_l
-  }
-
-  state := BaseLockableState{
-    _type: "base_lockable",
-    name: j.Name,
-    owner: owner,
-    dependencies: make([]Lockable, len(j.Dependencies)),
-    requirements: make([]Lockable, len(j.Requirements)),
-    locks_held: map[NodeID]Lockable{},
+    state.owner = o_l
   }
 
   for i, dep := range(j.Dependencies) {
@@ -616,62 +685,23 @@ func LoadBaseLockableState(ctx * GraphContext, id NodeID, data []byte, loaded_no
     }
     state.locks_held[l_id] = h_l
   }
+
   return &state, nil
 }
 
-func LoadNode(ctx * GraphContext, id NodeID) (GraphNode, error) {
-  // Initialize an empty list of loaded nodes, then start loading them from id
-  loaded_nodes := map[NodeID]GraphNode{}
-  return LoadNodeRecurse(ctx, id, loaded_nodes)
-}
-
-type DBJSONBase struct {
-  Type string `json:"type"`
-}
-
-// Check if a node is already loaded, load it's state bytes from the DB and parse the type if it's not already loaded
-// Call the node load function related to the type, which will call this parse function recusively as needed
-func LoadNodeRecurse(ctx * GraphContext, id NodeID, loaded_nodes map[NodeID]GraphNode) (GraphNode, error) {
-  node, exists := loaded_nodes[id]
-  if exists == false {
-    state_bytes, err := ReadDBState(ctx, id)
-    if err != nil {
-      return nil, err
-    }
-
-    var base DBJSONBase
-    err = json.Unmarshal(state_bytes, &base)
-    if err != nil {
-      return nil, err
-    }
-
-    ctx.Log.Logf("graph", "GRAPH_DB_LOAD: %s(%s)", base.Type, id)
-
-    node_fn, exists := ctx.NodeLoadFuncs[base.Type]
-    if exists == false {
-      return nil, fmt.Errorf("%s is not a known node type", base.Type)
-    }
-
-    node, err = node_fn(ctx, id)
-    if err != nil {
-      return nil, err
-    }
-
-    loaded_nodes[id] = node
-
-    state_fn, exists := ctx.StateLoadFuncs[base.Type]
-    if exists == false {
-      return nil, fmt.Errorf("%s is not a known node state type", base.Type)
-    }
-
-    state, err := state_fn(ctx, id, state_bytes, loaded_nodes)
-    if err != nil {
-      return nil, err
-    }
-
-    node.SetState(state)
+func LoadBaseLockableState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
+  var j BaseLockableStateJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
   }
-  return node, nil
+
+  state, err := RestoreBaseLockableState(ctx, j, loaded_nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  return state, nil
 }
 
 func NewSimpleBaseLockable(ctx * GraphContext, name string, requirements []Lockable) (*BaseLockable, error) {
