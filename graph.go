@@ -42,7 +42,7 @@ type GQLContext struct {
   ThreadType reflect.Type
 }
 
-func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extended_queries FieldMap, extended_mutations FieldMap, extended_subscriptions FieldMap) (*GQLContext, error) {
+func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extended_queries FieldMap, extended_subscriptions FieldMap, extended_mutations FieldMap) (*GQLContext, error) {
   type_list := TypeList{
     GQLTypeSignalInput(),
   }
@@ -90,20 +90,20 @@ func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extende
     queries[key] = val
   }
 
-  mutations := graphql.Fields{
-    "SendUpdate": GQLMutationSendUpdate(),
-  }
-
-  for key, val := range(extended_mutations) {
-    mutations[key] = val
-  }
-
   subscriptions := graphql.Fields{
     "Update": GQLSubscriptionUpdate(),
   }
 
   for key, val := range(extended_subscriptions) {
     subscriptions[key] = val
+  }
+
+  mutations := graphql.Fields{
+    "SendUpdate": GQLMutationSendUpdate(),
+  }
+
+  for key, val := range(extended_mutations) {
+    mutations[key] = val
   }
 
   schemaConfig  := graphql.SchemaConfig{
