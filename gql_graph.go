@@ -16,18 +16,9 @@ func GQLInterfaceGraphNode() *graphql.Interface {
         if ok == false {
           return nil
         }
-        valid_nodes, ok := p.Context.Value("valid_nodes").(map[reflect.Type]*graphql.Object)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get valid_nodes from Context")
-          return nil
-        }
 
-        node_type, ok := p.Context.Value("node_type").(*reflect.Type)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get node_type from Context: %+v", p.Context.Value("node_type"))
-          return nil
-        }
-
+        valid_nodes := ctx.GQL.ValidNodes
+        node_type := ctx.GQL.NodeType
         p_type := reflect.TypeOf(p.Value)
 
         for key, value := range(valid_nodes) {
@@ -36,7 +27,7 @@ func GQLInterfaceGraphNode() *graphql.Interface {
           }
         }
 
-        if p_type.Implements(*node_type) {
+        if p_type.Implements(node_type) {
           return GQLTypeBaseNode()
         }
 
@@ -75,20 +66,10 @@ func GQLInterfaceThread() *graphql.Interface {
         if ok == false {
           return nil
         }
-        valid_threads, ok := p.Context.Value("valid_threads").(map[reflect.Type]*graphql.Object)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get valid_threads from Context")
-          return nil
-        }
 
-        thread_type, ok := p.Context.Value("thread_type").(*reflect.Type)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get thread_type from Context: %+v", p.Context.Value("thread_type"))
-          return nil
-        }
-
+        valid_threads := ctx.GQL.ValidThreads
+        thread_type := ctx.GQL.ThreadType
         p_type := reflect.TypeOf(p.Value)
-
 
         for key, value := range(valid_threads) {
           if p_type == key {
@@ -96,12 +77,11 @@ func GQLInterfaceThread() *graphql.Interface {
           }
         }
 
-        if p_type.Implements(*thread_type) {
+        if p_type.Implements(thread_type) {
           return GQLTypeBaseThread()
         }
 
-        ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(*thread_type))
-
+        ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(thread_type))
         return nil
       },
       Fields: graphql.Fields{},
@@ -157,21 +137,10 @@ func GQLInterfaceLockable() *graphql.Interface {
         if ok == false {
           return nil
         }
-        ctx.Log.Logf("gql", "LOCKABLE_RESOLVE: %+v", p.Value)
-        valid_lockables, ok := p.Context.Value("valid_lockables").(map[reflect.Type]*graphql.Object)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get valid_lockables from Context")
-          return nil
-        }
 
-        lockable_type, ok := p.Context.Value("lockable_type").(*reflect.Type)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get lockable_type from Context: %+v", p.Context.Value("lockable_type"))
-          return nil
-        }
-
+        valid_lockables := ctx.GQL.ValidLockables
+        lockable_type := ctx.GQL.LockableType
         p_type := reflect.TypeOf(p.Value)
-        ctx.Log.Logf("gql", "Value Type: %+v, Lockable Type: %+v", p_type, *lockable_type)
 
         for key, value := range(valid_lockables) {
           if p_type == key {
@@ -179,8 +148,7 @@ func GQLInterfaceLockable() *graphql.Interface {
           }
         }
 
-        if p_type.Implements(*lockable_type) {
-          ctx.Log.Logf("gql", "LOCKABLE_RESOLVE_DEFAULT")
+        if p_type.Implements(lockable_type) {
           return GQLTypeBaseLockable()
         }
         return nil

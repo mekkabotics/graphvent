@@ -7,7 +7,7 @@ import (
 
 func TestGQLThread(t * testing.T) {
   ctx := testContext(t)
-  gql_thread, err := NewGQLThread(ctx, ":8080", []Lockable{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  gql_thread, err := NewGQLThread(ctx, ":8080", []Lockable{})
   fatalErr(t, err)
 
   test_thread_1, err := NewSimpleBaseThread(ctx, "Test thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})

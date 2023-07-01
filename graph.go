@@ -2,13 +2,23 @@ package graphvent
 
 import (
   "sync"
+  "reflect"
   "github.com/google/uuid"
+  "github.com/graphql-go/graphql"
   "os"
   "github.com/rs/zerolog"
   "fmt"
   badger "github.com/dgraph-io/badger/v3"
   "encoding/json"
 )
+
+// For persistance, each node needs the following functions(* is a placeholder for the node/state type):
+// Load*State - StateLoadFunc that returns the NodeState interface to attach to the node
+// Load* - NodeLoadFunc that returns the GraphNode restored from it's loaded state
+
+// For convenience, the following functions are a good idea to define for composability:
+// Restore*State - takes in the nodes serialized data to allow for easier nesting of inherited Load*State functions
+// Save*State - serialize the node into it's json counterpart to be included as part of a larger json
 
 type StateLoadFunc func(*GraphContext, []byte, NodeMap)(NodeState, error)
 type StateLoadMap map[string]StateLoadFunc
@@ -19,6 +29,115 @@ type GraphContext struct {
   Log Logger
   NodeLoadFuncs NodeLoadMap
   StateLoadFuncs StateLoadMap
+  GQL * GQLContext
+}
+
+type GQLContext struct {
+  Schema graphql.Schema
+  ValidNodes ObjTypeMap
+  NodeType reflect.Type
+  ValidLockables ObjTypeMap
+  LockableType reflect.Type
+  ValidThreads ObjTypeMap
+  ThreadType reflect.Type
+}
+
+func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extended_queries FieldMap, extended_mutations FieldMap, extended_subscriptions FieldMap) (*GQLContext, error) {
+  type_list := TypeList{
+    GQLTypeSignalInput(),
+  }
+
+  for _, gql_type := range(additional_types) {
+    type_list = append(type_list, gql_type)
+  }
+
+  type_map := ObjTypeMap{}
+  type_map[reflect.TypeOf((*BaseLockable)(nil))] =  GQLTypeBaseLockable()
+  type_map[reflect.TypeOf((*BaseThread)(nil))] = GQLTypeBaseThread()
+  type_map[reflect.TypeOf((*GQLThread)(nil))] = GQLTypeGQLThread()
+  type_map[reflect.TypeOf((*BaseSignal)(nil))] = GQLTypeSignal()
+
+  for go_t, gql_t := range(extended_types) {
+    type_map[go_t] = gql_t
+  }
+
+  valid_nodes := ObjTypeMap{}
+  valid_lockables := ObjTypeMap{}
+  valid_threads := ObjTypeMap{}
+
+  node_type := reflect.TypeOf((*GraphNode)(nil)).Elem()
+  lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
+  thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
+
+  for go_t, gql_t := range(type_map) {
+    if go_t.Implements(node_type) {
+      valid_nodes[go_t] = gql_t
+    }
+    if go_t.Implements(lockable_type) {
+      valid_lockables[go_t] = gql_t
+    }
+    if go_t.Implements(thread_type) {
+      valid_threads[go_t] = gql_t
+    }
+    type_list = append(type_list, gql_t)
+  }
+
+  queries := graphql.Fields{
+    "Self": GQLQuerySelf(),
+  }
+
+  for key, val := range(extended_queries) {
+    queries[key] = val
+  }
+
+  mutations := graphql.Fields{
+    "SendUpdate": GQLMutationSendUpdate(),
+  }
+
+  for key, val := range(extended_mutations) {
+    mutations[key] = val
+  }
+
+  subscriptions := graphql.Fields{
+    "Update": GQLSubscriptionUpdate(),
+  }
+
+  for key, val := range(extended_subscriptions) {
+    subscriptions[key] = val
+  }
+
+  schemaConfig  := graphql.SchemaConfig{
+    Types: type_list,
+    Query: graphql.NewObject(graphql.ObjectConfig{
+      Name: "Query",
+      Fields: queries,
+    }),
+    Mutation: graphql.NewObject(graphql.ObjectConfig{
+      Name: "Mutation",
+      Fields: mutations,
+    }),
+    Subscription: graphql.NewObject(graphql.ObjectConfig{
+      Name: "Subscription",
+      Fields: subscriptions,
+    }),
+  }
+
+  schema, err := graphql.NewSchema(schemaConfig)
+  if err != nil{
+    return nil, err
+  }
+
+  ctx := GQLContext{
+    Schema: schema,
+    ValidNodes: valid_nodes,
+    NodeType: node_type,
+    ValidThreads: valid_threads,
+    ThreadType: thread_type,
+    ValidLockables: valid_lockables,
+    LockableType: lockable_type,
+  }
+
+  return &ctx, nil
 }
 
 func LoadNode(ctx * GraphContext, id NodeID) (GraphNode, error) {
@@ -51,7 +170,7 @@ func LoadNodeRecurse(ctx * GraphContext, id NodeID, loaded_nodes map[NodeID]Grap
 
     node_fn, exists := ctx.NodeLoadFuncs[base.Type]
     if exists == false {
-      return nil, fmt.Errorf("%s is not a known node type", base.Type)
+      return nil, fmt.Errorf("%s is not a known node type: %s", base.Type, state_bytes)
     }
 
     node, err = node_fn(ctx, id)
@@ -77,20 +196,26 @@ func LoadNodeRecurse(ctx * GraphContext, id NodeID, loaded_nodes map[NodeID]Grap
 }
 
 func NewGraphContext(db * badger.DB, log Logger) * GraphContext {
+  gql, err := NewGQLContext(TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  if err != nil {
+    panic(err)
+  }
+
   ctx := GraphContext{
+    GQL: gql,
     DB: db,
     Log: log,
     NodeLoadFuncs: NodeLoadMap{
       "base_lockable": LoadBaseLockable,
       "base_thread": LoadBaseThread,
+      "gql_thread": LoadGQLThread,
     },
     StateLoadFuncs: StateLoadMap{
       "base_lockable": LoadBaseLockableState,
       "base_thread": LoadBaseThreadState,
+      "gql_thread": LoadGQLThreadState,
     },
   }
-
-
 
   return &ctx
 }

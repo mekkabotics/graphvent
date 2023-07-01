@@ -4,6 +4,7 @@ import (
   "testing"
   "time"
   "fmt"
+  "encoding/json"
 )
 
 func TestNewThread(t * testing.T) {
@@ -55,4 +56,33 @@ func TestThreadWithRequirement(t * testing.T) {
     return nil
   })
   fatalErr(t, err)
+}
+
+func TestThreadDBLoad(t * testing.T) {
+  ctx := logTestContext(t, []string{})
+  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+
+  t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{l1}, ThreadActions{}, ThreadHandlers{})
+  fatalErr(t, err)
+
+
+  SendUpdate(ctx, t1, CancelSignal(nil))
+  err = RunThread(ctx, t1)
+  fatalErr(t, err)
+
+  err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
+    ser, err := json.MarshalIndent(states[t1.ID()], "", "  ")
+    fmt.Printf("\n%s\n\n", ser)
+    return err
+  })
+
+  t1_loaded, err := LoadNode(ctx, t1.ID())
+  fatalErr(t, err)
+
+  err = UseStates(ctx, []GraphNode{t1_loaded}, func(states NodeStateMap) error {
+    ser, err := json.MarshalIndent(states[t1_loaded.ID()], "", "  ")
+    fmt.Printf("\n%s\n\n", ser)
+    return err
+  })
 }

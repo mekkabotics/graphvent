@@ -112,7 +112,11 @@ func enableCORS(w *http.ResponseWriter) {
  (*w).Header().Set("Access-Control-Allow-Methods", "*")
 }
 
-func GQLHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Context) func(http.ResponseWriter, *http.Request) {
+func GQLHandler(ctx * GraphContext, server * GQLThread) func(http.ResponseWriter, *http.Request) {
+  gql_ctx := context.Background()
+  gql_ctx = context.WithValue(gql_ctx, "graph_context", ctx)
+  gql_ctx = context.WithValue(gql_ctx, "gql_server", server)
+
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gql", "GQL REQUEST: %s", r.RemoteAddr)
     enableCORS(&w)
@@ -131,7 +135,7 @@ func GQLHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Conte
     json.Unmarshal(str, &query)
 
     params := graphql.Params{
-      Schema: schema,
+      Schema: ctx.GQL.Schema,
       Context: gql_ctx,
       RequestString: query.Query,
     }
@@ -199,7 +203,11 @@ func GQLWSDo(ctx * GraphContext, p graphql.Params) chan *graphql.Result {
   return sendOneResultAndClose(res)
 }
 
-func GQLWSHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Context) func(http.ResponseWriter, *http.Request) {
+func GQLWSHandler(ctx * GraphContext, server * GQLThread) func(http.ResponseWriter, *http.Request) {
+  gql_ctx := context.Background()
+  gql_ctx = context.WithValue(gql_ctx, "graph_context", ctx)
+  gql_ctx = context.WithValue(gql_ctx, "gql_server", server)
+
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
     enableCORS(&w)
@@ -251,7 +259,7 @@ func GQLWSHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Con
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
           params := graphql.Params{
-            Schema: schema,
+            Schema: ctx.GQL.Schema,
             Context: gql_ctx,
             RequestString: msg.Payload.Query,
           }
@@ -316,6 +324,7 @@ func GQLWSHandler(ctx * GraphContext, schema graphql.Schema, gql_ctx context.Con
   }
 }
 
+type TypeList []graphql.Type
 type ObjTypeMap map[reflect.Type]*graphql.Object
 type FieldMap map[string]*graphql.Field
 
@@ -323,10 +332,6 @@ type GQLThread struct {
   BaseThread
   http_server *http.Server
   http_done *sync.WaitGroup
-  extended_types ObjTypeMap
-  extended_queries FieldMap
-  extended_subscriptions FieldMap
-  extended_mutations FieldMap
 }
 
 type GQLThreadInfo struct {
@@ -343,9 +348,53 @@ func NewGQLThreadInfo(start bool) GQLThreadInfo {
   return info
 }
 
+type GQLThreadStateJSON struct {
+  BaseThreadStateJSON
+  Listen string
+}
+
 type GQLThreadState struct {
   BaseThreadState
   Listen string
+}
+
+func (state * GQLThreadState) MarshalJSON() ([]byte, error) {
+  thread_state := SaveBaseThreadState(&state.BaseThreadState)
+  return json.Marshal(&GQLThreadStateJSON{
+    BaseThreadStateJSON: thread_state,
+    Listen: state.Listen,
+  })
+}
+
+func LoadGQLThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap) (NodeState, error){
+  var j GQLThreadStateJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  thread_state, err := RestoreBaseThreadState(ctx, j.BaseThreadStateJSON, loaded_nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  state := &GQLThreadState{
+    BaseThreadState: *thread_state,
+    Listen: j.Listen,
+  }
+
+  return state, nil
+}
+
+func LoadGQLThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
+  thread := RestoreBaseThread(ctx, id)
+  gql_thread := GQLThread{
+    BaseThread: thread,
+    http_server: nil,
+    http_done: &sync.WaitGroup{},
+  }
+
+  return &gql_thread, nil
 }
 
 func NewGQLThreadState(listen string) GQLThreadState {
@@ -362,11 +411,15 @@ var gql_actions ThreadActions = ThreadActions{
     ctx.Log.Logf("gql", "SERVER_STARTED")
     server := thread.(*GQLThread)
 
+    // Serve the GQL http and ws handlers
     mux := http.NewServeMux()
-    http_handler, ws_handler := MakeGQLHandlers(ctx, server)
-    mux.HandleFunc("/gql", http_handler)
-    mux.HandleFunc("/gqlws", ws_handler)
+    mux.HandleFunc("/gql", GQLHandler(ctx, server))
+    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, server))
+
+    // Server a graphiql interface(TODO make configurable whether to start this)
     mux.HandleFunc("/graphiql", GraphiQLHandler())
+
+    // Server the ./site directory to /site (TODO make configurable with better defaults)
     fs := http.FileServer(http.Dir("./site"))
     mux.Handle("/site/", http.StripPrefix("/site", fs))
 
@@ -426,7 +479,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
   },
 }
 
-func NewGQLThread(ctx * GraphContext, listen string, requirements []Lockable, extended_types ObjTypeMap, extended_queries FieldMap, extended_mutations FieldMap, extended_subscriptions FieldMap) (*GQLThread, error) {
+func NewGQLThread(ctx * GraphContext, listen string, requirements []Lockable) (*GQLThread, error) {
   state := NewGQLThreadState(listen)
   base_thread, err := NewBaseThread(ctx, gql_actions, gql_handlers, &state)
   if err != nil {
@@ -437,10 +490,6 @@ func NewGQLThread(ctx * GraphContext, listen string, requirements []Lockable, ex
     BaseThread: base_thread,
     http_server: nil,
     http_done: &sync.WaitGroup{},
-    extended_types: extended_types,
-    extended_queries: extended_queries,
-    extended_mutations: extended_mutations,
-    extended_subscriptions: extended_subscriptions,
   }
 
   err = LinkLockables(ctx, thread, requirements)
@@ -448,98 +497,4 @@ func NewGQLThread(ctx * GraphContext, listen string, requirements []Lockable, ex
     return nil, err
   }
   return thread, nil
-}
-
-func MakeGQLHandlers(ctx * GraphContext, server * GQLThread) (func(http.ResponseWriter, *http.Request), func(http.ResponseWriter, *http.Request)) {
-  valid_nodes := map[reflect.Type]*graphql.Object{}
-  valid_lockables := map[reflect.Type]*graphql.Object{}
-  valid_threads := map[reflect.Type]*graphql.Object{}
-  valid_lockables[reflect.TypeOf((*BaseLockable)(nil))] = GQLTypeBaseLockable()
-  for t, v := range(valid_lockables) {
-    valid_nodes[t] = v
-  }
-  valid_threads[reflect.TypeOf((*BaseThread)(nil))] = GQLTypeBaseThread()
-  valid_threads[reflect.TypeOf((*GQLThread)(nil))] = GQLTypeGQLThread()
-  for t, v := range(valid_threads) {
-    valid_lockables[t] = v
-    valid_nodes[t] = v
-  }
-
-
-  gql_types := []graphql.Type{GQLTypeSignal(), GQLTypeSignalInput()}
-  for _, v := range(valid_nodes) {
-    gql_types = append(gql_types, v)
-  }
-
-  node_type := reflect.TypeOf((*GraphNode)(nil)).Elem()
-  lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
-  thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
-
-  for go_t, gql_t := range(server.extended_types) {
-    if go_t.Implements(node_type) {
-      valid_nodes[go_t] = gql_t
-    }
-    if go_t.Implements(lockable_type) {
-      valid_lockables[go_t] = gql_t
-    }
-    if go_t.Implements(thread_type) {
-      valid_threads[go_t] = gql_t
-    }
-    gql_types = append(gql_types, gql_t)
-  }
-
-  gql_queries := graphql.Fields{
-    "Self": GQLQuerySelf(),
-  }
-
-  for key, value := range(server.extended_queries) {
-    gql_queries[key] = value
-  }
-
-  gql_subscriptions := graphql.Fields{
-    "Update": GQLSubscriptionUpdate(),
-  }
-
-  for key, value := range(server.extended_subscriptions) {
-    gql_subscriptions[key] = value
-  }
-
-  gql_mutations := graphql.Fields{
-    "SendUpdate": GQLMutationSendUpdate(),
-  }
-
-  for key, value := range(server.extended_mutations) {
-    gql_mutations[key] = value
-  }
-
-  schemaConfig  := graphql.SchemaConfig{
-    Types: gql_types,
-    Query: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Query",
-      Fields: gql_queries,
-    }),
-    Mutation: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Mutation",
-      Fields: gql_mutations,
-    }),
-    Subscription: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Subscription",
-      Fields: gql_subscriptions,
-    }),
-  }
-
-  schema, err := graphql.NewSchema(schemaConfig)
-  if err != nil{
-    panic(err)
-  }
-  gql_ctx := context.Background()
-  gql_ctx = context.WithValue(gql_ctx, "valid_nodes", valid_nodes)
-  gql_ctx = context.WithValue(gql_ctx, "node_type", &node_type)
-  gql_ctx = context.WithValue(gql_ctx, "valid_lockables", valid_lockables)
-  gql_ctx = context.WithValue(gql_ctx, "lockable_type", &lockable_type)
-  gql_ctx = context.WithValue(gql_ctx, "valid_threads", valid_threads)
-  gql_ctx = context.WithValue(gql_ctx, "thread_type", &thread_type)
-  gql_ctx = context.WithValue(gql_ctx, "gql_server", server)
-  gql_ctx = context.WithValue(gql_ctx, "graph_context", ctx)
-  return GQLHandler(ctx, schema, gql_ctx), GQLWSHandler(ctx, schema, gql_ctx)
 }

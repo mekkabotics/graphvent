@@ -72,7 +72,7 @@ type BaseThreadState struct {
 type BaseThreadStateJSON struct {
   Parent *NodeID `json:"parent"`
   Children map[NodeID]interface{} `json:"children"`
-  LockableState BaseLockableStateJSON `json:"lockable"`
+  BaseLockableStateJSON
 }
 
 func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
@@ -92,8 +92,83 @@ func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
   return BaseThreadStateJSON{
     Parent: parent_id,
     Children: children,
-    LockableState: lockable_state,
+    BaseLockableStateJSON: lockable_state,
   }
+}
+
+func RestoreBaseThread(ctx * GraphContext, id NodeID) BaseThread {
+  base_lockable := RestoreBaseLockable(ctx, id)
+  thread := BaseThread{
+    BaseLockable: base_lockable,
+  }
+
+  return thread
+}
+
+func LoadBaseThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
+  thread := RestoreBaseThread(ctx, id)
+  return &thread, nil
+}
+
+func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_nodes NodeMap) (*BaseThreadState, error) {
+  lockable_state, err := RestoreBaseLockableState(ctx, j.BaseLockableStateJSON, loaded_nodes)
+  if err != nil {
+    return nil, err
+  }
+  lockable_state._type = "thread_state"
+
+  state := BaseThreadState{
+    BaseLockableState: *lockable_state,
+    parent: nil,
+    children: make([]Thread, len(j.Children)),
+    child_info: map[NodeID]ThreadInfo{},
+    InfoType: nil,
+    running: false,
+  }
+
+  if j.Parent != nil {
+    p, err := LoadNodeRecurse(ctx, *j.Parent, loaded_nodes)
+    if err != nil {
+      return nil, err
+    }
+    p_t, ok := p.(Thread)
+    if ok == false {
+      return nil, err
+    }
+    state.owner = p_t
+  }
+
+  i := 0
+  for id, info := range(j.Children) {
+    child_node, err := LoadNodeRecurse(ctx, id, loaded_nodes)
+    if err != nil {
+      return nil, err
+    }
+    child_t, ok := child_node.(Thread)
+    if ok == false {
+      return nil, fmt.Errorf("%+v is not a Thread as expected", child_node)
+    }
+    state.children[i] = child_t
+    state.child_info[id] = info
+    i++
+  }
+
+  return &state, nil
+}
+
+func LoadBaseThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
+  var j BaseThreadStateJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  state, err := RestoreBaseThreadState(ctx, j, loaded_nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  return state, nil
 }
 
 func (state * BaseThreadState) MarshalJSON() ([]byte, error) {

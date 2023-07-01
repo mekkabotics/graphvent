@@ -362,18 +362,13 @@ func TestLockableDependencyOverlap(t * testing.T) {
 }
 
 func TestLockableDBLoad(t * testing.T){
-  ctx := logTestContext(t, []string{"db"})
+  ctx := logTestContext(t, []string{})
   l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
   l2, err := NewSimpleBaseLockable(ctx, "Test Lockable 2", []Lockable{})
   fatalErr(t, err)
   l3, err := NewSimpleBaseLockable(ctx, "Test Lockable 3", []Lockable{l1, l2})
   fatalErr(t, err)
-  err = UseStates(ctx, []GraphNode{l3}, func(states NodeStateMap) error {
-    ser, err := json.MarshalIndent(states[l3.ID()], "", "  ")
-    fmt.Printf("\n%s\n\n", ser)
-    return err
-  })
   l4, err := NewSimpleBaseLockable(ctx, "Test Lockable 4", []Lockable{l3})
   fatalErr(t, err)
   _, err = NewSimpleBaseLockable(ctx, "Test Lockable 5", []Lockable{l4})
@@ -391,6 +386,13 @@ func TestLockableDBLoad(t * testing.T){
     return err
   })
 
-  _, err = LoadNode(ctx, l3.ID())
+  l3_loaded, err := LoadNode(ctx, l3.ID())
   fatalErr(t, err)
+
+  // TODO: add more equivalence checks
+  err = UseStates(ctx, []GraphNode{l3_loaded}, func(states NodeStateMap) error {
+    ser, err := json.MarshalIndent(states[l3_loaded.ID()], "", "  ")
+    fmt.Printf("\n%s\n\n", ser)
+    return err
+  })
 }

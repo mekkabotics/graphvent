@@ -538,85 +538,16 @@ func NewBaseLockable(ctx * GraphContext, state LockableState) (BaseLockable, err
   return lockable, nil
 }
 
-func LoadBaseThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
+func RestoreBaseLockable(ctx * GraphContext, id NodeID) BaseLockable {
   base_node := RestoreNode(ctx, id)
-  thread := BaseThread{
-    BaseLockable: BaseLockable{
-      BaseNode: base_node,
-    },
+  return BaseLockable{
+    BaseNode: base_node,
   }
-
-  return &thread, nil
-}
-
-func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_nodes NodeMap) (*BaseThreadState, error) {
-  lockable_state, err := RestoreBaseLockableState(ctx, j.LockableState, loaded_nodes)
-  if err != nil {
-    return nil, err
-  }
-  lockable_state._type = "thread_state"
-
-  state := BaseThreadState{
-    BaseLockableState: *lockable_state,
-    parent: nil,
-    children: make([]Thread, len(j.Children)),
-    child_info: map[NodeID]ThreadInfo{},
-    InfoType: nil,
-    running: false,
-  }
-
-  if j.Parent != nil {
-    p, err := LoadNodeRecurse(ctx, *j.Parent, loaded_nodes)
-    if err != nil {
-      return nil, err
-    }
-    p_t, ok := p.(Thread)
-    if ok == false {
-      return nil, err
-    }
-    state.owner = p_t
-  }
-
-  i := 0
-  for id, info := range(j.Children) {
-    child_node, err := LoadNodeRecurse(ctx, id, loaded_nodes)
-    if err != nil {
-      return nil, err
-    }
-    child_t, ok := child_node.(Thread)
-    if ok == false {
-      return nil, fmt.Errorf("%+v is not a Thread as expected", child_node)
-    }
-    state.children[i] = child_t
-    state.child_info[id] = info
-    i++
-  }
-
-  return &state, nil
-}
-
-func LoadBaseThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
-  var j BaseThreadStateJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
-  state, err := RestoreBaseThreadState(ctx, j, loaded_nodes)
-  if err != nil {
-    return nil, err
-  }
-
-  return state, nil
 }
 
 func LoadBaseLockable(ctx * GraphContext, id NodeID) (GraphNode, error) {
   // call LoadNodeRecurse on any connected nodes to ensure they're loaded and return the id
-  base_node := RestoreNode(ctx, id)
-  lockable := BaseLockable{
-    BaseNode: base_node,
-  }
-
+  lockable := RestoreBaseLockable(ctx, id)
   return &lockable, nil
 }
 
