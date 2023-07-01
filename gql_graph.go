@@ -462,15 +462,11 @@ func GQLTypeBaseThread() * graphql.Object {
           return false
         }
 
-        thread_type, ok := p.Context.Value("thread_type").(*reflect.Type)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get thread_type from Context: %+v", p.Context.Value("thread_type"))
-          return false
-        }
+        thread_type := ctx.GQL.ThreadType
 
         value_type := reflect.TypeOf(p.Value)
 
-        if value_type.Implements(*thread_type) {
+        if value_type.Implements(thread_type) {
           return true
         }
 
@@ -531,16 +527,10 @@ func GQLTypeBaseLockable() * graphql.Object {
           return false
         }
 
-        lockable_type, ok := p.Context.Value("lockable_type").(*reflect.Type)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get lockable_type from Context: %+v", p.Context.Value("lockable_type"))
-          return false
-        }
-
+        lockable_type := ctx.GQL.LockableType
         value_type := reflect.TypeOf(p.Value)
-        ctx.Log.Logf("gql", "BASE_VALUE_TYPE: %+v", value_type)
 
-        if value_type.Implements(*lockable_type) {
+        if value_type.Implements(lockable_type) {
           return true
         }
 
@@ -591,15 +581,10 @@ func GQLTypeBaseNode() * graphql.Object {
           return false
         }
 
-        node_type, ok := p.Context.Value("node_type").(*reflect.Type)
-        if ok == false {
-          ctx.Log.Logf("gql", "Failed to get node_type from Context: %+v", p.Context.Value("node_type"))
-          return false
-        }
-
+        node_type := ctx.GQL.NodeType
         value_type := reflect.TypeOf(p.Value)
 
-        if value_type.Implements(*node_type) {
+        if value_type.Implements(node_type) {
           return true
         }
 
