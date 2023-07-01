@@ -350,7 +350,7 @@ func NewGQLThreadInfo(start bool) GQLThreadInfo {
 
 type GQLThreadStateJSON struct {
   BaseThreadStateJSON
-  Listen string
+  Listen string `json:"listen"`
 }
 
 type GQLThreadState struct {
