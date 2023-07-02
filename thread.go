@@ -334,6 +334,7 @@ type Thread interface {
   Action(action string) (ThreadAction, bool)
   Handler(signal_type string) (ThreadHandler, bool)
 
+  SetTimeout(end time.Time)
   Timeout() <-chan time.Time
   ClearTimeout()
 
@@ -516,8 +517,8 @@ func (thread * BaseThread) ClearTimeout() {
   thread.timeout_chan = nil
 }
 
-func (thread * BaseThread) SetTimeout(timeout time.Time) {
-  thread.timeout_chan = time.After(time.Until(timeout))
+func (thread * BaseThread) SetTimeout(end time.Time) {
+  thread.timeout_chan = time.After(time.Until(end))
 }
 
 var ThreadDefaultStart = func(ctx * GraphContext, thread Thread) (string, error) {
