@@ -335,9 +335,9 @@ type GQLThread struct {
 }
 
 type GQLThreadInfo struct {
-  ThreadInfo
-  Start bool
-  Started bool
+  ThreadInfo `json:ignore`
+  Start bool `json:"start"`
+  Started bool `json:"started"`
 }
 
 func NewGQLThreadInfo(start bool) GQLThreadInfo {
