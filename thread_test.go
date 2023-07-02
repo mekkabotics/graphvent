@@ -10,7 +10,7 @@ import (
 func TestNewThread(t * testing.T) {
   ctx := testContext(t)
 
-  t1, err := NewSimpleBaseThread(ctx, "Test thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
+  t1, err := NewSimpleThread(ctx, "Test thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
   fatalErr(t, err)
 
   go func(thread Thread) {
@@ -33,10 +33,10 @@ func TestNewThread(t * testing.T) {
 func TestThreadWithRequirement(t * testing.T) {
   ctx := testContext(t)
 
-  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{l1}, ThreadActions{}, ThreadHandlers{})
+  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{l1}, BaseThreadActions, BaseThreadHandlers)
   fatalErr(t, err)
 
   go func (thread Thread) {
@@ -60,10 +60,10 @@ func TestThreadWithRequirement(t * testing.T) {
 
 func TestThreadDBLoad(t * testing.T) {
   ctx := logTestContext(t, []string{})
-  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  t1, err := NewSimpleBaseThread(ctx, "Test Thread 1", []Lockable{l1}, ThreadActions{}, ThreadHandlers{})
+  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{l1}, BaseThreadActions, BaseThreadHandlers)
   fatalErr(t, err)
 
 

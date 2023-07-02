@@ -58,6 +58,9 @@ type ThreadState interface {
   AddChild(child Thread, info ThreadInfo) error
   Start() error
   Stop() error
+
+  TimeoutAction() string
+  SetTimeout(end_time time.Time, action string)
 }
 
 type BaseThreadState struct {
@@ -67,6 +70,8 @@ type BaseThreadState struct {
   child_info map[NodeID] ThreadInfo
   InfoType reflect.Type
   running bool
+  timeout time.Time
+  timeout_action string
 }
 
 type BaseThreadStateJSON struct {
@@ -96,17 +101,19 @@ func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
   }
 }
 
-func RestoreBaseThread(ctx * GraphContext, id NodeID) BaseThread {
+func RestoreBaseThread(ctx * GraphContext, id NodeID, actions ThreadActions, handlers ThreadHandlers) BaseThread {
   base_lockable := RestoreBaseLockable(ctx, id)
   thread := BaseThread{
     BaseLockable: base_lockable,
+    Actions: actions,
+    Handlers: handlers,
   }
 
   return thread
 }
 
-func LoadBaseThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
-  thread := RestoreBaseThread(ctx, id)
+func LoadSimpleThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
+  thread := RestoreBaseThread(ctx, id, BaseThreadActions, BaseThreadHandlers)
   return &thread, nil
 }
 
@@ -156,7 +163,7 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
   return &state, nil
 }
 
-func LoadBaseThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
+func LoadSimpleThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
   var j BaseThreadStateJSON
   err := json.Unmarshal(data, &j)
   if err != nil {
@@ -169,6 +176,15 @@ func LoadBaseThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(
   }
 
   return state, nil
+}
+
+func (state * BaseThreadState) SetTimeout(timeout time.Time, action string) {
+  state.timeout = timeout
+  state.timeout_action = action
+}
+
+func (state * BaseThreadState) TimeoutAction() string {
+  return state.timeout_action
 }
 
 func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
@@ -313,10 +329,8 @@ type Thread interface {
   Action(action string) (ThreadAction, bool)
   Handler(signal_type string) (ThreadHandler, bool)
 
-  SetTimeout(end_time time.Time, action string)
-  ClearTimeout()
   Timeout() <-chan time.Time
-  TimeoutAction() string
+  ClearTimeout()
 
   ChildWaits() *sync.WaitGroup
 }
@@ -455,9 +469,7 @@ type BaseThread struct {
   Actions ThreadActions
   Handlers ThreadHandlers
 
-  timeout <-chan time.Time
-  timeout_action string
-
+  timeout_chan <-chan time.Time
   child_waits sync.WaitGroup
 }
 
@@ -491,22 +503,16 @@ func (thread * BaseThread) Handler(signal_type string) (ThreadHandler, bool) {
   return handler, exists
 }
 
-func (thread * BaseThread) TimeoutAction() string {
-  return thread.timeout_action
-}
-
 func (thread * BaseThread) Timeout() <-chan time.Time {
-  return thread.timeout
+  return thread.timeout_chan
 }
 
 func (thread * BaseThread) ClearTimeout() {
-  thread.timeout_action = ""
-  thread.timeout = nil
+  thread.timeout_chan = nil
 }
 
-func (thread * BaseThread) SetTimeout(end_time time.Time, action string) {
-  thread.timeout_action = action
-  thread.timeout = time.After(time.Until(end_time))
+func (thread * BaseThread) SetTimeout(timeout time.Time) {
+  thread.timeout_chan = time.After(time.Until(timeout))
 }
 
 var ThreadDefaultStart = func(ctx * GraphContext, thread Thread) (string, error) {
@@ -532,8 +538,18 @@ var ThreadWait = func(ctx * GraphContext, thread Thread) (string, error) {
           ctx.Log.Logf("thread", "THREAD_NOHANDLER: %s - %s", thread.ID(), signal.Type())
         }
       case <- thread.Timeout():
-        ctx.Log.Logf("thread", "THREAD_TIMEOUT %s - NEXT_STATE: %s", thread.ID(), thread.TimeoutAction())
-        return thread.TimeoutAction(), nil
+        timeout_action := ""
+        err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) error {
+          thread_state := thread.State().(ThreadState)
+          timeout_action = thread_state.TimeoutAction()
+          thread.ClearTimeout()
+          return nil
+        })
+        if err != nil {
+          ctx.Log.Logf("thread", "THREAD_TIMEOUT_ERR: %s - %e", thread.ID(), err)
+        }
+        ctx.Log.Logf("thread", "THREAD_TIMEOUT %s - NEXT_STATE: %s", thread.ID(), timeout_action)
+        return timeout_action, nil
     }
   }
   return "wait", nil
@@ -553,7 +569,37 @@ func NewBaseThreadState(name string, _type string) BaseThreadState {
     children: []Thread{},
     child_info: map[NodeID]ThreadInfo{},
     parent: nil,
+    timeout: time.Time{},
+    timeout_action: "wait",
   }
+}
+
+func NewThreadActions() ThreadActions{
+  actions := ThreadActions{}
+  for k, v := range(BaseThreadActions) {
+    actions[k] = v
+  }
+
+  return actions
+}
+
+func NewThreadHandlers() ThreadHandlers{
+  handlers := ThreadHandlers{}
+  for k, v := range(BaseThreadHandlers) {
+    handlers[k] = v
+  }
+
+  return handlers
+}
+
+var BaseThreadActions = ThreadActions{
+  "wait": ThreadWait,
+  "start": ThreadDefaultStart,
+}
+
+var BaseThreadHandlers = ThreadHandlers{
+  "abort": ThreadAbort,
+  "cancel": ThreadCancel,
 }
 
 func NewBaseThread(ctx * GraphContext, actions ThreadActions, handlers ThreadHandlers, state ThreadState) (BaseThread, error) {
@@ -564,31 +610,16 @@ func NewBaseThread(ctx * GraphContext, actions ThreadActions, handlers ThreadHan
 
   thread := BaseThread{
     BaseLockable: lockable,
-    Actions: ThreadActions{
-      "wait": ThreadWait,
-      "start": ThreadDefaultStart,
-    },
-    Handlers: ThreadHandlers{
-      "abort": ThreadAbort,
-      "cancel": ThreadCancel,
-    },
-    timeout: nil,
-    timeout_action: "",
-  }
-
-  for key, fn := range(actions) {
-    thread.Actions[key] = fn
-  }
-
-  for key, fn := range(handlers) {
-    thread.Handlers[key] = fn
+    Actions: actions,
+    Handlers: handlers,
   }
 
   return thread, nil
 }
 
-func NewSimpleBaseThread(ctx * GraphContext, name string, requirements []Lockable, actions ThreadActions, handlers ThreadHandlers) (* BaseThread, error) {
-  state := NewBaseThreadState(name, "base_thread")
+func NewSimpleThread(ctx * GraphContext, name string, requirements []Lockable, actions ThreadActions, handlers ThreadHandlers) (* BaseThread, error) {
+  state := NewBaseThreadState(name, "simple_thread")
+
   thread, err := NewBaseThread(ctx, actions, handlers, &state)
   if err != nil {
     return nil, err

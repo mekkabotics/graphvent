@@ -547,7 +547,7 @@ func RestoreBaseLockable(ctx * GraphContext, id NodeID) BaseLockable {
   }
 }
 
-func LoadBaseLockable(ctx * GraphContext, id NodeID) (GraphNode, error) {
+func LoadSimpleLockable(ctx * GraphContext, id NodeID) (GraphNode, error) {
   // call LoadNodeRecurse on any connected nodes to ensure they're loaded and return the id
   lockable := RestoreBaseLockable(ctx, id)
   return &lockable, nil
@@ -622,7 +622,7 @@ func RestoreBaseLockableState(ctx * GraphContext, j BaseLockableStateJSON, loade
   return &state, nil
 }
 
-func LoadBaseLockableState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
+func LoadSimpleLockableState(ctx * GraphContext, data []byte, loaded_nodes NodeMap)(NodeState, error){
   var j BaseLockableStateJSON
   err := json.Unmarshal(data, &j)
   if err != nil {
@@ -637,8 +637,8 @@ func LoadBaseLockableState(ctx * GraphContext, data []byte, loaded_nodes NodeMap
   return state, nil
 }
 
-func NewSimpleBaseLockable(ctx * GraphContext, name string, requirements []Lockable) (*BaseLockable, error) {
-  state := NewBaseLockableState(name, "base_lockable")
+func NewSimpleLockable(ctx * GraphContext, name string, requirements []Lockable) (*BaseLockable, error) {
+  state := NewBaseLockableState(name, "simple_lockable")
   lockable, err := NewBaseLockable(ctx, &state)
   if err != nil {
     return nil, err

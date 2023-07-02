@@ -8,14 +8,14 @@ import (
 )
 
 func TestGQLThread(t * testing.T) {
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"thread"})
   gql_thread, err := NewGQLThread(ctx, ":8080", []Lockable{})
   fatalErr(t, err)
 
-  test_thread_1, err := NewSimpleBaseThread(ctx, "Test thread 1", []Lockable{}, ThreadActions{}, ThreadHandlers{})
+  test_thread_1, err := NewSimpleThread(ctx, "Test thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
   fatalErr(t, err)
 
-  test_thread_2, err := NewSimpleBaseThread(ctx, "Test thread 2", []Lockable{}, ThreadActions{}, ThreadHandlers{})
+  test_thread_2, err := NewSimpleThread(ctx, "Test thread 2", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
   fatalErr(t, err)
 
   i1 := NewGQLThreadInfo(true)
@@ -37,7 +37,7 @@ func TestGQLThread(t * testing.T) {
 
 func TestGQLDBLoad(t * testing.T) {
   ctx := logTestContext(t, []string{})
-  l1, err := NewSimpleBaseLockable(ctx, "Test Lockable 1", []Lockable{})
+  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
   t1, err := NewGQLThread(ctx, ":8080", []Lockable{l1})

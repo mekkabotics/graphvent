@@ -387,7 +387,7 @@ func LoadGQLThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap) (
 }
 
 func LoadGQLThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
-  thread := RestoreBaseThread(ctx, id)
+  thread := RestoreBaseThread(ctx, id, gql_actions, gql_handlers)
   gql_thread := GQLThread{
     BaseThread: thread,
     http_server: nil,
@@ -407,9 +407,13 @@ func NewGQLThreadState(listen string) GQLThreadState {
 }
 
 var gql_actions ThreadActions = ThreadActions{
+  "wait": ThreadWait,
   "start": func(ctx * GraphContext, thread Thread) (string, error) {
     ctx.Log.Logf("gql", "SERVER_STARTED")
-    server := thread.(*GQLThread)
+    server, ok := thread.(*GQLThread)
+    if ok == false {
+      panic(fmt.Sprintf("GQL_THREAD_START: %s is not GQLThread, %+v", thread.ID(), thread.State()))
+    }
 
     // Serve the GQL http and ws handlers
     mux := http.NewServeMux()

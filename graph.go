@@ -206,13 +206,13 @@ func NewGraphContext(db * badger.DB, log Logger, state_loads StateLoadMap, node_
     DB: db,
     Log: log,
     NodeLoadFuncs: NodeLoadMap{
-      "base_lockable": LoadBaseLockable,
-      "base_thread": LoadBaseThread,
+      "simple_lockable": LoadSimpleLockable,
+      "simple_thread": LoadSimpleThread,
       "gql_thread": LoadGQLThread,
     },
     StateLoadFuncs: StateLoadMap{
-      "base_lockable": LoadBaseLockableState,
-      "base_thread": LoadBaseThreadState,
+      "simple_lockable": LoadSimpleLockableState,
+      "simple_thread": LoadSimpleThreadState,
       "gql_thread": LoadGQLThreadState,
     },
   }
