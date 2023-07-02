@@ -418,7 +418,7 @@ var gql_actions ThreadActions = ThreadActions{
     UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap)(error) {
       server_state := thread.State().(*GQLThreadState)
       for _, child := range(server_state.Children()) {
-        should_run := server_state.child_info[child.ID()].(*GQLThreadInfo)
+        should_run := (server_state.child_info[child.ID()]).(*GQLThreadInfo)
         if should_run.Started == true {
           ChildGo(ctx, server_state, thread, child.ID(), should_run.RestoreAction)
         }
