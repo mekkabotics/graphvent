@@ -321,7 +321,7 @@ type Thread interface {
   ChildWaits() *sync.WaitGroup
 }
 
-func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id NodeID) Thread {
+func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id NodeID, states NodeStateMap) Thread {
   if thread == nil {
     panic("cannot recurse through nil")
   }
@@ -332,9 +332,9 @@ func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id N
 
   for _, child := range thread_state.Children() {
     var result Thread = nil
-    UseStates(ctx, []GraphNode{child}, func(states NodeStateMap) (error) {
+    UseMoreStates(ctx, []GraphNode{child}, states, func(states NodeStateMap) (error) {
       child_state := states[child.ID()].(ThreadState)
-      result = FindChild(ctx, child, child_state, id)
+      result = FindChild(ctx, child, child_state, id, states)
       return nil
     })
     if result != nil {

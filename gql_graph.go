@@ -796,7 +796,7 @@ func GQLMutationSendUpdate() *graphql.Field {
         var node GraphNode = nil
         err := UseStates(ctx, []GraphNode{server}, func(states NodeStateMap) (error){
           server_state := states[server.ID()].(*GQLThreadState)
-          node = FindChild(ctx, server, server_state, NodeID(id))
+          node = FindChild(ctx, server, server_state, NodeID(id), states)
           if node == nil {
             return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
           }
