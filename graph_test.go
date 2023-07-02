@@ -58,7 +58,7 @@ func logTestContext(t * testing.T, components []string) * GraphContext {
     t.Fatal(err)
   }
 
-  return NewGraphContext(db, NewConsoleLogger(components), TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  return NewGraphContext(db, NewConsoleLogger(components), StateLoadMap{}, NodeLoadMap{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
 }
 
 func testContext(t * testing.T) * GraphContext {
@@ -67,7 +67,7 @@ func testContext(t * testing.T) * GraphContext {
     t.Fatal(err)
   }
 
-  return NewGraphContext(db, NewConsoleLogger([]string{}), TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  return NewGraphContext(db, NewConsoleLogger([]string{}), StateLoadMap{}, NodeLoadMap{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
 }
 
 func fatalErr(t * testing.T, err error) {

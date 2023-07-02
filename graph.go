@@ -195,7 +195,7 @@ func LoadNodeRecurse(ctx * GraphContext, id NodeID, loaded_nodes map[NodeID]Grap
   return node, nil
 }
 
-func NewGraphContext(db * badger.DB, log Logger, types TypeList, type_map ObjTypeMap, queries FieldMap, subscriptions FieldMap, mutations FieldMap) * GraphContext {
+func NewGraphContext(db * badger.DB, log Logger, state_loads StateLoadMap, node_loads NodeLoadMap, types TypeList, type_map ObjTypeMap, queries FieldMap, subscriptions FieldMap, mutations FieldMap) * GraphContext {
   gql, err := NewGQLContext(types, type_map, queries, subscriptions, mutations)
   if err != nil {
     panic(err)
@@ -215,6 +215,14 @@ func NewGraphContext(db * badger.DB, log Logger, types TypeList, type_map ObjTyp
       "base_thread": LoadBaseThreadState,
       "gql_thread": LoadGQLThreadState,
     },
+  }
+
+  for name, fn := range(state_loads) {
+    ctx.StateLoadFuncs[name] = fn
+  }
+
+  for name, fn := range(node_loads) {
+    ctx.NodeLoadFuncs[name] = fn
   }
 
   return &ctx
