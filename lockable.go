@@ -366,9 +366,11 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
         // If the owner is higher up in the dependency tree, we've either already got it's state getting to this node, or we won't try to get it's state as a dependency to lock this node, so we can grab the state and add it to a map
         // If the owner is outside the dependency tree, then we won't try to grab it's lock trying to lock this node recursively
         // So if the owner is the same node we don't need a new state, but if the owner is a different node then we need to grab it's state and add it to the list
-        if owner.ID() == req.ID() {
+        if owner.ID() == holder.ID() {
+          return fmt.Errorf("LOCKABLE_LOCK_ERR: %s already owns %s, cannot lock again", holder.ID(), req.ID())
+        } else if owner.ID() == req.ID() {
           if req_state.AllowedToTakeLock(holder.ID(), req.ID()) == false {
-            return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from itself", holder.ID(), req.ID())
+            return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", holder.ID(), req.ID(), owner.ID())
           }
           // RECURSE: At this point either:
           // 1) req has no children and the next LockLockables will return instantly
