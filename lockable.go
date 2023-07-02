@@ -555,7 +555,7 @@ func LoadSimpleLockable(ctx * GraphContext, id NodeID) (GraphNode, error) {
 
 func RestoreBaseLockableState(ctx * GraphContext, j BaseLockableStateJSON, loaded_nodes NodeMap) (*BaseLockableState, error) {
   state := BaseLockableState{
-    _type: "base_lockable",
+    _type: j.Type,
     name: j.Name,
     owner: nil,
     dependencies: make([]Lockable, len(j.Dependencies)),

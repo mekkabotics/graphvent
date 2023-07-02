@@ -77,6 +77,8 @@ type BaseThreadState struct {
 type BaseThreadStateJSON struct {
   Parent *NodeID `json:"parent"`
   Children map[NodeID]interface{} `json:"children"`
+  Timeout time.Time `json:"timeout"`
+  TimeoutAction string `json:"timeout_action"`
   BaseLockableStateJSON
 }
 
@@ -97,6 +99,8 @@ func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
   return BaseThreadStateJSON{
     Parent: parent_id,
     Children: children,
+    Timeout: state.timeout,
+    TimeoutAction: state.timeout_action,
     BaseLockableStateJSON: lockable_state,
   }
 }
@@ -122,7 +126,6 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
   if err != nil {
     return nil, err
   }
-  lockable_state._type = "thread_state"
 
   state := BaseThreadState{
     BaseLockableState: *lockable_state,
@@ -131,6 +134,8 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
     child_info: map[NodeID]ThreadInfo{},
     InfoType: nil,
     running: false,
+    timeout: j.Timeout,
+    timeout_action: j.TimeoutAction,
   }
 
   if j.Parent != nil {
