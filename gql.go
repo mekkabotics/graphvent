@@ -448,8 +448,8 @@ var gql_actions ThreadActions = ThreadActions{
 var gql_handlers ThreadHandlers = ThreadHandlers{
   "child_added": func(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: %+v", signal)
-    UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap)(error) {
-      server_state := states[thread.ID()].(*GQLThreadState)
+    UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap)(error) {
+      server_state := thread.State().(*GQLThreadState)
       should_run, exists := server_state.child_info[signal.Source()].(*GQLThreadInfo)
       if exists == false {
         ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: tried to start %s whis is not a child")
@@ -457,7 +457,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
       }
       if should_run.Start == true && should_run.Started == false {
         ChildGo(ctx, server_state, thread, signal.Source())
-        should_run.Started = false
+        should_run.Started = true
       }
       return nil
     })

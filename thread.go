@@ -367,17 +367,7 @@ func RunThread(ctx * GraphContext, thread Thread) error {
   ctx.Log.Logf("thread", "THREAD_RUN: %s", thread.ID())
 
   err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
-    thread_state := thread.State().(ThreadState)
-    owner_id := NodeID("")
-    if thread_state.Owner() != nil {
-      owner_id = thread_state.Owner().ID()
-    }
-
-    if owner_id != thread.ID() {
-      return LockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
-    } else {
-      return nil
-    }
+    return LockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
   })
   if err != nil {
     return err
