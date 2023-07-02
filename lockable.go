@@ -368,7 +368,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
         // So if the owner is the same node we don't need a new state, but if the owner is a different node then we need to grab it's state and add it to the list
         if owner.ID() == req.ID() {
           if req_state.AllowedToTakeLock(holder.ID(), req.ID()) == false {
-            return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", holder.ID(), req.ID(), owner.ID())
+            return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from itself", holder.ID(), req.ID())
           }
           // RECURSE: At this point either:
           // 1) req has no children and the next LockLockables will return instantly
