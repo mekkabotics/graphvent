@@ -365,7 +365,7 @@ func FindChild(ctx * GraphContext, thread Thread, thread_state ThreadState, id N
   return nil
 }
 
-func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_id NodeID) {
+func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_id NodeID, first_action string) {
   child := thread_state.Child(child_id)
   if child == nil {
     panic(fmt.Errorf("Child not in thread, can't start %s", child_id))
@@ -374,7 +374,7 @@ func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_
   go func(child Thread) {
     ctx.Log.Logf("gql", "THREAD_START_CHILD: %s", child.ID())
     defer thread.ChildWaits().Done()
-    err := RunThread(ctx, child)
+    err := RunThread(ctx, child, first_action)
     if err != nil {
       ctx.Log.Logf("gql", "THREAD_CHILD_RUN_ERR: %s %e", child.ID(), err)
     } else {
@@ -383,7 +383,7 @@ func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_
   }(child)
 }
 
-func RunThread(ctx * GraphContext, thread Thread) error {
+func RunThread(ctx * GraphContext, thread Thread, first_action string) error {
   ctx.Log.Logf("thread", "THREAD_RUN: %s", thread.ID())
 
   err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
@@ -392,7 +392,6 @@ func RunThread(ctx * GraphContext, thread Thread) error {
     if thread_state.Owner() != nil {
       owner_id = thread_state.Owner().ID()
     }
-    // Don't lock the thread if it's already locked itself
     if owner_id != thread.ID() {
       return LockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
     }
@@ -417,9 +416,7 @@ func RunThread(ctx * GraphContext, thread Thread) error {
     return err
   }
 
-  SendUpdate(ctx, thread, NewSignal(thread, "thread_start"))
-
-  next_action := "start"
+  next_action := first_action
   for next_action != "" {
     action, exists := thread.Action(next_action)
     if exists == false {
@@ -526,6 +523,11 @@ var ThreadDefaultStart = func(ctx * GraphContext, thread Thread) (string, error)
   return "wait", nil
 }
 
+var ThreadDefaultRestore = func(ctx * GraphContext, thread Thread) (string, error) {
+  ctx.Log.Logf("thread", "THREAD_DEFAULT_RESTORE: %s", thread.ID())
+  return "wait", nil
+}
+
 var ThreadWait = func(ctx * GraphContext, thread Thread) (string, error) {
   ctx.Log.Logf("thread", "THREAD_WAIT: %s TIMEOUT: %+v", thread.ID(), thread.Timeout())
   for {
@@ -601,6 +603,7 @@ func NewThreadHandlers() ThreadHandlers{
 var BaseThreadActions = ThreadActions{
   "wait": ThreadWait,
   "start": ThreadDefaultStart,
+  "restore": ThreadDefaultRestore,
 }
 
 var BaseThreadHandlers = ThreadHandlers{

@@ -18,11 +18,11 @@ func TestGQLThread(t * testing.T) {
   test_thread_2, err := NewSimpleThread(ctx, "Test thread 2", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
   fatalErr(t, err)
 
-  i1 := NewGQLThreadInfo(true)
+  i1 := NewGQLThreadInfo(true, "start", "restore")
   err = LinkThreads(ctx, gql_thread, test_thread_1, &i1)
   fatalErr(t, err)
 
-  i2 := NewGQLThreadInfo(false)
+  i2 := NewGQLThreadInfo(false, "start", "restore")
   err = LinkThreads(ctx, gql_thread, test_thread_2, &i2)
   fatalErr(t, err)
 
@@ -31,7 +31,7 @@ func TestGQLThread(t * testing.T) {
     SendUpdate(ctx, thread, CancelSignal(nil))
   }(gql_thread)
 
-  err = RunThread(ctx, gql_thread)
+  err = RunThread(ctx, gql_thread, "start")
   fatalErr(t, err)
 }
 
@@ -44,7 +44,7 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   SendUpdate(ctx, t1, CancelSignal(nil))
-  err = RunThread(ctx, t1)
+  err = RunThread(ctx, t1, "start")
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {

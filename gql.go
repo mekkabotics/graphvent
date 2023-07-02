@@ -338,12 +338,16 @@ type GQLThreadInfo struct {
   ThreadInfo `json:ignore`
   Start bool `json:"start"`
   Started bool `json:"started"`
+  FirstAction string `json:"first_action"`
+  RestoreAction string `json:"restore_action"`
 }
 
-func NewGQLThreadInfo(start bool) GQLThreadInfo {
+func NewGQLThreadInfo(start bool, first_action string, restore_action string) GQLThreadInfo {
   info := GQLThreadInfo{
     Start: start,
     Started: false,
+    FirstAction: first_action,
+    RestoreAction: restore_action,
   }
   return info
 }
@@ -408,6 +412,21 @@ func NewGQLThreadState(listen string) GQLThreadState {
 
 var gql_actions ThreadActions = ThreadActions{
   "wait": ThreadWait,
+  "restore": func(ctx * GraphContext, thread Thread) (string, error) {
+    // Start all the threads that should be "started"
+    ctx.Log.Logf("gql", "GQL_THREAD_RESTORE: %s", thread.ID())
+    UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap)(error) {
+      server_state := thread.State().(*GQLThreadState)
+      for _, child := range(server_state.Children()) {
+        should_run := server_state.child_info[child.ID()].(*GQLThreadInfo)
+        if should_run.Started == true {
+          ChildGo(ctx, server_state, thread, child.ID(), should_run.RestoreAction)
+        }
+      }
+      return nil
+    })
+    return "wait", nil
+  },
   "start": func(ctx * GraphContext, thread Thread) (string, error) {
     ctx.Log.Logf("gql", "SERVER_STARTED")
     server, ok := thread.(*GQLThread)
@@ -460,7 +479,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
         return nil
       }
       if should_run.Start == true && should_run.Started == false {
-        ChildGo(ctx, server_state, thread, signal.Source())
+        ChildGo(ctx, server_state, thread, signal.Source(), should_run.FirstAction)
         should_run.Started = true
       }
       return nil

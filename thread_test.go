@@ -18,7 +18,7 @@ func TestNewThread(t * testing.T) {
     SendUpdate(ctx, t1, CancelSignal(nil))
   }(t1)
 
-  err = RunThread(ctx, t1)
+  err = RunThread(ctx, t1, "start")
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) (error) {
@@ -45,7 +45,7 @@ func TestThreadWithRequirement(t * testing.T) {
   }(t1)
   fatalErr(t, err)
 
-  err = RunThread(ctx, t1)
+  err = RunThread(ctx, t1, "start")
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) (error) {
@@ -68,7 +68,7 @@ func TestThreadDBLoad(t * testing.T) {
 
 
   SendUpdate(ctx, t1, CancelSignal(nil))
-  err = RunThread(ctx, t1)
+  err = RunThread(ctx, t1, "start")
   fatalErr(t, err)
 
   err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
