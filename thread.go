@@ -450,7 +450,7 @@ func RunThread(ctx * GraphContext, thread Thread, first_action string) error {
       owner_id = thread_state.Owner().ID()
     }
     if owner_id != thread.ID() {
-      return LockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
+      return LockLockables(ctx, []Lockable{thread}, thread, nodes)
     }
     return nil
   })
@@ -500,7 +500,7 @@ func RunThread(ctx * GraphContext, thread Thread, first_action string) error {
   }
 
   err = UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
-    return UnlockLockables(ctx, []Lockable{thread}, thread, nil, nodes)
+    return UnlockLockables(ctx, []Lockable{thread}, thread, nodes)
   })
   if err != nil {
     ctx.Log.Logf("thread", "THREAD_RUN_UNLOCK_ERR: %e", err)

@@ -364,7 +364,7 @@ func checkIfRequirement(ctx * GraphContext, r_id NodeID, cur LockableState, cur_
   return false
 }
 
-func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, holder_state LockableState, nodes NodeMap) error {
+func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable , nodes NodeMap) error {
   if to_lock == nil {
     return fmt.Errorf("LOCKABLE_LOCK_ERR: no list provided")
   }
@@ -376,6 +376,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
   if holder == nil {
     return fmt.Errorf("LOCKABLE_LOCK_ERR: nil cannot hold locks")
   }
+  holder_state := holder.State().(LockableState)
 
   // Called with no requirements to lock, success
   if len(to_lock) == 0 {
@@ -428,7 +429,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
           //   a) in this case, we're holding every state mutex up to the resource being locked
           //      and all the owners passing a lock, so we can start to change state
           // 2) req has children, and we will recurse(checking that locking is allowed) until we reach a leaf and can release the locks as we change state. The call will either return nil if state has changed, on an error if no state has changed
-          err := LockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
+          err := LockLockables(ctx, req_state.Requirements(), req, nodes)
           if err != nil {
             return err
           }
@@ -438,7 +439,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
             if owner_state.AllowedToTakeLock(holder.ID(), req.ID()) == false {
               return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", holder.ID(), req.ID(), owner.ID())
             }
-            err := LockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
+            err := LockLockables(ctx, req_state.Requirements(), req, nodes)
             return err
           })
           if err != nil {
@@ -446,7 +447,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
           }
         }
       } else {
-        err := LockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
+        err := LockLockables(ctx, req_state.Requirements(), req, nodes)
         if err != nil {
           return err
         }
@@ -475,7 +476,7 @@ func LockLockables(ctx * GraphContext, to_lock []Lockable, holder Lockable, hold
   return err
 }
 
-func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, holder_state LockableState, nodes NodeMap) error {
+func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, nodes NodeMap) error {
   if to_unlock == nil {
     return fmt.Errorf("LOCKABLE_UNLOCK_ERR: no list provided")
   }
@@ -487,6 +488,7 @@ func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, 
   if holder == nil {
     return fmt.Errorf("LOCKABLE_UNLOCK_ERR: nil cannot hold locks")
   }
+  holder_state := holder.State().(LockableState)
 
   // Called with no requirements to lock, success
   if len(to_unlock) == 0 {
@@ -527,7 +529,7 @@ func UnlockLockables(ctx * GraphContext, to_unlock []Lockable, holder Lockable, 
         return err
       }
 
-      err = UnlockLockables(ctx, req_state.Requirements(), req, req_state, nodes)
+      err = UnlockLockables(ctx, req_state.Requirements(), req, nodes)
       if err != nil {
         return err
       }
