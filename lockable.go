@@ -109,10 +109,10 @@ func (state * BaseLockableState) ReturnLock(lockable_id NodeID) Lockable {
 
 // Nothing can take a lock from a base lockable either
 func (state * BaseLockableState) AllowedToTakeLock(node_id NodeID, lockable_id NodeID) bool {
-  _, exists := state.locks_held[lockable_id]
-  if exists == false {
-    panic ("Trying to give away lock we don't own")
-  }
+//  _, exists := state.locks_held[lockable_id]
+//  if exists == false {
+//    panic (fmt.Sprintf("%s tried to give away lock to %s but doesn't own it: %+v", node_id, lockable_id, state))
+//  }
   return false
 }
 

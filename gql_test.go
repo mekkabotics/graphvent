@@ -8,7 +8,7 @@ import (
 )
 
 func TestGQLThread(t * testing.T) {
-  ctx := logTestContext(t, []string{"thread"})
+  ctx := logTestContext(t, []string{})
   gql_thread, err := NewGQLThread(ctx, ":8080", []Lockable{})
   fatalErr(t, err)
 
@@ -36,29 +36,56 @@ func TestGQLThread(t * testing.T) {
 }
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{})
+  ctx := logTestContext(t, []string{"thread"})
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  t1, err := NewGQLThread(ctx, ":8080", []Lockable{l1})
+  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
+  fatalErr(t, err)
+  update_channel := t1.UpdateChannel(10)
+
+  gql, err := NewGQLThread(ctx, ":8080", []Lockable{l1})
   fatalErr(t, err)
 
-  SendUpdate(ctx, t1, CancelSignal(nil))
-  err = RunThread(ctx, t1, "start")
+  info := NewGQLThreadInfo(true, "start", "restore")
+  err = LinkThreads(ctx, gql, t1, &info)
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
-    ser, err := json.MarshalIndent(states[t1.ID()], "", "  ")
-    fmt.Printf("\n%s\n\n", ser)
+  SendUpdate(ctx, gql, CancelSignal(nil))
+  err = RunThread(ctx, gql, "start")
+  fatalErr(t, err)
+
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1, 100*time.Millisecond, "Dicn't received update_done on t1 from t1")
+
+  err = UseStates(ctx, []GraphNode{gql, t1}, func(states NodeStateMap) error {
+    ser1, err := json.MarshalIndent(states[gql.ID()], "", "  ")
+    ser2, err := json.MarshalIndent(states[t1.ID()], "", "  ")
+    fmt.Printf("\n%s\n\n", ser1)
+    fmt.Printf("\n%s\n\n", ser2)
     return err
   })
 
-  t1_loaded, err := LoadNode(ctx, t1.ID())
+  gql_loaded, err := LoadNode(ctx, gql.ID())
   fatalErr(t, err)
+  var t1_loaded *BaseThread = nil
 
-  err = UseStates(ctx, []GraphNode{t1_loaded}, func(states NodeStateMap) error {
-    ser, err := json.MarshalIndent(states[t1_loaded.ID()], "", "  ")
+  err = UseStates(ctx, []GraphNode{gql_loaded}, func(states NodeStateMap) error {
+    ser, err := json.MarshalIndent(states[gql_loaded.ID()], "", "  ")
     fmt.Printf("\n%s\n\n", ser)
+    child := states[gql_loaded.ID()].(ThreadState).Children()[0]
+    t1_loaded = child.(*BaseThread)
+    update_channel = t1_loaded.UpdateChannel(10)
+    err = UseMoreStates(ctx, []GraphNode{child}, states, func(states NodeStateMap) error {
+      ser, err := json.MarshalIndent(states[child.ID()], "", "  ")
+      fmt.Printf("\n%s\n\n", ser)
+      return err
+    })
     return err
   })
+
+  SendUpdate(ctx, gql_loaded, CancelSignal(nil))
+  err = RunThread(ctx, gql_loaded.(Thread), "restore")
+  fatalErr(t, err)
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1_loaded, 100*time.Millisecond, "Dicn't received update_done on t1_loaded from t1_loaded")
+
 }

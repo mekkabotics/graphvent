@@ -96,13 +96,15 @@ func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
 
   lockable_state := SaveBaseLockableState(&state.BaseLockableState)
 
-  return BaseThreadStateJSON{
+  ret := BaseThreadStateJSON{
     Parent: parent_id,
     Children: children,
     Timeout: state.timeout,
     TimeoutAction: state.timeout_action,
     BaseLockableStateJSON: lockable_state,
   }
+
+  return ret
 }
 
 func RestoreBaseThread(ctx * GraphContext, id NodeID, actions ThreadActions, handlers ThreadHandlers) BaseThread {
@@ -147,11 +149,13 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
     if ok == false {
       return nil, err
     }
-    state.owner = p_t
+    state.parent = p_t
   }
 
+  // TODO: Call different loading functions(to return different ThreadInfo types, based on the j.Type,
+  // Will probably have to add another set of callbacks to the context for this, and since there's now 3 sets that need to be matching it could be useful to move them to a struct so it's easier to keep in sync
   i := 0
-  for id, info := range(j.Children) {
+  for id, info_raw := range(j.Children) {
     child_node, err := LoadNodeRecurse(ctx, id, loaded_nodes)
     if err != nil {
       return nil, err
@@ -161,7 +165,23 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
       return nil, fmt.Errorf("%+v is not a Thread as expected", child_node)
     }
     state.children[i] = child_t
-    state.child_info[id] = info
+
+    info_map, ok := info_raw.(map[string]interface{})
+    if ok == false {
+      return nil, fmt.Errorf("Parsed map wrong type: %+v", info_raw)
+    }
+    info_fn, exists := ctx.InfoLoadFuncs[j.Type]
+    var parsed_info ThreadInfo
+    if exists == false {
+      parsed_info = nil
+    } else {
+      parsed_info, err = info_fn(ctx, info_map)
+      if err != nil {
+        return nil, err
+      }
+    }
+
+    state.child_info[id] = parsed_info
     i++
   }
 
@@ -372,13 +392,13 @@ func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_
   }
   thread.ChildWaits().Add(1)
   go func(child Thread) {
-    ctx.Log.Logf("gql", "THREAD_START_CHILD: %s", child.ID())
+    ctx.Log.Logf("thread", "THREAD_START_CHILD: %s from %s", thread.ID(), child.ID())
     defer thread.ChildWaits().Done()
     err := RunThread(ctx, child, first_action)
     if err != nil {
-      ctx.Log.Logf("gql", "THREAD_CHILD_RUN_ERR: %s %e", child.ID(), err)
+      ctx.Log.Logf("thread", "THREAD_CHILD_RUN_ERR: %s %e", child.ID(), err)
     } else {
-      ctx.Log.Logf("gql", "THREAD_CHILD_RUN_DONE: %s", child.ID())
+      ctx.Log.Logf("thread", "THREAD_CHILD_RUN_DONE: %s", child.ID())
     }
   }(child)
 }

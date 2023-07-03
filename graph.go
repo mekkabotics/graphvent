@@ -24,11 +24,14 @@ type StateLoadFunc func(*GraphContext, []byte, NodeMap)(NodeState, error)
 type StateLoadMap map[string]StateLoadFunc
 type NodeLoadFunc func(*GraphContext, NodeID)(GraphNode, error)
 type NodeLoadMap map[string]NodeLoadFunc
+type InfoLoadFunc func(*GraphContext, map[string]interface{})(ThreadInfo, error)
+type InfoLoadMap map[string]InfoLoadFunc
 type GraphContext struct {
   DB * badger.DB
   Log Logger
   NodeLoadFuncs NodeLoadMap
   StateLoadFuncs StateLoadMap
+  InfoLoadFuncs InfoLoadMap
   GQL * GQLContext
 }
 
@@ -195,7 +198,7 @@ func LoadNodeRecurse(ctx * GraphContext, id NodeID, loaded_nodes map[NodeID]Grap
   return node, nil
 }
 
-func NewGraphContext(db * badger.DB, log Logger, state_loads StateLoadMap, node_loads NodeLoadMap, types TypeList, type_map ObjTypeMap, queries FieldMap, subscriptions FieldMap, mutations FieldMap) * GraphContext {
+func NewGraphContext(db * badger.DB, log Logger, state_loads StateLoadMap, node_loads NodeLoadMap, info_loads InfoLoadMap, types TypeList, type_map ObjTypeMap, queries FieldMap, subscriptions FieldMap, mutations FieldMap) * GraphContext {
   gql, err := NewGQLContext(types, type_map, queries, subscriptions, mutations)
   if err != nil {
     panic(err)
@@ -215,6 +218,9 @@ func NewGraphContext(db * badger.DB, log Logger, state_loads StateLoadMap, node_
       "simple_thread": LoadSimpleThreadState,
       "gql_thread": LoadGQLThreadState,
     },
+    InfoLoadFuncs: InfoLoadMap{
+      "gql_thread": LoadGQLThreadInfo,
+    },
   }
 
   for name, fn := range(state_loads) {
@@ -223,6 +229,10 @@ func NewGraphContext(db * badger.DB, log Logger, state_loads StateLoadMap, node_
 
   for name, fn := range(node_loads) {
     ctx.NodeLoadFuncs[name] = fn
+  }
+
+  for name, fn := range(info_loads) {
+    ctx.InfoLoadFuncs[name] = fn
   }
 
   return &ctx
@@ -446,6 +456,28 @@ func RestoreNode(ctx * GraphContext, id NodeID) BaseNode {
   return node
 }
 
+func WriteDBState(ctx * GraphContext, id NodeID, state NodeState) error {
+  ctx.Log.Logf("db", "DB_WRITE: %s - %+v", id, state)
+
+  var serialized_state []byte = nil
+  if state != nil {
+    ser, err := json.Marshal(state)
+    if err != nil {
+      return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
+    }
+    serialized_state = ser
+  } else {
+    serialized_state = []byte{}
+  }
+
+  err := ctx.DB.Update(func(txn *badger.Txn) error {
+    err := txn.Set([]byte(id), serialized_state)
+    return err
+  })
+
+  return err
+}
+
 // Create a new base node with a new ID
 func NewNode(ctx * GraphContext, state NodeState) (BaseNode, error) {
   node := BaseNode{
@@ -537,28 +569,6 @@ func WriteDBStates(ctx * GraphContext, nodes NodeMap) error{
     }
     return nil
   })
-  return err
-}
-
-func WriteDBState(ctx * GraphContext, id NodeID, state NodeState) error {
-  ctx.Log.Logf("db", "DB_WRITE: %s - %+v", id, state)
-
-  var serialized_state []byte = nil
-  if state != nil {
-    ser, err := json.Marshal(state)
-    if err != nil {
-      return fmt.Errorf("DB_MARSHAL_ERROR: %e", err)
-    }
-    serialized_state = ser
-  } else {
-    serialized_state = []byte{}
-  }
-
-  err := ctx.DB.Update(func(txn *badger.Txn) error {
-    err := txn.Set([]byte(id), serialized_state)
-    return err
-  })
-
   return err
 }
 
