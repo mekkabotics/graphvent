@@ -560,9 +560,17 @@ func NewGQLThread(ctx * GraphContext, listen string, requirements []Lockable) (*
     http_done: &sync.WaitGroup{},
   }
 
-  err = LinkLockables(ctx, thread, requirements)
-  if err != nil {
-    return nil, err
+  if len(requirements) > 0 {
+    req_nodes := make([]GraphNode, len(requirements))
+    for i, req := range(requirements) {
+      req_nodes[i] = req
+    }
+    err = UpdateStates(ctx, req_nodes, func(nodes NodeMap) error {
+      return LinkLockables(ctx, thread, requirements, nodes)
+    })
+    if err != nil {
+      return nil, err
+    }
   }
   return thread, nil
 }

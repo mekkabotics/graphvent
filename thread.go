@@ -261,30 +261,26 @@ func (state * BaseThreadState) ChildInfo(child NodeID) ThreadInfo {
   return state.child_info[child]
 }
 
+// Requires thread and childs state to be locked for write
 func UnlinkThreads(ctx * GraphContext, thread Thread, child Thread) error {
-  err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) error{
-    state := thread.State().(ThreadState)
-    var found GraphNode = nil
-    for _, c := range(state.Children()) {
-      if child.ID() == c.ID() {
-        found = c
-        break
-      }
+  state := thread.State().(ThreadState)
+  var found GraphNode = nil
+  for _, c := range(state.Children()) {
+    if child.ID() == c.ID() {
+      found = c
+      break
     }
+  }
 
-    if found == nil {
-      return fmt.Errorf("UNLINK_THREADS_ERR: %s is not a child of %s", child.ID(), thread.ID())
-    }
+  if found == nil {
+    return fmt.Errorf("UNLINK_THREADS_ERR: %s is not a child of %s", child.ID(), thread.ID())
+  }
 
-    err := UpdateMoreStates(ctx, []GraphNode{found}, nodes, func(nodes NodeMap) error {
-      child_state := found.State().(ThreadState)
-      child_state.SetParent(nil)
-      state.RemoveChild(child)
-      return nil
-    })
-    return err
-  })
-  return err
+  child_state := child.State().(ThreadState)
+  child_state.SetParent(nil)
+  state.RemoveChild(child)
+
+  return nil
 }
 
 func (state * BaseThreadState) RemoveChild(child Thread) {
@@ -348,6 +344,7 @@ func checkIfChild(ctx * GraphContext, thread_id NodeID, cur_state ThreadState, c
   return false
 }
 
+// Requires thread and childs state to be locked for write
 func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInfo) error {
   if ctx == nil || thread == nil || child == nil {
     return fmt.Errorf("invalid input")
@@ -357,31 +354,26 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
     return fmt.Errorf("Will not link %s as a child of itself", thread.ID())
   }
 
+  thread_state := thread.State().(ThreadState)
+  child_state := child.State().(ThreadState)
 
-  err := UpdateStates(ctx, []GraphNode{thread, child}, func(nodes NodeMap) error {
-    thread_state := thread.State().(ThreadState)
-    child_state := child.State().(ThreadState)
+  if child_state.Parent() != nil {
+    return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
+  }
 
-    if child_state.Parent() != nil {
-      return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
-    }
+  if checkIfChild(ctx, thread.ID(), child_state, child.ID()) == true {
+    return fmt.Errorf("EVENT_LINK_ERR: %s is a child of %s so cannot add as parent", thread.ID(), child.ID())
+  }
 
-    if checkIfChild(ctx, thread.ID(), child_state, child.ID()) == true {
-      return fmt.Errorf("EVENT_LINK_ERR: %s is a child of %s so cannot add as parent", thread.ID(), child.ID())
-    }
+  if checkIfChild(ctx, child.ID(), thread_state, thread.ID()) == true {
+    return fmt.Errorf("EVENT_LINK_ERR: %s is already a parent of %s so will not add again", thread.ID(), child.ID())
+  }
 
-    if checkIfChild(ctx, child.ID(), thread_state, thread.ID()) == true {
-      return fmt.Errorf("EVENT_LINK_ERR: %s is already a parent of %s so will not add again", thread.ID(), child.ID())
-    }
-
-    err := thread_state.AddChild(child, info)
-    if err != nil {
-      return fmt.Errorf("EVENT_LINK_ERR: error adding %s as child to %s: %e", child.ID(), thread.ID(), err)
-    }
-    child_state.SetParent(thread)
-
-    return nil
-  })
+  err := thread_state.AddChild(child, info)
+  if err != nil {
+    return fmt.Errorf("EVENT_LINK_ERR: error adding %s as child to %s: %e", child.ID(), thread.ID(), err)
+  }
+  child_state.SetParent(thread)
 
   if err != nil {
     return err
@@ -701,9 +693,19 @@ func NewSimpleThread(ctx * GraphContext, name string, requirements []Lockable, a
 
   thread_ptr := &thread
 
-  err = LinkLockables(ctx, thread_ptr, requirements)
-  if err != nil {
-    return nil, err
+
+  if len(requirements) > 0 {
+    req_nodes := make([]GraphNode, len(requirements))
+    for i, req := range(requirements) {
+      req_nodes[i] = req
+    }
+    err = UpdateStates(ctx, req_nodes, func(nodes NodeMap) error {
+      return LinkLockables(ctx, thread_ptr, requirements, nodes)
+    })
+    if err != nil {
+      return nil, err
+    }
   }
+
   return thread_ptr, nil
 }

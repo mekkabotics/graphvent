@@ -195,36 +195,30 @@ func (state * BaseLockableState) RemoveRequirement(requirement Lockable) {
   state.requirements = state.requirements[0:(req_len-1)]
 }
 
+// Requires lockable and requirement's states to be locked for write
 func UnlinkLockables(ctx * GraphContext, lockable Lockable, requirement Lockable) error {
-  // Check if requirement is a requirement of lockable
-  err := UpdateStates(ctx, []GraphNode{lockable}, func(nodes NodeMap) error{
-    state := lockable.State().(LockableState)
-    var found GraphNode = nil
-    for _, req := range(state.Requirements()) {
-      if requirement.ID() == req.ID() {
-        found = req
-        break
-      }
+  state := lockable.State().(LockableState)
+  var found GraphNode = nil
+  for _, req := range(state.Requirements()) {
+    if requirement.ID() == req.ID() {
+      found = req
+      break
     }
+  }
 
-    if found == nil {
-      return fmt.Errorf("UNLINK_LOCKABLES_ERR: %s is not a requirement of %s", requirement.ID(), lockable.ID())
-    }
+  if found == nil {
+    return fmt.Errorf("UNLINK_LOCKABLES_ERR: %s is not a requirement of %s", requirement.ID(), lockable.ID())
+  }
 
-    err := UpdateMoreStates(ctx, []GraphNode{found}, nodes, func(nodes NodeMap) error {
-      req_state := found.State().(LockableState)
-      req_state.RemoveDependency(lockable)
-      state.RemoveRequirement(requirement)
-      return nil
-    })
+  req_state := found.State().(LockableState)
+  req_state.RemoveDependency(lockable)
+  state.RemoveRequirement(requirement)
 
-    return err
-  })
-
-  return err
+  return nil
 }
 
-func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockable) error {
+// Requires lockable and requirements to be locked for write, nodes passed because requirement check recursively locks
+func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockable, nodes NodeMap) error {
   if lockable == nil {
     return fmt.Errorf("LOCKABLE_LINK_ERR: Will not link Lockables to nil as requirements")
   }
@@ -250,59 +244,48 @@ func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockabl
     found[requirement.ID()] = true
   }
 
-  gnodes := make([]GraphNode, len(requirements) + 1)
-  gnodes[0] = lockable
-  for i, node := range(requirements) {
-    gnodes[i+1] = node
+  // Check that all the requirements can be added
+  lockable_state := lockable.State().(LockableState)
+  // If the lockable is already locked, need to lock this resource as well before we can add it
+  for _, requirement := range(requirements) {
+    requirement_state := requirement.State().(LockableState)
+    for _, req := range(requirements) {
+      if req.ID() == requirement.ID() {
+        continue
+      }
+      if checkIfRequirement(ctx, req.ID(), requirement_state, requirement.ID(), nodes) == true {
+        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependenyc of %s so cannot add the same dependency", req.ID(), requirement.ID())
+      }
+    }
+    if checkIfRequirement(ctx, lockable.ID(), requirement_state, requirement.ID(), nodes) == true {
+      return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
+    }
+
+    if checkIfRequirement(ctx, requirement.ID(), lockable_state, lockable.ID(), nodes) == true {
+      return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
+    }
+    if lockable_state.Owner() == nil {
+      // If the new owner isn't locked, we can add the requirement
+    } else if requirement_state.Owner() == nil {
+      // if the new requirement isn't already locked but the owner is, the requirement needs to be locked first
+      return fmt.Errorf("LOCKABLE_LINK_ERR: %s is locked, %s must be locked to add", lockable.ID(), requirement.ID())
+    } else {
+      // If the new requirement is already locked and the owner is already locked, their owners need to match
+      if requirement_state.Owner().ID() != lockable_state.Owner().ID() {
+        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is not locked by the same owner as %s, can't link as requirement", requirement.ID(), lockable.ID())
+      }
+    }
+  }
+  // Update the states of the requirements
+  for _, requirement := range(requirements) {
+    requirement_state := requirement.State().(LockableState)
+    requirement_state.AddDependency(lockable)
+    lockable_state.AddRequirement(requirement)
+    ctx.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
   }
 
-  err := UpdateStates(ctx, gnodes, func(nodes NodeMap) error {
-    // Check that all the requirements can be added
-    lockable_state := lockable.State().(LockableState)
-    // If the lockable is already locked, need to lock this resource as well before we can add it
-    for _, requirement := range(requirements) {
-      requirement_state := requirement.State().(LockableState)
-      for _, req := range(requirements) {
-        if req.ID() == requirement.ID() {
-          continue
-        }
-        if checkIfRequirement(ctx, req.ID(), requirement_state, requirement.ID(), nodes) == true {
-          return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependenyc of %s so cannot add the same dependency", req.ID(), requirement.ID())
-        }
-      }
-      if checkIfRequirement(ctx, lockable.ID(), requirement_state, requirement.ID(), nodes) == true {
-        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
-      }
-
-      if checkIfRequirement(ctx, requirement.ID(), lockable_state, lockable.ID(), nodes) == true {
-        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
-      }
-      if lockable_state.Owner() == nil {
-        // If the new owner isn't locked, we can add the requirement
-      } else if requirement_state.Owner() == nil {
-        // if the new requirement isn't already locked but the owner is, the requirement needs to be locked first
-        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is locked, %s must be locked to add", lockable.ID(), requirement.ID())
-      } else {
-        // If the new requirement is already locked and the owner is already locked, their owners need to match
-        if requirement_state.Owner().ID() != lockable_state.Owner().ID() {
-          return fmt.Errorf("LOCKABLE_LINK_ERR: %s is not locked by the same owner as %s, can't link as requirement", requirement.ID(), lockable.ID())
-        }
-      }
-    }
-    // Update the states of the requirements
-    for _, requirement := range(requirements) {
-      requirement_state := requirement.State().(LockableState)
-      requirement_state.AddDependency(lockable)
-      lockable_state.AddRequirement(requirement)
-      ctx.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
-    }
-
-    // Return no error
-    return nil
-  })
-
-
-  return err
+  // Return no error
+  return nil
 }
 
 func NewBaseLockableState(name string, _type string) BaseLockableState {
@@ -711,10 +694,20 @@ func NewSimpleLockable(ctx * GraphContext, name string, requirements []Lockable)
   if err != nil {
     return nil, err
   }
+
   lockable_ptr := &lockable
-  err = LinkLockables(ctx, lockable_ptr, requirements)
-  if err != nil {
-    return nil, err
+
+  if len(requirements) > 0 {
+    req_nodes := make([]GraphNode, len(requirements))
+    for i, req := range(requirements) {
+      req_nodes[i] = req
+    }
+    err = UpdateStates(ctx, req_nodes, func(nodes NodeMap) error {
+      return LinkLockables(ctx, lockable_ptr, requirements, nodes)
+    })
+    if err != nil {
+      return nil, err
+    }
   }
 
   return lockable_ptr, nil
