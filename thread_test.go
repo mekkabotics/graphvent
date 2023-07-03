@@ -86,3 +86,18 @@ func TestThreadDBLoad(t * testing.T) {
     return err
   })
 }
+
+func TestThreadUnlink(t * testing.T) {
+  ctx := logTestContext(t, []string{})
+  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
+  fatalErr(t, err)
+
+  t2, err := NewSimpleThread(ctx, "Test Thread 2", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
+  fatalErr(t, err)
+
+  err = LinkThreads(ctx, t1, t2, nil)
+  fatalErr(t, err)
+
+  err = UnlinkThreads(ctx, t1, t2)
+  fatalErr(t, err)
+}

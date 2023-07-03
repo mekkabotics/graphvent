@@ -21,8 +21,10 @@ type LockableState interface {
 
   Requirements() []Lockable
   AddRequirement(requirement Lockable)
+  RemoveRequirement(requirement Lockable)
   Dependencies() []Lockable
   AddDependency(dependency Lockable)
+  RemoveDependency(dependency Lockable)
   Owner() Lockable
   SetOwner(owner Lockable)
 }
@@ -154,6 +156,72 @@ func (state * BaseLockableState) AddDependency(dependency Lockable) {
   }
 
   state.dependencies = append(state.dependencies, dependency)
+}
+
+func (state * BaseLockableState) RemoveDependency(dependency Lockable) {
+  idx := -1
+
+  for i, dep := range(state.dependencies) {
+    if dep.ID() == dependency.ID() {
+      idx = i
+      break
+    }
+  }
+
+  if idx == -1 {
+    panic(fmt.Sprintf("%s is not a dependency of %s", dependency.ID(), state.Name()))
+  }
+
+  dep_len := len(state.dependencies)
+  state.dependencies[idx] = state.dependencies[dep_len-1]
+  state.dependencies = state.dependencies[0:(dep_len-1)]
+}
+
+func (state * BaseLockableState) RemoveRequirement(requirement Lockable) {
+  idx := -1
+  for i, req := range(state.requirements) {
+    if req.ID() == requirement.ID() {
+      idx = i
+      break
+    }
+  }
+
+  if idx == -1 {
+    panic(fmt.Sprintf("%s is not a requirement of %s", requirement.ID(), state.Name()))
+  }
+
+  req_len := len(state.requirements)
+  state.requirements[idx] = state.requirements[req_len-1]
+  state.requirements = state.requirements[0:(req_len-1)]
+}
+
+func UnlinkLockables(ctx * GraphContext, lockable Lockable, requirement Lockable) error {
+  // Check if requirement is a requirement of lockable
+  err := UpdateStates(ctx, []GraphNode{lockable}, func(nodes NodeMap) error{
+    state := lockable.State().(LockableState)
+    var found GraphNode = nil
+    for _, req := range(state.Requirements()) {
+      if requirement.ID() == req.ID() {
+        found = req
+        break
+      }
+    }
+
+    if found == nil {
+      return fmt.Errorf("UNLINK_LOCKABLES_ERR: %s is not a requirement of %s", requirement.ID(), lockable.ID())
+    }
+
+    err := UpdateMoreStates(ctx, []GraphNode{found}, nodes, func(nodes NodeMap) error {
+      req_state := found.State().(LockableState)
+      req_state.RemoveDependency(lockable)
+      state.RemoveRequirement(requirement)
+      return nil
+    })
+
+    return err
+  })
+
+  return err
 }
 
 func LinkLockables(ctx * GraphContext, lockable Lockable, requirements []Lockable) error {

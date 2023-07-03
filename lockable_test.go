@@ -396,3 +396,15 @@ func TestLockableDBLoad(t * testing.T){
     return err
   })
 }
+
+func TestLockableUnlink(t * testing.T){
+  ctx := logTestContext(t, []string{"lockable"})
+  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
+  fatalErr(t, err)
+
+  l2, err := NewSimpleLockable(ctx, "Test Lockable 2", []Lockable{l1})
+  fatalErr(t, err)
+
+  err = UnlinkLockables(ctx, l2, l1)
+  fatalErr(t, err)
+}

@@ -56,6 +56,7 @@ type ThreadState interface {
   Child(id NodeID) Thread
   ChildInfo(child NodeID) ThreadInfo
   AddChild(child Thread, info ThreadInfo) error
+  RemoveChild(child Thread)
   Start() error
   Stop() error
 
@@ -258,6 +259,50 @@ func (state * BaseThreadState) Child(id NodeID) Thread {
 
 func (state * BaseThreadState) ChildInfo(child NodeID) ThreadInfo {
   return state.child_info[child]
+}
+
+func UnlinkThreads(ctx * GraphContext, thread Thread, child Thread) error {
+  err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) error{
+    state := thread.State().(ThreadState)
+    var found GraphNode = nil
+    for _, c := range(state.Children()) {
+      if child.ID() == c.ID() {
+        found = c
+        break
+      }
+    }
+
+    if found == nil {
+      return fmt.Errorf("UNLINK_THREADS_ERR: %s is not a child of %s", child.ID(), thread.ID())
+    }
+
+    err := UpdateMoreStates(ctx, []GraphNode{found}, nodes, func(nodes NodeMap) error {
+      child_state := found.State().(ThreadState)
+      child_state.SetParent(nil)
+      state.RemoveChild(child)
+      return nil
+    })
+    return err
+  })
+  return err
+}
+
+func (state * BaseThreadState) RemoveChild(child Thread) {
+  idx := -1
+  for i, c := range(state.children) {
+    if c.ID() == child.ID() {
+      idx = i
+      break
+    }
+  }
+
+  if idx == -1 {
+    panic(fmt.Sprintf("%s is not a child of %s", child.ID(), state.Name()))
+  }
+
+  child_len := len(state.children)
+  state.children[idx] = state.children[child_len-1]
+  state.children = state.children[0:child_len-1]
 }
 
 func (state * BaseThreadState) AddChild(child Thread, info ThreadInfo) error {
