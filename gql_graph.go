@@ -700,6 +700,9 @@ func GQLTypeSignalInput() *graphql.InputObject {
 
 func GQLSubscribeSignal(p graphql.ResolveParams) (interface{}, error) {
   return GQLSubscribeFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error) {
+    if signal == nil {
+      return nil, nil
+    }
     return signal, nil
   })
 }
