@@ -95,6 +95,7 @@ func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extende
 
   subscriptions := graphql.Fields{
     "Update": GQLSubscriptionUpdate(),
+    "Self": GQLSubscriptionSelf(),
   }
 
   for key, val := range(extended_subscriptions) {

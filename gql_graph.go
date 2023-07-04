@@ -704,6 +704,12 @@ func GQLSubscribeSignal(p graphql.ResolveParams) (interface{}, error) {
   })
 }
 
+func GQLSubscribeSelf(p graphql.ResolveParams) (interface{}, error) {
+  return GQLSubscribeFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error) {
+    return p.Source, nil
+  })
+}
+
 func GQLSubscribeFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
   server, ok := p.Context.Value("gql_server").(*GQLThread)
   if ok == false {
@@ -732,6 +738,21 @@ func GQLSubscribeFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.Resolv
     }
   }(c, server)
   return c, nil
+}
+
+var gql_subscription_self * graphql.Field = nil
+func GQLSubscriptionSelf() * graphql.Field {
+  if gql_subscription_self == nil {
+    gql_subscription_self = &graphql.Field{
+      Type: GQLTypeGQLThread(),
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        return p.Source, nil
+      },
+      Subscribe: GQLSubscribeSelf,
+    }
+  }
+
+  return gql_subscription_update
 }
 
 var gql_subscription_update * graphql.Field = nil
