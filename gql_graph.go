@@ -728,7 +728,8 @@ func GQLSubscribeFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.Resolv
   c := make(chan interface{})
   go func(c chan interface{}, server *GQLThread) {
     ctx.Log.Logf("gqlws", "GQL_SUBSCRIBE_THREAD_START")
-    sig_c := server.UpdateChannel(0)
+    sig_c := server.UpdateChannel(1)
+    sig_c <- nil
     for {
       val, ok := <- sig_c
       if ok == false {
