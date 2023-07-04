@@ -700,17 +700,14 @@ func GQLTypeSignalInput() *graphql.InputObject {
 
 func GQLSubscribeSignal(p graphql.ResolveParams) (interface{}, error) {
   return GQLSubscribeFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error) {
-    ctx := p.Context.Value("graph_context").(*GraphContext)
-    ctx.Log.Logf("gql", "SUBSCRIBE_SIGNAL: %+v", p.Source)
     return signal, nil
   })
 }
 
 func GQLSubscribeSelf(p graphql.ResolveParams) (interface{}, error) {
+  server := p.Context.Value("gql_server").(*GQLThread)
   return GQLSubscribeFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error) {
-    ctx := p.Context.Value("graph_context").(*GraphContext)
-    ctx.Log.Logf("gql", "SUBSCRIBE_SELF: %+v", p.Source)
-    return p.Source, nil
+    return server, nil
   })
 }
 
