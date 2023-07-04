@@ -752,7 +752,7 @@ func GQLSubscriptionSelf() * graphql.Field {
     }
   }
 
-  return gql_subscription_update
+  return gql_subscription_self
 }
 
 var gql_subscription_update * graphql.Field = nil
