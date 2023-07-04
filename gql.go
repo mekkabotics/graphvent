@@ -271,6 +271,11 @@ func GQLWSHandler(ctx * GraphContext, server * GQLThread) func(http.ResponseWrit
           }
 
           res_chan := GQLWSDo(ctx, params)
+          if res_chan == nil {
+            ctx.Log.Logf("gqlws", "res_chan is nil")
+          } else {
+            ctx.Log.Logf("gqlws", "res_chan: %+v", res_chan)
+          }
 
           go func(res_chan chan *graphql.Result) {
             for {
