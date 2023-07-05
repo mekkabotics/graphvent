@@ -177,7 +177,7 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
     state.children[i] = child_t
 
     info_map, ok := info_raw.(map[string]interface{})
-    if ok == false {
+    if ok == false && info_raw != nil {
       return nil, fmt.Errorf("Parsed map wrong type: %+v", info_raw)
     }
     info_fn, exists := ctx.InfoLoadFuncs[j.Type]
