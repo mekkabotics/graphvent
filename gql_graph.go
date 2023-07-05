@@ -824,13 +824,13 @@ func GQLMutationSendUpdate() *graphql.Field {
           if node == nil {
             return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
           }
+          SendUpdate(ctx, node, signal, states)
           return nil
         })
         if err != nil {
           return nil, err
         }
 
-        SendUpdate(ctx, node, signal)
         return signal, nil
       },
     }

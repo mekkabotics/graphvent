@@ -279,7 +279,10 @@ func TestLockableSimpleUpdate(t * testing.T) {
   update_channel := l1.UpdateChannel(0)
 
   go func() {
-    SendUpdate(ctx, l1, NewDirectSignal(l1, "test_update"))
+    UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) error {
+      SendUpdate(ctx, l1, NewDirectSignal(l1, "test_update"), states)
+      return nil
+    })
   }()
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l1, 100*time.Millisecond, "Didn't receive test_update sent to l1")
@@ -300,14 +303,17 @@ func TestLockableDownUpdate(t * testing.T) {
   update_channel := l1.UpdateChannel(0)
 
   go func() {
-    SendUpdate(ctx, l2, NewDownSignal(l2, "test_update"))
+    UseStates(ctx, []GraphNode{l2}, func(states NodeStateMap) error {
+      SendUpdate(ctx, l2, NewDownSignal(l2, "test_update"), states)
+      return nil
+    })
   }()
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l2, 100*time.Millisecond, "Didn't receive test_update on l3 sent on l2")
 }
 
 func TestLockableUpUpdate(t * testing.T) {
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"test", "update"})
 
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
@@ -321,7 +327,10 @@ func TestLockableUpUpdate(t * testing.T) {
   update_channel := l3.UpdateChannel(0)
 
   go func() {
-    SendUpdate(ctx, l2, NewSignal(l2, "test_update"))
+    UseStates(ctx, []GraphNode{l2}, func(states NodeStateMap) error {
+      SendUpdate(ctx, l2, NewSignal(l2, "test_update"), states)
+      return nil
+    })
   }()
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l2, 100*time.Millisecond, "Didn't receive test_update on l3 sent on l2")
@@ -339,7 +348,10 @@ func TestOwnerNotUpdatedTwice(t * testing.T) {
   update_channel := l2.UpdateChannel(0)
 
   go func() {
-    SendUpdate(ctx, l1, NewSignal(l1, "test_update"))
+    UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) error {
+      SendUpdate(ctx, l1, NewSignal(l1, "test_update"), states)
+      return nil
+    })
   }()
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "test_update", l1, 100*time.Millisecond, "Dicn't received test_update on l2 from l1")

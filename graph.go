@@ -431,7 +431,7 @@ type GraphNode interface {
   // Signal propagation function for listener channels
   UpdateListeners(ctx * GraphContext, update GraphSignal)
   // Signal propagation function for connected nodes(defined in state)
-  PropagateUpdate(ctx * GraphContext, update GraphSignal)
+  PropagateUpdate(ctx * GraphContext, update GraphSignal, states NodeStateMap)
 
   // Get an update channel for the node to be notified of signals
   UpdateChannel(buffer int) chan GraphSignal
@@ -593,6 +593,14 @@ func checkForDuplicate(nodes []GraphNode) error {
   return nil
 }
 
+func NodeList[K GraphNode](list []K) []GraphNode {
+  nodes := make([]GraphNode, len(list))
+  for i, node := range(list) {
+    nodes[i] = node
+  }
+  return nodes
+}
+
 type NodeStateMap map[NodeID]NodeState
 type NodeMap map[NodeID]GraphNode
 type StatesFn func(states NodeStateMap) error
@@ -675,7 +683,7 @@ func (node * BaseNode) UpdateListeners(ctx * GraphContext, update GraphSignal) {
   }
 }
 
-func (node * BaseNode) PropagateUpdate(ctx * GraphContext, update GraphSignal) {
+func (node * BaseNode) PropagateUpdate(ctx * GraphContext, update GraphSignal, states NodeStateMap) {
 }
 
 func (node * BaseNode) RegisterChannel(listener chan GraphSignal) {
@@ -710,7 +718,7 @@ func (node * BaseNode) UpdateChannel(buffer int) chan GraphSignal {
 }
 
 // Propogate a signal starting at a node
-func SendUpdate(ctx * GraphContext, node GraphNode, signal GraphSignal) {
+func SendUpdate(ctx * GraphContext, node GraphNode, signal GraphSignal, states NodeStateMap) {
   if node == nil {
     panic("Cannot start an update from no node")
   }
@@ -718,6 +726,6 @@ func SendUpdate(ctx * GraphContext, node GraphNode, signal GraphSignal) {
   ctx.Log.Logf("update", "UPDATE %s <- %s: %+v", node.ID(), signal.Source(), signal)
 
   node.UpdateListeners(ctx, signal)
-  node.PropagateUpdate(ctx, signal)
+  node.PropagateUpdate(ctx, signal, states)
 }
 

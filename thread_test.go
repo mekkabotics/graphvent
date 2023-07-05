@@ -15,7 +15,10 @@ func TestNewThread(t * testing.T) {
 
   go func(thread Thread) {
     time.Sleep(10*time.Millisecond)
-    SendUpdate(ctx, t1, CancelSignal(nil))
+    UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
+      SendUpdate(ctx, t1, CancelSignal(nil), states)
+      return nil
+    })
   }(t1)
 
   err = RunThread(ctx, t1, "start")
@@ -41,7 +44,10 @@ func TestThreadWithRequirement(t * testing.T) {
 
   go func (thread Thread) {
     time.Sleep(10*time.Millisecond)
-    SendUpdate(ctx, t1, CancelSignal(nil))
+    UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
+      SendUpdate(ctx, t1, CancelSignal(nil), states)
+      return nil
+    })
   }(t1)
   fatalErr(t, err)
 
@@ -67,7 +73,10 @@ func TestThreadDBLoad(t * testing.T) {
   fatalErr(t, err)
 
 
-  SendUpdate(ctx, t1, CancelSignal(nil))
+  UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
+    SendUpdate(ctx, t1, CancelSignal(nil), states)
+    return nil
+  })
   err = RunThread(ctx, t1, "start")
   fatalErr(t, err)
 

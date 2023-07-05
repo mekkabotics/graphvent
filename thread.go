@@ -10,35 +10,44 @@ import (
 )
 
 // Update the threads listeners, and notify the parent to do the same
-func (thread * BaseThread) PropagateUpdate(ctx * GraphContext, signal GraphSignal) {
-  UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) (error) {
-    thread_state := states[thread.ID()].(ThreadState)
-    if signal.Direction() == Up {
-      // Child->Parent, thread updates parent and connected requirement
-      if thread_state.Parent() != nil {
-        SendUpdate(ctx, thread_state.Parent(), signal)
-      }
-
-      for _, dep := range(thread_state.Dependencies()) {
-        SendUpdate(ctx, dep, signal)
-      }
-    } else if signal.Direction() == Down {
-      // Parent->Child, updates children and dependencies
-      for _, child := range(thread_state.Children()) {
-        SendUpdate(ctx, child, signal)
-      }
-
-      for _, requirement := range(thread_state.Requirements()) {
-        SendUpdate(ctx, requirement, signal)
-      }
-    } else if signal.Direction() == Direct {
-
-    } else {
-      panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
+func (thread * BaseThread) PropagateUpdate(ctx * GraphContext, signal GraphSignal, states NodeStateMap) {
+  thread_state := states[thread.ID()].(ThreadState)
+  if signal.Direction() == Up {
+    // Child->Parent, thread updates parent and connected requirement
+    if thread_state.Parent() != nil {
+      UseMoreStates(ctx, []GraphNode{thread_state.Parent()}, states, func(states NodeStateMap) (error) {
+        SendUpdate(ctx, thread_state.Parent(), signal, states)
+        return nil
+      })
     }
 
-    return nil
-  })
+    UseMoreStates(ctx, NodeList(thread_state.Dependencies()), states, func(states NodeStateMap) (error) {
+      for _, dep := range(thread_state.Dependencies()) {
+        SendUpdate(ctx, dep, signal, states)
+      }
+      return nil
+    })
+  } else if signal.Direction() == Down {
+    // Parent->Child, updates children and dependencies
+    UseMoreStates(ctx, NodeList(thread_state.Children()), states, func(states NodeStateMap) (error) {
+      for _, child := range(thread_state.Children()) {
+        SendUpdate(ctx, child, signal, states)
+      }
+      return nil
+    })
+
+    UseMoreStates(ctx, NodeList(thread_state.Requirements()), states, func(states NodeStateMap) (error) {
+      for _, requirement := range(thread_state.Requirements()) {
+        SendUpdate(ctx, requirement, signal, states)
+      }
+      return nil
+    })
+  } else if signal.Direction() == Direct {
+
+  } else {
+    panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
+  }
+
   thread.signal <- signal
 }
 
@@ -379,8 +388,6 @@ func LinkThreads(ctx * GraphContext, thread Thread, child Thread, info ThreadInf
     return err
   }
 
-  SendUpdate(ctx, thread, NewSignal(child, "child_added"))
-
   return nil
 }
 
@@ -507,7 +514,10 @@ func RunThread(ctx * GraphContext, thread Thread, first_action string) error {
     return err
   }
 
-  SendUpdate(ctx, thread, NewSignal(thread, "thread_done"))
+  err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
+    SendUpdate(ctx, thread, NewSignal(thread, "thread_done"), states)
+    return nil
+  })
 
   ctx.Log.Logf("thread", "THREAD_RUN_DONE: %s", thread.ID())
 

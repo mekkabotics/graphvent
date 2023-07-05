@@ -28,7 +28,10 @@ func TestGQLThread(t * testing.T) {
 
   go func(thread Thread){
     time.Sleep(10*time.Millisecond)
-    SendUpdate(ctx, thread, CancelSignal(nil))
+    err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
+      SendUpdate(ctx, thread, CancelSignal(nil), states)
+      return nil
+    })
   }(gql_thread)
 
   err = RunThread(ctx, gql_thread, "start")
@@ -36,7 +39,7 @@ func TestGQLThread(t * testing.T) {
 }
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"thread"})
+  ctx := logTestContext(t, []string{"thread", "update", "gql"})
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
@@ -48,14 +51,19 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   info := NewGQLThreadInfo(true, "start", "restore")
-  err = LinkThreads(ctx, gql, t1, &info)
+  err = UpdateStates(ctx, []GraphNode{gql, t1}, func(nodes NodeMap) error {
+    return LinkThreads(ctx, gql, t1, &info)
+  })
   fatalErr(t, err)
-
-  SendUpdate(ctx, gql, CancelSignal(nil))
+  err = UseStates(ctx, []GraphNode{gql}, func(states NodeStateMap) error {
+    SendUpdate(ctx, gql, NewSignal(t1, "child_added"), states)
+    SendUpdate(ctx, gql, CancelSignal(nil), states)
+    return nil
+  })
   err = RunThread(ctx, gql, "start")
   fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1, 100*time.Millisecond, "Dicn't received update_done on t1 from t1")
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1, 100*time.Millisecond, "Didn't receive thread_done from t1 on t1")
 
   err = UseStates(ctx, []GraphNode{gql, t1}, func(states NodeStateMap) error {
     ser1, err := json.MarshalIndent(states[gql.ID()], "", "  ")
@@ -80,10 +88,10 @@ func TestGQLDBLoad(t * testing.T) {
       fmt.Printf("\n%s\n\n", ser)
       return err
     })
+    SendUpdate(ctx, gql_loaded, CancelSignal(nil), states)
     return err
   })
 
-  SendUpdate(ctx, gql_loaded, CancelSignal(nil))
   err = RunThread(ctx, gql_loaded.(Thread), "restore")
   fatalErr(t, err)
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1_loaded, 100*time.Millisecond, "Dicn't received update_done on t1_loaded from t1_loaded")

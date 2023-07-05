@@ -313,35 +313,42 @@ type Lockable interface {
   CanUnlock(node GraphNode, state LockableState) error
 }
 
-func (lockable * BaseLockable) PropagateUpdate(ctx * GraphContext, signal GraphSignal) {
-  UseStates(ctx, []GraphNode{lockable}, func(states NodeStateMap) error {
-    lockable_state := states[lockable.ID()].(LockableState)
-    if signal.Direction() == Up {
-      // Child->Parent, lockable updates dependency lockables
-      owner_sent := false
-      for _, dependency := range lockable_state.Dependencies() {
-        SendUpdate(ctx, dependency, signal)
+// lockable's state must already be locked for read
+func (lockable * BaseLockable) PropagateUpdate(ctx * GraphContext, signal GraphSignal, states NodeStateMap) {
+  lockable_state := states[lockable.ID()].(LockableState)
+  if signal.Direction() == Up {
+    // Child->Parent, lockable updates dependency lockables
+    owner_sent := false
+    UseMoreStates(ctx, NodeList(lockable_state.Dependencies()), states, func(states NodeStateMap) error {
+      for _, dependency := range(lockable_state.Dependencies()){
+        SendUpdate(ctx, dependency, signal, states)
         if lockable_state.Owner() != nil {
           if dependency.ID() != lockable_state.Owner().ID() {
             owner_sent = true
           }
         }
       }
-      if lockable_state.Owner() != nil && owner_sent == false {
-        SendUpdate(ctx, lockable_state.Owner(), signal)
-      }
-    } else if signal.Direction() == Down {
-      // Parent->Child, lockable updates lock holder
-      for _, requirement := range(lockable_state.Requirements()) {
-        SendUpdate(ctx, requirement, signal)
-      }
-
-    } else if signal.Direction() == Direct {
-    } else {
-      panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
+      return nil
+    })
+    if lockable_state.Owner() != nil && owner_sent == false {
+      UseMoreStates(ctx, []GraphNode{lockable_state.Owner()}, states, func(states NodeStateMap) error {
+        SendUpdate(ctx, lockable_state.Owner(), signal, states)
+        return nil
+      })
     }
-    return nil
-  })
+  } else if signal.Direction() == Down {
+    // Parent->Child, lockable updates lock holder
+    UseMoreStates(ctx, NodeList(lockable_state.Requirements()), states, func(states NodeStateMap) error {
+      for _, requirement := range(lockable_state.Requirements()) {
+        SendUpdate(ctx, requirement, signal, states)
+      }
+      return nil
+    })
+
+  } else if signal.Direction() == Direct {
+  } else {
+    panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
+  }
 }
 
 func checkIfRequirement(ctx * GraphContext, r_id NodeID, cur LockableState, cur_id NodeID, nodes NodeMap) bool {
