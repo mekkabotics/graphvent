@@ -123,6 +123,7 @@ func RestoreBaseThread(ctx * GraphContext, id NodeID, actions ThreadActions, han
     BaseLockable: base_lockable,
     Actions: actions,
     Handlers: handlers,
+    child_waits: &sync.WaitGroup{},
   }
 
   return thread
@@ -540,11 +541,11 @@ type BaseThread struct {
   Handlers ThreadHandlers
 
   timeout_chan <-chan time.Time
-  child_waits sync.WaitGroup
+  child_waits *sync.WaitGroup
 }
 
 func (thread * BaseThread) ChildWaits() *sync.WaitGroup {
-  return &thread.child_waits
+  return thread.child_waits
 }
 
 func (thread * BaseThread) CanLock(node GraphNode, state LockableState) error {
@@ -627,7 +628,6 @@ var ThreadWait = func(ctx * GraphContext, thread Thread) (string, error) {
         return timeout_action, nil
     }
   }
-  return "wait", nil
 }
 
 var ThreadAbort = func(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
@@ -688,6 +688,7 @@ func NewBaseThread(ctx * GraphContext, actions ThreadActions, handlers ThreadHan
     BaseLockable: lockable,
     Actions: actions,
     Handlers: handlers,
+    child_waits: &sync.WaitGroup{},
   }
 
   return thread, nil

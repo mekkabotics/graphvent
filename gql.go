@@ -406,9 +406,8 @@ func LoadGQLThreadInfo(ctx * GraphContext, raw map[string]interface{}) (ThreadIn
 }
 
 func LoadGQLThread(ctx * GraphContext, id NodeID) (GraphNode, error) {
-  thread := RestoreBaseThread(ctx, id, gql_actions, gql_handlers)
   gql_thread := GQLThread{
-    BaseThread: thread,
+    BaseThread: RestoreBaseThread(ctx, id, gql_actions, gql_handlers),
     http_server: nil,
     http_done: &sync.WaitGroup{},
   }

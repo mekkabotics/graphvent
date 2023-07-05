@@ -450,7 +450,9 @@ func RestoreNode(ctx * GraphContext, id NodeID) BaseNode {
     id: id,
     signal: make(chan GraphSignal, NODE_SIGNAL_BUFFER),
     listeners: map[chan GraphSignal]chan GraphSignal{},
+    listeners_lock: &sync.Mutex{},
     state: nil,
+    state_lock: &sync.RWMutex{},
   }
 
   ctx.Log.Logf("graph", "RESTORE_NODE: %s", node.id)
@@ -485,7 +487,9 @@ func NewNode(ctx * GraphContext, state NodeState) (BaseNode, error) {
     id: RandID(),
     signal: make(chan GraphSignal, NODE_SIGNAL_BUFFER),
     listeners: map[chan GraphSignal]chan GraphSignal{},
+    listeners_lock: &sync.Mutex{},
     state: state,
+    state_lock: &sync.RWMutex{},
   }
 
   err := WriteDBState(ctx, node.id, state)
@@ -503,11 +507,11 @@ type BaseNode struct {
   id NodeID
 
   state NodeState
-  state_lock sync.RWMutex
+  state_lock *sync.RWMutex
 
   signal chan GraphSignal
 
-  listeners_lock sync.Mutex
+  listeners_lock *sync.Mutex
   listeners map[chan GraphSignal]chan GraphSignal
 }
 
@@ -520,7 +524,7 @@ func (node * BaseNode) State() NodeState {
 }
 
 func (node * BaseNode) StateLock() * sync.RWMutex {
-  return &node.state_lock
+  return node.state_lock
 }
 
 func ReadDBState(ctx * GraphContext, id NodeID) ([]byte, error) {
