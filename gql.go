@@ -342,17 +342,15 @@ type GQLThread struct {
 type GQLThreadInfo struct {
   ThreadInfo `json:"-"`
   Start bool `json:"start"`
-  Started bool `json:"started"`
-  FirstAction string `json:"first_action"`
-  RestoreAction string `json:"restore_action"`
+  StartState string `json:"start_state"`
+  RestoreState string `json:"restore_state"`
 }
 
-func NewGQLThreadInfo(start bool, first_action string, restore_action string) GQLThreadInfo {
+func NewGQLThreadInfo(start bool, start_state string, restore_state string) GQLThreadInfo {
   info := GQLThreadInfo{
     Start: start,
-    Started: false,
-    FirstAction: first_action,
-    RestoreAction: restore_action,
+    StartState: start_state,
+    RestoreState: restore_state,
   }
   return info
 }
@@ -398,9 +396,8 @@ func LoadGQLThreadState(ctx * GraphContext, data []byte, loaded_nodes NodeMap) (
 func LoadGQLThreadInfo(ctx * GraphContext, raw map[string]interface{}) (ThreadInfo, error) {
   info := GQLThreadInfo{
     Start: raw["start"].(bool),
-    Started: raw["started"].(bool),
-    FirstAction: raw["first_action"].(string),
-    RestoreAction: raw["restore_action"].(string),
+    StartState: raw["start_state"].(string),
+    RestoreState: raw["restore_state"].(string),
   }
   return &info, nil
 }
@@ -429,60 +426,39 @@ var gql_actions ThreadActions = ThreadActions{
   "restore": func(ctx * GraphContext, thread Thread) (string, error) {
     // Start all the threads that should be "started"
     ctx.Log.Logf("gql", "GQL_THREAD_RESTORE: %s", thread.ID())
-    server, ok := thread.(*GQLThread)
-    if ok == false {
-      panic("thread is not *GQLThread")
-    }
-
-    // Serve the GQL http and ws handlers
-    mux := http.NewServeMux()
-    mux.HandleFunc("/gql", GQLHandler(ctx, server))
-    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, server))
-
-    // Server a graphiql interface(TODO make configurable whether to start this)
-    mux.HandleFunc("/graphiql", GraphiQLHandler())
-
-    // Server the ./site directory to /site (TODO make configurable with better defaults)
-    fs := http.FileServer(http.Dir("./site"))
-    mux.Handle("/site/", http.StripPrefix("/site", fs))
-
-    UseStates(ctx, []GraphNode{server}, func(states NodeStateMap)(error){
-      server_state := states[server.ID()].(*GQLThreadState)
-      server.http_server = &http.Server{
-        Addr: server_state.Listen,
-        Handler: mux,
-      }
-      return nil
-    })
-
-    server.http_done.Add(1)
-    go func(server *GQLThread) {
-      defer server.http_done.Done()
-      err := server.http_server.ListenAndServe()
-      if err != http.ErrServerClosed {
-        panic(fmt.Sprintf("Failed to start gql server: %s", err))
-      }
-    }(server)
 
     UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap)(error) {
       server_state := thread.State().(*GQLThreadState)
-      for _, child := range(server_state.Children()) {
-        should_run := (server_state.child_info[child.ID()]).(*GQLThreadInfo)
-        if should_run.Started == true {
-          ChildGo(ctx, server_state, thread, child.ID(), should_run.RestoreAction)
+      return UpdateMoreStates(ctx, NodeList(server_state.Children()), nodes, func(nodes NodeMap) error {
+        for _, child := range(server_state.Children()) {
+          child_state := child.State().(ThreadState)
+          should_run := (server_state.child_info[child.ID()]).(*GQLThreadInfo)
+          if should_run.Start == true && child_state.State() != "finished" {
+            ChildGo(ctx, thread, child, should_run.RestoreState)
+          }
         }
-      }
-      return nil
+        return nil
+      })
     })
-    return "wait", nil
+
+    return "start_server", nil
   },
   "start": func(ctx * GraphContext, thread Thread) (string, error) {
-    ctx.Log.Logf("gql", "SERVER_STARTED")
-    server, ok := thread.(*GQLThread)
-    if ok == false {
-      panic(fmt.Sprintf("GQL_THREAD_START: %s is not GQLThread, %+v", thread.ID(), thread.State()))
+    ctx.Log.Logf("gql", "GQL_START")
+    err := ThreadStart(ctx, thread)
+    if err != nil {
+      return "", err
     }
 
+    return "start_server", nil
+  },
+  "start_server": func(ctx * GraphContext, thread Thread) (string, error) {
+    server, ok := thread.(*GQLThread)
+    if ok == false {
+      return "", fmt.Errorf("GQL_THREAD_START: %s is not GQLThread, %+v", thread.ID(), thread.State())
+    }
+
+    ctx.Log.Logf("gql", "GQL_START_SERVER")
     // Serve the GQL http and ws handlers
     mux := http.NewServeMux()
     mux.HandleFunc("/gql", GQLHandler(ctx, server))
@@ -527,9 +503,8 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
         ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: tried to start %s whis is not a child")
         return nil
       }
-      if should_run.Start == true && should_run.Started == false {
-        ChildGo(ctx, server_state, thread, signal.Source(), should_run.FirstAction)
-        should_run.Started = true
+      if should_run.Start == true {
+        ChildGo(ctx, thread, server_state.Child(signal.Source()), should_run.StartState)
       }
       return nil
     })
@@ -540,7 +515,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
     server := thread.(*GQLThread)
     server.http_server.Shutdown(context.TODO())
     server.http_done.Wait()
-    return "", fmt.Errorf("GQLThread aborted by signal")
+    return "", NewThreadAbortedError(signal.Source())
   },
   "cancel": func(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_CANCEL")

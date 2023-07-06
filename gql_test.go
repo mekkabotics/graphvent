@@ -5,6 +5,7 @@ import (
   "time"
   "fmt"
   "encoding/json"
+  "errors"
 )
 
 func TestGQLThread(t * testing.T) {
@@ -35,7 +36,7 @@ func TestGQLThread(t * testing.T) {
     fatalErr(t, err)
   }(gql_thread)
 
-  err = RunThread(ctx, gql_thread, "start")
+  err = ThreadLoop(ctx, gql_thread, "start")
   fatalErr(t, err)
 }
 
@@ -58,13 +59,17 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
   err = UseStates(ctx, []GraphNode{gql}, func(states NodeStateMap) error {
     SendUpdate(ctx, gql, NewSignal(t1, "child_added"), states)
-    SendUpdate(ctx, gql, CancelSignal(nil), states)
+    SendUpdate(ctx, gql, AbortSignal(nil), states)
     return nil
   })
-  err = RunThread(ctx, gql, "start")
-  fatalErr(t, err)
+  err = ThreadLoop(ctx, gql, "start")
+  if errors.Is(err, NewThreadAbortedError("")) {
+    ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
+  } else {
+    fatalErr(t, err)
+  }
 
-  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1, 100*time.Millisecond, "Didn't receive thread_done from t1 on t1")
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", t1, 100*time.Millisecond, "Didn't receive thread_abort from t1 on t1")
 
   err = UseStates(ctx, []GraphNode{gql, t1}, func(states NodeStateMap) error {
     ser1, err := json.MarshalIndent(states[gql.ID()], "", "  ")
@@ -89,12 +94,16 @@ func TestGQLDBLoad(t * testing.T) {
       fmt.Printf("\n%s\n\n", ser)
       return err
     })
-    SendUpdate(ctx, gql_loaded, CancelSignal(nil), states)
+    SendUpdate(ctx, gql_loaded, AbortSignal(nil), states)
     return err
   })
 
-  err = RunThread(ctx, gql_loaded.(Thread), "restore")
-  fatalErr(t, err)
-  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_done", t1_loaded, 100*time.Millisecond, "Dicn't received update_done on t1_loaded from t1_loaded")
+  err = ThreadLoop(ctx, gql_loaded.(Thread), "restore")
+  if errors.Is(err, NewThreadAbortedError("")) {
+    ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
+  } else {
+    fatalErr(t, err)
+  }
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", t1_loaded, 100*time.Millisecond, "Dicn't received thread_aborted on t1_loaded from t1_loaded")
 
 }

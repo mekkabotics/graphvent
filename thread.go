@@ -68,6 +68,7 @@ type ThreadState interface {
   RemoveChild(child Thread)
   Start() error
   Stop() error
+  State() string
 
   TimeoutAction() string
   SetTimeout(end_time time.Time, action string)
@@ -75,11 +76,11 @@ type ThreadState interface {
 
 type BaseThreadState struct {
   BaseLockableState
+  state_name string
   parent Thread
   children []Thread
   child_info map[NodeID] ThreadInfo
   InfoType reflect.Type
-  running bool
   timeout time.Time
   timeout_action string
 }
@@ -89,6 +90,7 @@ type BaseThreadStateJSON struct {
   Children map[NodeID]interface{} `json:"children"`
   Timeout time.Time `json:"timeout"`
   TimeoutAction string `json:"timeout_action"`
+  StateName string `json:"state_name"`
   BaseLockableStateJSON
 }
 
@@ -111,6 +113,7 @@ func SaveBaseThreadState(state * BaseThreadState) BaseThreadStateJSON {
     Children: children,
     Timeout: state.timeout,
     TimeoutAction: state.timeout_action,
+    StateName: state.state_name,
     BaseLockableStateJSON: lockable_state,
   }
 
@@ -124,6 +127,8 @@ func RestoreBaseThread(ctx * GraphContext, id NodeID, actions ThreadActions, han
     Actions: actions,
     Handlers: handlers,
     child_waits: &sync.WaitGroup{},
+    active: false,
+    active_lock: &sync.Mutex{},
   }
 
   return thread
@@ -146,7 +151,7 @@ func RestoreBaseThreadState(ctx * GraphContext, j BaseThreadStateJSON, loaded_no
     children: make([]Thread, len(j.Children)),
     child_info: map[NodeID]ThreadInfo{},
     InfoType: nil,
-    running: false,
+    state_name: j.StateName,
     timeout: j.Timeout,
     timeout_action: j.TimeoutAction,
   }
@@ -228,19 +233,38 @@ func (state * BaseThreadState) MarshalJSON() ([]byte, error) {
   return json.Marshal(&thread_state)
 }
 
-func (state * BaseThreadState) Start() error {
-  if state.running == true {
-    return fmt.Errorf("Cannot start a running thread")
+func (state * BaseThreadState) State() string {
+  return state.state_name
+}
+
+func (state * BaseThreadState) SetState(new_state string) error {
+  if new_state == "init" {
+    return fmt.Errorf("Cannot set a thread to 'init' with SetState")
+  } else if new_state == "finished" {
+    return fmt.Errorf("Cannot set a thread to 'finished' with SetState")
+  } else if new_state == "started" {
+    return fmt.Errorf("Cannot set a thread to 'started' with SetState")
   }
-  state.running = true
+
+  state.state_name = new_state
+  return nil
+}
+
+func (state * BaseThreadState) Start() error {
+  if state.state_name != "init" {
+    return fmt.Errorf("Cannot start a thread that's already started")
+  }
+  state.state_name = "started"
   return nil
 }
 
 func (state * BaseThreadState) Stop() error {
-  if state.running == false {
-    return fmt.Errorf("Cannot stop a thread that's not running")
+  if state.state_name == "finished" {
+    return fmt.Errorf("Cannot stop a finished thread")
+  } else if state.state_name == "init" {
+    return fmt.Errorf("Cannot stop a thread that hasn't been started")
   }
-  state.running = false
+  state.state_name = "finished"
   return nil
 }
 
@@ -404,6 +428,8 @@ type Thread interface {
   ClearTimeout()
 
   ChildWaits() *sync.WaitGroup
+  Start() error
+  Stop() error
 }
 
 // Requires that thread is already locked for read in UseStates
@@ -430,16 +456,12 @@ func FindChild(ctx * GraphContext, thread Thread, id NodeID, states NodeStateMap
   return nil
 }
 
-func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_id NodeID, first_action string) {
-  child := thread_state.Child(child_id)
-  if child == nil {
-    panic(fmt.Errorf("Child not in thread, can't start %s", child_id))
-  }
+func ChildGo(ctx * GraphContext, thread Thread, child Thread, first_action string) {
   thread.ChildWaits().Add(1)
   go func(child Thread) {
     ctx.Log.Logf("thread", "THREAD_START_CHILD: %s from %s", thread.ID(), child.ID())
     defer thread.ChildWaits().Done()
-    err := RunThread(ctx, child, first_action)
+    err := ThreadLoop(ctx, child, first_action)
     if err != nil {
       ctx.Log.Logf("thread", "THREAD_CHILD_RUN_ERR: %s %e", child.ID(), err)
     } else {
@@ -448,39 +470,15 @@ func ChildGo(ctx * GraphContext, thread_state ThreadState, thread Thread, child_
   }(child)
 }
 
-func RunThread(ctx * GraphContext, thread Thread, first_action string) error {
-  ctx.Log.Logf("thread", "THREAD_RUN: %s", thread.ID())
-
-  err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
-    thread_state := thread.State().(ThreadState)
-    owner_id := NodeID("")
-    if thread_state.Owner() != nil {
-      owner_id = thread_state.Owner().ID()
-    }
-    if owner_id != thread.ID() {
-      return LockLockables(ctx, []Lockable{thread}, thread, nodes)
-    }
-    return nil
-  })
+// Main Loop for Threads
+func ThreadLoop(ctx * GraphContext, thread Thread, first_action string) error {
+  // Start the thread, error if double-started
+  ctx.Log.Logf("thread", "THREAD_LOOP_START: %s - %s", thread.ID(), first_action)
+  err := thread.Start()
   if err != nil {
+    ctx.Log.Logf("thread", "THREAD_LOOP_START_ERR: %e", err)
     return err
   }
-
-  err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) (error) {
-    thread_state := states[thread.ID()].(ThreadState)
-    if thread_state.Owner() == nil {
-      return fmt.Errorf("THREAD_RUN_NOT_LOCKED: %s", thread_state.Name())
-    } else if thread_state.Owner().ID() != thread.ID() {
-      return fmt.Errorf("THREAD_RUN_RESOURCE_ALREADY_LOCKED: %s, %s", thread_state.Name(), thread_state.Owner().ID())
-    } else if err := thread_state.Start(); err != nil {
-      return fmt.Errorf("THREAD_START_ERR: %e", err)
-    }
-    return nil
-  })
-  if err != nil {
-    return err
-  }
-
   next_action := first_action
   for next_action != "" {
     action, exists := thread.Action(next_action)
@@ -496,31 +494,27 @@ func RunThread(ctx * GraphContext, thread Thread, first_action string) error {
     }
   }
 
-  err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) (error) {
-    thread_state := states[thread.ID()].(ThreadState)
-    err := thread_state.Stop()
-    return err
-
-  })
+  err = thread.Stop()
   if err != nil {
-    ctx.Log.Logf("thread", "THREAD_RUN_STOP_ERR: %e", err)
+    ctx.Log.Logf("thread", "THREAD_LOOP_STOP_ERR: %e", err)
     return err
   }
 
   err = UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
+    thread_state := thread.State().(ThreadState)
+    err := thread_state.Stop()
+    if err != nil {
+      return err
+    }
     return UnlockLockables(ctx, []Lockable{thread}, thread, nodes)
   })
+
   if err != nil {
-    ctx.Log.Logf("thread", "THREAD_RUN_UNLOCK_ERR: %e", err)
+    ctx.Log.Logf("thread", "THREAD_LOOP_UNLOCK_ERR: %e", err)
     return err
   }
 
-  err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
-    SendUpdate(ctx, thread, NewSignal(thread, "thread_done"), states)
-    return nil
-  })
-
-  ctx.Log.Logf("thread", "THREAD_RUN_DONE: %s", thread.ID())
+  ctx.Log.Logf("thread", "THREAD_LOOP_DONE: %s", thread.ID())
 
   return nil
 }
@@ -542,10 +536,32 @@ type BaseThread struct {
 
   timeout_chan <-chan time.Time
   child_waits *sync.WaitGroup
+  active bool
+  active_lock *sync.Mutex
 }
 
 func (thread * BaseThread) ChildWaits() *sync.WaitGroup {
   return thread.child_waits
+}
+
+func (thread * BaseThread) Start() error {
+  thread.active_lock.Lock()
+  defer thread.active_lock.Unlock()
+  if thread.active == true {
+    return fmt.Errorf("%s is active, cannot start", thread.ID())
+  }
+  thread.active = true
+  return nil
+}
+
+func (thread * BaseThread) Stop() error {
+  thread.active_lock.Lock()
+  defer thread.active_lock.Unlock()
+  if thread.active == false {
+    return fmt.Errorf("%s is not active, cannot stop", thread.ID())
+  }
+  thread.active = false
+  return nil
 }
 
 func (thread * BaseThread) CanLock(node GraphNode, state LockableState) error {
@@ -586,8 +602,35 @@ func (thread * BaseThread) SetTimeout(end time.Time) {
   thread.timeout_chan = time.After(time.Until(end))
 }
 
+var ThreadStart = func(ctx * GraphContext, thread Thread) error {
+  err := UpdateStates(ctx, []GraphNode{thread}, func(nodes NodeMap) (error) {
+    thread_state := thread.State().(ThreadState)
+    owner_id := NodeID("")
+    if thread_state.Owner() != nil {
+      owner_id = thread_state.Owner().ID()
+    }
+    if owner_id != thread.ID() {
+      err := LockLockables(ctx, []Lockable{thread}, thread, nodes)
+      if err != nil {
+        return err
+      }
+    }
+    return thread_state.Start()
+  })
+
+  if err != nil {
+    return err
+  }
+
+  return nil
+}
+
 var ThreadDefaultStart = func(ctx * GraphContext, thread Thread) (string, error) {
-  ctx.Log.Logf("thread", "THREAD_DEFAUL_START: %s", thread.ID())
+  ctx.Log.Logf("thread", "THREAD_DEFAULT_START: %s", thread.ID())
+  err := ThreadStart(ctx, thread)
+  if err != nil {
+    return "", err
+  }
   return "wait", nil
 }
 
@@ -630,11 +673,35 @@ var ThreadWait = func(ctx * GraphContext, thread Thread) (string, error) {
   }
 }
 
-var ThreadAbort = func(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
-  return "", fmt.Errorf("%s aborted by signal from %s", thread.ID(), signal.Source())
+type ThreadAbortedError NodeID
+
+func (e ThreadAbortedError) Is(target error) bool {
+  error_type := reflect.TypeOf(ThreadAbortedError(""))
+  target_type := reflect.TypeOf(target)
+  return error_type == target_type
+}
+func (e ThreadAbortedError) Error() string {
+  return fmt.Sprintf("Aborted by %s", string(e))
+}
+func NewThreadAbortedError(aborter NodeID) ThreadAbortedError {
+  return ThreadAbortedError(aborter)
 }
 
-var ThreadCancel = func(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
+// Default thread abort is to return a ThreadAbortedError
+func ThreadAbort(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
+  UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
+    SendUpdate(ctx, thread, NewSignal(thread, "thread_aborted"), states)
+    return nil
+  })
+  return "", NewThreadAbortedError(signal.Source())
+}
+
+// Default thread cancel is to finish the thread
+func ThreadCancel(ctx * GraphContext, thread Thread, signal GraphSignal) (string, error) {
+  UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
+    SendUpdate(ctx, thread, NewSignal(thread, "thread_cancelled"), states)
+    return nil
+  })
   return "", nil
 }
 
@@ -646,6 +713,7 @@ func NewBaseThreadState(name string, _type string) BaseThreadState {
     parent: nil,
     timeout: time.Time{},
     timeout_action: "wait",
+    state_name: "init",
   }
 }
 
@@ -689,6 +757,8 @@ func NewBaseThread(ctx * GraphContext, actions ThreadActions, handlers ThreadHan
     Actions: actions,
     Handlers: handlers,
     child_waits: &sync.WaitGroup{},
+    active: false,
+    active_lock: &sync.Mutex{},
   }
 
   return thread, nil
