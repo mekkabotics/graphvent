@@ -9,7 +9,7 @@ import (
 
 func TestGQLThread(t * testing.T) {
   ctx := logTestContext(t, []string{})
-  gql_thread, err := NewGQLThread(ctx, ":8080", []Lockable{})
+  gql_thread, err := NewGQLThread(ctx, ":0", []Lockable{})
   fatalErr(t, err)
 
   test_thread_1, err := NewSimpleThread(ctx, "Test thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
@@ -28,10 +28,11 @@ func TestGQLThread(t * testing.T) {
 
   go func(thread Thread){
     time.Sleep(10*time.Millisecond)
-    err = UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
+    err := UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
       SendUpdate(ctx, thread, CancelSignal(nil), states)
       return nil
     })
+    fatalErr(t, err)
   }(gql_thread)
 
   err = RunThread(ctx, gql_thread, "start")
@@ -47,7 +48,7 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
   update_channel := t1.UpdateChannel(10)
 
-  gql, err := NewGQLThread(ctx, ":8080", []Lockable{l1})
+  gql, err := NewGQLThread(ctx, ":0", []Lockable{l1})
   fatalErr(t, err)
 
   info := NewGQLThreadInfo(true, "start", "restore")

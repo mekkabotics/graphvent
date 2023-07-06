@@ -271,12 +271,12 @@ func TestLockableLockTieredConflict(t * testing.T) {
 }
 
 func TestLockableSimpleUpdate(t * testing.T) {
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"test", "update", "lockable"})
 
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
 
-  update_channel := l1.UpdateChannel(0)
+  update_channel := l1.UpdateChannel(1)
 
   go func() {
     UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) error {
@@ -289,7 +289,7 @@ func TestLockableSimpleUpdate(t * testing.T) {
 }
 
 func TestLockableDownUpdate(t * testing.T) {
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"test", "update", "lockable"})
 
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
@@ -300,7 +300,7 @@ func TestLockableDownUpdate(t * testing.T) {
   _, err = NewSimpleLockable(ctx, "Test Lockable 3", []Lockable{l2})
   fatalErr(t, err)
 
-  update_channel := l1.UpdateChannel(0)
+  update_channel := l1.UpdateChannel(1)
 
   go func() {
     UseStates(ctx, []GraphNode{l2}, func(states NodeStateMap) error {
@@ -313,7 +313,7 @@ func TestLockableDownUpdate(t * testing.T) {
 }
 
 func TestLockableUpUpdate(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "update"})
+  ctx := logTestContext(t, []string{"test", "update", "lockable"})
 
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
@@ -324,7 +324,7 @@ func TestLockableUpUpdate(t * testing.T) {
   l3, err := NewSimpleLockable(ctx, "Test Lockable 3", []Lockable{l2})
   fatalErr(t, err)
 
-  update_channel := l3.UpdateChannel(0)
+  update_channel := l3.UpdateChannel(1)
 
   go func() {
     UseStates(ctx, []GraphNode{l2}, func(states NodeStateMap) error {
@@ -337,7 +337,7 @@ func TestLockableUpUpdate(t * testing.T) {
 }
 
 func TestOwnerNotUpdatedTwice(t * testing.T) {
-  ctx := testContext(t)
+  ctx := logTestContext(t, []string{"test", "update", "lockable"})
 
   l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
   fatalErr(t, err)
@@ -345,7 +345,7 @@ func TestOwnerNotUpdatedTwice(t * testing.T) {
   l2, err := NewSimpleLockable(ctx, "Test Lockable 2", []Lockable{l1})
   fatalErr(t, err)
 
-  update_channel := l2.UpdateChannel(0)
+  update_channel := l2.UpdateChannel(1)
 
   go func() {
     UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) error {
