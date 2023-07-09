@@ -12,7 +12,7 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForValue(ctx * GraphContext, listener chan GraphSignal, signal_type string, source GraphNode, timeout time.Duration, str string) GraphSignal {
+func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, signal_type string, source Node, timeout time.Duration, str string) GraphSignal {
   timeout_channel := time.After(timeout)
   for true {
     select {
@@ -52,22 +52,22 @@ func (t * GraphTester) CheckForNone(listener chan GraphSignal, str string) {
   }
 }
 
-func logTestContext(t * testing.T, components []string) * GraphContext {
+func logTestContext(t * testing.T, components []string) * Context {
   db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
   if err != nil {
     t.Fatal(err)
   }
 
-  return NewGraphContext(db, NewConsoleLogger(components), StateLoadMap{}, NodeLoadMap{}, InfoLoadMap{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  return NewContext(db, NewConsoleLogger(components), map[string]NodeLoadFunc{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
 }
 
-func testContext(t * testing.T) * GraphContext {
+func testContext(t * testing.T) * Context {
   db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
   if err != nil {
     t.Fatal(err)
   }
 
-  return NewGraphContext(db, NewConsoleLogger([]string{}), StateLoadMap{}, NodeLoadMap{}, InfoLoadMap{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  return NewContext(db, NewConsoleLogger([]string{}), map[string]NodeLoadFunc{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
 }
 
 func fatalErr(t * testing.T, err error) {
