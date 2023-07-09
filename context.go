@@ -191,11 +191,11 @@ func NewContext(db * badger.DB, log Logger, extra_nodes map[string]NodeLoadFunc,
   if err != nil {
     panic(err)
   }
-  /*err := ctx.RegisterNodeType("simple_thread", LoadSimpleThread)
+  err = ctx.RegisterNodeType("simple_thread", LoadSimpleThread)
   if err != nil {
     panic(err)
   }
-  err := ctx.RegisterNodeType("gql_thread", LoadGQLThread)
+  /*err := ctx.RegisterNodeType("gql_thread", LoadGQLThread)
   if err != nil {
     panic(err)
   }*/

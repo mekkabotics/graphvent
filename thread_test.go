@@ -4,7 +4,6 @@ import (
   "testing"
   "time"
   "fmt"
-  "encoding/json"
 )
 
 func TestNewThread(t * testing.T) {
@@ -87,7 +86,7 @@ func TestThreadDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   err = UseStates(ctx, []Node{t1}, func(nodes NodeMap) error {
-    ser, err := json.MarshalIndent(nodes[t1.ID()], "", "  ")
+    ser, err := t1.Serialize()
     fmt.Printf("\n%s\n\n", ser)
     return err
   })
@@ -96,7 +95,7 @@ func TestThreadDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   err = UseStates(ctx, []Node{t1_loaded}, func(nodes NodeMap) error {
-    ser, err := json.MarshalIndent(nodes[t1_loaded.ID()], "", "  ")
+    ser, err := t1_loaded.Serialize()
     fmt.Printf("\n%s\n\n", ser)
     return err
   })

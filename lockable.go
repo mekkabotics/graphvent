@@ -7,7 +7,7 @@ import (
 
 // A Lockable represents a Node that can be locked and hold other Nodes locks
 type Lockable interface {
-  // All Lockable's are nodes
+  // All Lockables are nodes
   Node
   //// State Modification Function
   // Record that lockable was returned to it's owner and is no longer held by this Node
@@ -214,6 +214,10 @@ func (lockable * SimpleLockable) CanUnlock(new_owner Lockable) error {
 
 // lockable must already be locked for read
 func (lockable * SimpleLockable) Signal(ctx *Context, signal GraphSignal, nodes NodeMap) error {
+  err := lockable.GraphNode.Signal(ctx, signal, nodes)
+  if err != nil {
+    return err
+  }
   if signal.Direction() == Up {
     // Child->Parent, lockable updates dependency lockables
     owner_sent := false
@@ -253,8 +257,7 @@ func (lockable * SimpleLockable) Signal(ctx *Context, signal GraphSignal, nodes 
   } else {
     panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
   }
-  // Run the base update function, and return
-  return lockable.GraphNode.Signal(ctx, signal, nodes)
+  return nil
 }
 
 // Requires lockable and requirement's states to be locked for write

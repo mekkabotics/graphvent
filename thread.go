@@ -267,6 +267,10 @@ type SimpleThread struct {
   timeout_action string
 }
 
+func (thread * SimpleThread) Type() NodeType {
+  return NodeType("simple_thread")
+}
+
 func (thread * SimpleThread) Serialize() ([]byte, error) {
   thread_json := NewSimpleThreadJSON(thread)
   return json.MarshalIndent(&thread_json, "", "  ")
