@@ -10,22 +10,21 @@ import (
 func TestNewThread(t * testing.T) {
   ctx := testContext(t)
 
-  t1, err := NewSimpleThread(ctx, "Test thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
+  t1_r := NewSimpleThread(RandID(), "Test thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t1 := &t1_r
 
   go func(thread Thread) {
     time.Sleep(10*time.Millisecond)
-    UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
-      SendUpdate(ctx, t1, CancelSignal(nil), states)
-      return nil
+    UseStates(ctx, []Node{t1}, func(nodes NodeMap) error {
+      return t1.Signal(ctx, CancelSignal(nil), nodes)
     })
   }(t1)
 
-  err = ThreadLoop(ctx, t1, "start")
+  err := ThreadLoop(ctx, t1, "start")
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) (error) {
-    owner := states[t1.ID()].(ThreadState).Owner()
+  err = UseStates(ctx, []Node{t1}, func(nodes NodeMap) (error) {
+    owner := t1.owner
     if owner != nil {
       return fmt.Errorf("Wrong owner %+v", owner)
     }
@@ -36,17 +35,21 @@ func TestNewThread(t * testing.T) {
 func TestThreadWithRequirement(t * testing.T) {
   ctx := testContext(t)
 
-  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
-  fatalErr(t, err)
+  l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
+  l1 := &l1_r
 
-  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{l1}, BaseThreadActions, BaseThreadHandlers)
+  t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t1 := &t1_r
+
+  err := UpdateStates(ctx, []Node{l1, t1}, func(nodes NodeMap) error {
+    return LinkLockables(ctx, t1, []Lockable{l1}, nodes)
+  })
   fatalErr(t, err)
 
   go func (thread Thread) {
     time.Sleep(10*time.Millisecond)
-    UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
-      SendUpdate(ctx, t1, CancelSignal(nil), states)
-      return nil
+    UseStates(ctx, []Node{t1}, func(nodes NodeMap) error {
+      return t1.Signal(ctx, CancelSignal(nil), nodes)
     })
   }(t1)
   fatalErr(t, err)
@@ -54,8 +57,8 @@ func TestThreadWithRequirement(t * testing.T) {
   err = ThreadLoop(ctx, t1, "start")
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{l1}, func(states NodeStateMap) (error) {
-    owner := states[l1.ID()].(LockableState).Owner()
+  err = UseStates(ctx, []Node{l1}, func(nodes NodeMap) (error) {
+    owner := l1.owner
     if owner != nil {
       return fmt.Errorf("Wrong owner %+v", owner)
     }
@@ -66,22 +69,25 @@ func TestThreadWithRequirement(t * testing.T) {
 
 func TestThreadDBLoad(t * testing.T) {
   ctx := logTestContext(t, []string{})
-  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
-  fatalErr(t, err)
+  l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
+  l1 := &l1_r
+  t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t1 := &t1_r
 
-  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{l1}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
-
-
-  UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
-    SendUpdate(ctx, t1, CancelSignal(nil), states)
-    return nil
+  err := UpdateStates(ctx, []Node{t1, l1}, func(nodes NodeMap) error {
+    return LinkLockables(ctx, t1, []Lockable{l1}, nodes)
   })
+
+  err = UseStates(ctx, []Node{t1}, func(nodes NodeMap) error {
+    return t1.Signal(ctx, CancelSignal(nil), nodes)
+  })
+  fatalErr(t, err)
+
   err = ThreadLoop(ctx, t1, "start")
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{t1}, func(states NodeStateMap) error {
-    ser, err := json.MarshalIndent(states[t1.ID()], "", "  ")
+  err = UseStates(ctx, []Node{t1}, func(nodes NodeMap) error {
+    ser, err := json.MarshalIndent(nodes[t1.ID()], "", "  ")
     fmt.Printf("\n%s\n\n", ser)
     return err
   })
@@ -89,8 +95,8 @@ func TestThreadDBLoad(t * testing.T) {
   t1_loaded, err := LoadNode(ctx, t1.ID())
   fatalErr(t, err)
 
-  err = UseStates(ctx, []GraphNode{t1_loaded}, func(states NodeStateMap) error {
-    ser, err := json.MarshalIndent(states[t1_loaded.ID()], "", "  ")
+  err = UseStates(ctx, []Node{t1_loaded}, func(nodes NodeMap) error {
+    ser, err := json.MarshalIndent(nodes[t1_loaded.ID()], "", "  ")
     fmt.Printf("\n%s\n\n", ser)
     return err
   })
@@ -98,15 +104,20 @@ func TestThreadDBLoad(t * testing.T) {
 
 func TestThreadUnlink(t * testing.T) {
   ctx := logTestContext(t, []string{})
-  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
+  t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t1 := &t1_r
+  t2_r := NewSimpleThread(RandID(), "Test Thread 2", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t2 := &t2_r
 
-  t2, err := NewSimpleThread(ctx, "Test Thread 2", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
 
-  err = LinkThreads(ctx, t1, t2, nil)
-  fatalErr(t, err)
+  err := UpdateStates(ctx, []Node{t1, t2}, func(nodes NodeMap) error {
+    err := LinkThreads(ctx, t1, t2, nil, nodes)
+    if err != nil {
+      return err
+    }
 
-  err = UnlinkThreads(ctx, t1, t2)
+    return UnlinkThreads(ctx, t1, t2)
+  })
   fatalErr(t, err)
 }
+
