@@ -4,64 +4,74 @@ import (
   "testing"
   "time"
   "fmt"
-  "encoding/json"
   "errors"
 )
 
 func TestGQLThread(t * testing.T) {
   ctx := logTestContext(t, []string{})
-  gql_thread, err := NewGQLThread(ctx, ":0", []Lockable{})
-  fatalErr(t, err)
+  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0")
+  gql_t := &gql_t_r
 
-  test_thread_1, err := NewSimpleThread(ctx, "Test thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
+  t1_r := NewSimpleThread(RandID(), "Test thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t1 := &t1_r
+  t2_r := NewSimpleThread(RandID(), "Test thread 2", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t2 := &t2_r
 
-  test_thread_2, err := NewSimpleThread(ctx, "Test thread 2", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
+  err := UpdateStates(ctx, []Node{gql_t, t1, t2}, func(nodes NodeMap) error {
+    i1 := NewGQLThreadInfo(true, "start", "restore")
+    err := LinkThreads(ctx, gql_t, t1, &i1, nodes)
+    if err != nil {
+      return err
+    }
 
-  i1 := NewGQLThreadInfo(true, "start", "restore")
-  err = LinkThreads(ctx, gql_thread, test_thread_1, &i1)
-  fatalErr(t, err)
-
-  i2 := NewGQLThreadInfo(false, "start", "restore")
-  err = LinkThreads(ctx, gql_thread, test_thread_2, &i2)
+    i2 := NewGQLThreadInfo(false, "start", "restore")
+    return LinkThreads(ctx, gql_t, t2, &i2, nodes)
+  })
   fatalErr(t, err)
 
   go func(thread Thread){
     time.Sleep(10*time.Millisecond)
-    err := UseStates(ctx, []GraphNode{thread}, func(states NodeStateMap) error {
-      SendUpdate(ctx, thread, CancelSignal(nil), states)
-      return nil
+    err := UseStates(ctx, []Node{thread}, func(nodes NodeMap) error {
+      return thread.Signal(ctx, CancelSignal(nil), nodes)
     })
     fatalErr(t, err)
-  }(gql_thread)
+  }(gql_t)
 
-  err = ThreadLoop(ctx, gql_thread, "start")
+  err = ThreadLoop(ctx, gql_t, "start")
   fatalErr(t, err)
 }
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"thread", "update", "gql"})
-  l1, err := NewSimpleLockable(ctx, "Test Lockable 1", []Lockable{})
-  fatalErr(t, err)
+  ctx := logTestContext(t, []string{"thread", "signal", "gql", "test"})
+  l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
+  l1 := &l1_r
 
-  t1, err := NewSimpleThread(ctx, "Test Thread 1", []Lockable{}, BaseThreadActions, BaseThreadHandlers)
-  fatalErr(t, err)
-  update_channel := t1.UpdateChannel(10)
+  t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
+  t1 := &t1_r
+  update_channel := UpdateChannel(t1, 10, "test")
 
-  gql, err := NewGQLThread(ctx, ":0", []Lockable{l1})
-  fatalErr(t, err)
+  gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":8080")
+  gql := &gql_r
 
   info := NewGQLThreadInfo(true, "start", "restore")
-  err = UpdateStates(ctx, []GraphNode{gql, t1}, func(nodes NodeMap) error {
-    return LinkThreads(ctx, gql, t1, &info)
+  err := UpdateStates(ctx, []Node{gql, t1}, func(nodes NodeMap) error {
+    err := LinkLockables(ctx, gql, []Lockable{l1}, nodes)
+    if err != nil {
+      return err
+    }
+    return LinkThreads(ctx, gql, t1, &info, nodes)
   })
   fatalErr(t, err)
-  err = UseStates(ctx, []GraphNode{gql}, func(states NodeStateMap) error {
-    SendUpdate(ctx, gql, NewSignal(t1, "child_added"), states)
-    SendUpdate(ctx, gql, AbortSignal(nil), states)
-    return nil
+
+  err = UseStates(ctx, []Node{gql}, func(nodes NodeMap) error {
+    err := gql.Signal(ctx, NewSignal(t1, "child_added"), nodes)
+    if err != nil {
+      return nil
+    }
+    return gql.Signal(ctx, AbortSignal(nil), nodes)
   })
+  fatalErr(t, err)
+
   err = ThreadLoop(ctx, gql, "start")
   if errors.Is(err, NewThreadAbortedError("")) {
     ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
@@ -71,9 +81,9 @@ func TestGQLDBLoad(t * testing.T) {
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", t1, 100*time.Millisecond, "Didn't receive thread_abort from t1 on t1")
 
-  err = UseStates(ctx, []GraphNode{gql, t1}, func(states NodeStateMap) error {
-    ser1, err := json.MarshalIndent(states[gql.ID()], "", "  ")
-    ser2, err := json.MarshalIndent(states[t1.ID()], "", "  ")
+  err = UseStates(ctx, []Node{gql, t1}, func(nodes NodeMap) error {
+    ser1, err := gql.Serialize()
+    ser2, err := t1.Serialize()
     fmt.Printf("\n%s\n\n", ser1)
     fmt.Printf("\n%s\n\n", ser2)
     return err
@@ -81,20 +91,21 @@ func TestGQLDBLoad(t * testing.T) {
 
   gql_loaded, err := LoadNode(ctx, gql.ID())
   fatalErr(t, err)
-  var t1_loaded *BaseThread = nil
+  var t1_loaded *SimpleThread = nil
 
-  err = UseStates(ctx, []GraphNode{gql_loaded}, func(states NodeStateMap) error {
-    ser, err := json.MarshalIndent(states[gql_loaded.ID()], "", "  ")
+  var update_channel_2 chan GraphSignal
+  err = UseStates(ctx, []Node{gql_loaded}, func(nodes NodeMap) error {
+    ser, err := gql_loaded.Serialize()
     fmt.Printf("\n%s\n\n", ser)
-    child := states[gql_loaded.ID()].(ThreadState).Children()[0]
-    t1_loaded = child.(*BaseThread)
-    update_channel = t1_loaded.UpdateChannel(10)
-    err = UseMoreStates(ctx, []GraphNode{child}, states, func(states NodeStateMap) error {
-      ser, err := json.MarshalIndent(states[child.ID()], "", "  ")
+    child := gql_loaded.(Thread).Children()[0].(*SimpleThread)
+    t1_loaded = child
+    update_channel_2 = UpdateChannel(t1_loaded, 10, "test")
+    err = UseMoreStates(ctx, []Node{child}, nodes, func(nodes NodeMap) error {
+      ser, err := child.Serialize()
       fmt.Printf("\n%s\n\n", ser)
       return err
     })
-    SendUpdate(ctx, gql_loaded, AbortSignal(nil), states)
+    gql_loaded.Signal(ctx, AbortSignal(nil), nodes)
     return err
   })
 
@@ -104,6 +115,6 @@ func TestGQLDBLoad(t * testing.T) {
   } else {
     fatalErr(t, err)
   }
-  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", t1_loaded, 100*time.Millisecond, "Dicn't received thread_aborted on t1_loaded from t1_loaded")
+  (*GraphTester)(t).WaitForValue(ctx, update_channel_2, "thread_aborted", t1_loaded, 100*time.Millisecond, "Dicn't received thread_aborted on t1_loaded from t1_loaded")
 
 }

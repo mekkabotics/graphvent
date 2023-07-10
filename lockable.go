@@ -27,6 +27,7 @@ type Lockable interface {
   SetOwner(new_owner Lockable)
 
   //// State Reading Functions
+  Name() string
   // Called when new_owner wants to take lockable's lock but it's owned by this node
   // A true return value means that the lock can be passed
   AllowedToTakeLock(new_owner Lockable, lockable Lockable) bool

@@ -145,7 +145,7 @@ func (thread * SimpleThread) AddChild(child Thread, info ThreadInfo) error {
     return fmt.Errorf("nil info passed when expecting info")
   } else if info != nil {
     if reflect.TypeOf(info) != thread.InfoType {
-      return fmt.Errorf("info type mismatch, expecting %+v", thread.InfoType)
+      return fmt.Errorf("info type mismatch, expecting %+v - %+v", thread.InfoType, reflect.TypeOf(info))
     }
   }
 
@@ -388,6 +388,7 @@ const THREAD_SIGNAL_BUFFER_SIZE = 128
 func NewSimpleThread(id NodeID, name string, state_name string, info_type reflect.Type, actions ThreadActions, handlers ThreadHandlers) SimpleThread {
   return SimpleThread{
     SimpleLockable: NewSimpleLockable(id, name),
+    InfoType: info_type,
     state_name: state_name,
     signal: make(chan GraphSignal, THREAD_SIGNAL_BUFFER_SIZE),
     children: []Thread{},

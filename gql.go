@@ -344,15 +344,18 @@ func (thread * GQLThread) Serialize() ([]byte, error) {
   return json.MarshalIndent(&thread_json, "", "  ")
 }
 
+func (thread * GQLThread) DeserializeInfo(ctx *Context, data []byte) (ThreadInfo, error) {
+  var info GQLThreadInfo
+  err := json.Unmarshal(data, &info)
+  if err != nil {
+    return nil, err
+  }
+  return &info, nil
+}
+
 type GQLThreadJSON struct {
   SimpleThreadJSON
   Listen string `json:"listen"`
-}
-
-type GQLThreadInfo struct {
-  Start bool `json:"start"`
-  StartAction string `json:"start_action"`
-  RestoreAction string `json:"restore_action"`
 }
 
 func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
@@ -361,6 +364,20 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
   return GQLThreadJSON{
     SimpleThreadJSON: thread_json,
     Listen: thread.Listen,
+  }
+}
+
+type GQLThreadInfo struct {
+  Start bool `json:"start"`
+  StartAction string `json:"start_action"`
+  RestoreAction string `json:"restore_action"`
+}
+
+func NewGQLThreadInfo(start bool, start_action string, restore_action string) GQLThreadInfo {
+  return GQLThreadInfo{
+    Start: start,
+    StartAction: start_action,
+    RestoreAction: restore_action,
   }
 }
 
@@ -386,6 +403,7 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string) GQLT
   return GQLThread{
     SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*GQLThreadInfo)(nil)), gql_actions, gql_handlers),
     Listen: listen,
+    http_done: &sync.WaitGroup{},
   }
 }
 
@@ -479,14 +497,14 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
     server := thread.(*GQLThread)
     server.http_server.Shutdown(context.TODO())
     server.http_done.Wait()
-    return "", NewThreadAbortedError(signal.Source())
+    return ThreadAbort(ctx, thread, signal)
   },
   "cancel": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_CANCEL")
     server := thread.(*GQLThread)
     server.http_server.Shutdown(context.TODO())
     server.http_done.Wait()
-    return "", nil
+    return ThreadCancel(ctx, thread, signal)
   },
 }
 
