@@ -115,6 +115,6 @@ func TestGQLDBLoad(t * testing.T) {
   } else {
     fatalErr(t, err)
   }
-  (*GraphTester)(t).WaitForValue(ctx, update_channel_2, "thread_aborted", t1_loaded, 100*time.Millisecond, "Dicn't received thread_aborted on t1_loaded from t1_loaded")
+  (*GraphTester)(t).WaitForValue(ctx, update_channel_2, "thread_aborted", t1_loaded, 100*time.Millisecond, "Didn't received thread_aborted on t1_loaded from t1_loaded")
 
 }

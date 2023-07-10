@@ -69,7 +69,7 @@ type GQLContext struct {
   ThreadType reflect.Type
 }
 
-/*func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extended_queries FieldMap, extended_subscriptions FieldMap, extended_mutations FieldMap) (*GQLContext, error) {
+func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extended_queries FieldMap, extended_subscriptions FieldMap, extended_mutations FieldMap) (*GQLContext, error) {
   type_list := TypeList{
     GQLTypeSignalInput(),
   }
@@ -79,8 +79,9 @@ type GQLContext struct {
   }
 
   type_map := ObjTypeMap{}
-  type_map[reflect.TypeOf((*BaseLockable)(nil))] =  GQLTypeBaseLockable()
-  type_map[reflect.TypeOf((*BaseThread)(nil))] = GQLTypeBaseThread()
+  type_map[reflect.TypeOf((*GraphNode)(nil))] =  GQLTypeBaseNode()
+  type_map[reflect.TypeOf((*SimpleLockable)(nil))] =  GQLTypeBaseLockable()
+  type_map[reflect.TypeOf((*SimpleThread)(nil))] = GQLTypeBaseThread()
   type_map[reflect.TypeOf((*GQLThread)(nil))] = GQLTypeGQLThread()
   type_map[reflect.TypeOf((*BaseSignal)(nil))] = GQLTypeSignal()
 
@@ -92,7 +93,7 @@ type GQLContext struct {
   valid_lockables := ObjTypeMap{}
   valid_threads := ObjTypeMap{}
 
-  node_type := reflect.TypeOf((*GraphNode)(nil)).Elem()
+  node_type := reflect.TypeOf((*Node)(nil)).Elem()
   lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
   thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
 
@@ -166,16 +167,16 @@ type GQLContext struct {
   }
 
   return &ctx, nil
-}*/
+}
 
 func NewContext(db * badger.DB, log Logger, extra_nodes map[string]NodeLoadFunc, types TypeList, type_map ObjTypeMap, queries FieldMap, subscriptions FieldMap, mutations FieldMap) * Context {
-  /*gql, err := NewGQLContext(types, type_map, queries, subscriptions, mutations)
+  gql, err := NewGQLContext(types, type_map, queries, subscriptions, mutations)
   if err != nil {
     panic(err)
-  }*/
+  }
 
   ctx := &Context{
-    GQL: nil,
+    GQL: gql,
     DB: db,
     Log: log,
     Types: map[uint64]NodeDef{},
@@ -183,7 +184,7 @@ func NewContext(db * badger.DB, log Logger, extra_nodes map[string]NodeLoadFunc,
 
 
 
-  err := ctx.RegisterNodeType("graph_node", LoadGraphNode)
+  err = ctx.RegisterNodeType("graph_node", LoadGraphNode)
   if err != nil {
     panic(err)
   }

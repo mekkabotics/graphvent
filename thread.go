@@ -340,7 +340,9 @@ func (thread * SimpleThread) DeserializeInfo(ctx *Context, data []byte) (ThreadI
 }
 
 func RestoreSimpleThread(ctx *Context, thread Thread, j SimpleThreadJSON, nodes NodeMap) error {
-  thread.SetTimeout(j.Timeout, j.TimeoutAction)
+  if j.TimeoutAction != "" {
+    thread.SetTimeout(j.Timeout, j.TimeoutAction)
+  }
 
   if j.Parent != nil {
     p, err := LoadNodeRecurse(ctx, *j.Parent, nodes)
@@ -354,9 +356,6 @@ func RestoreSimpleThread(ctx *Context, thread Thread, j SimpleThreadJSON, nodes 
     thread.SetParent(p_t)
   }
 
-  // TODO: Call different loading functions(to return different ThreadInfo types, based on the j.Type,
-  // Will probably have to add another set of callbacks to the context for this, and since there's now 3 sets that need to be matching it could be useful to move them to a struct so it's easier to keep in sync
-  i := 0
   for id, info_raw := range(j.Children) {
     child_node, err := LoadNodeRecurse(ctx, id, nodes)
     if err != nil {
@@ -378,7 +377,6 @@ func RestoreSimpleThread(ctx *Context, thread Thread, j SimpleThreadJSON, nodes 
     }
 
     thread.AddChild(child_t, parsed_info)
-    i++
   }
 
   return RestoreSimpleLockable(ctx, thread, j.SimpleLockableJSON, nodes)
