@@ -91,6 +91,10 @@ func GQLInterfaceThread() *graphql.Interface {
       Type: graphql.String,
     })
 
+    gql_interface_thread.AddFieldConfig("State", &graphql.Field{
+      Type: graphql.String,
+    })
+
     gql_interface_thread.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListThread(),
     })
@@ -235,6 +239,30 @@ func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
   }
 
   return parent, nil
+}
+
+func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(Thread)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to Thread")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*Context)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
+  }
+
+  var state string
+  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+    state = node.State()
+    return nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  return state, nil
 }
 
 func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
@@ -385,6 +413,11 @@ func GQLTypeGQLThread() * graphql.Object {
       Resolve: GQLLockableName,
     })
 
+    gql_type_gql_thread.AddFieldConfig("State", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLThreadState,
+    })
+
     gql_type_gql_thread.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListThread(),
       Resolve: GQLThreadChildren,
@@ -422,7 +455,7 @@ var gql_type_simple_thread *graphql.Object = nil
 func GQLTypeSimpleThread() * graphql.Object {
   if gql_type_simple_thread == nil {
     gql_type_simple_thread = graphql.NewObject(graphql.ObjectConfig{
-      Name: "BaseThread",
+      Name: "SimpleThread",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
         GQLInterfaceThread(),
@@ -454,6 +487,11 @@ func GQLTypeSimpleThread() * graphql.Object {
     gql_type_simple_thread.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLLockableName,
+    })
+
+    gql_type_simple_thread.AddFieldConfig("State", &graphql.Field{
+      Type: graphql.String,
+      Resolve: GQLThreadState,
     })
 
     gql_type_simple_thread.AddFieldConfig("Children", &graphql.Field{
@@ -488,7 +526,7 @@ var gql_type_simple_lockable *graphql.Object = nil
 func GQLTypeSimpleLockable() * graphql.Object {
   if gql_type_simple_lockable == nil {
     gql_type_simple_lockable = graphql.NewObject(graphql.ObjectConfig{
-      Name: "BaseLockable",
+      Name: "SimpleLockable",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
         GQLInterfaceLockable(),
@@ -543,7 +581,7 @@ var gql_type_simple_node *graphql.Object = nil
 func GQLTypeGraphNode() * graphql.Object {
   if gql_type_simple_node == nil {
     gql_type_simple_node = graphql.NewObject(graphql.ObjectConfig{
-      Name: "BaseNode",
+      Name: "GraphNode",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
       },
