@@ -28,7 +28,7 @@ func GQLInterfaceNode() *graphql.Interface {
         }
 
         if p_type.Implements(node_type) {
-          return GQLTypeBaseNode()
+          return GQLTypeGraphNode()
         }
 
         return nil
@@ -74,7 +74,7 @@ func GQLInterfaceThread() *graphql.Interface {
         }
 
         if p_type.Implements(thread_type) {
-          return GQLTypeBaseThread()
+          return GQLTypeSimpleThread()
         }
 
         ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(thread_type))
@@ -145,7 +145,7 @@ func GQLInterfaceLockable() *graphql.Interface {
         }
 
         if p_type.Implements(lockable_type) {
-          return GQLTypeBaseLockable()
+          return GQLTypeSimpleLockable()
         }
         return nil
       },
@@ -418,10 +418,10 @@ func GQLTypeGQLThread() * graphql.Object {
   return gql_type_gql_thread
 }
 
-var gql_type_base_thread *graphql.Object = nil
-func GQLTypeBaseThread() * graphql.Object {
-  if gql_type_base_thread == nil {
-    gql_type_base_thread = graphql.NewObject(graphql.ObjectConfig{
+var gql_type_simple_thread *graphql.Object = nil
+func GQLTypeSimpleThread() * graphql.Object {
+  if gql_type_simple_thread == nil {
+    gql_type_simple_thread = graphql.NewObject(graphql.ObjectConfig{
       Name: "BaseThread",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
@@ -446,48 +446,48 @@ func GQLTypeBaseThread() * graphql.Object {
       },
       Fields: graphql.Fields{},
     })
-    gql_type_base_thread.AddFieldConfig("ID", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("ID", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLNodeID,
     })
 
-    gql_type_base_thread.AddFieldConfig("Name", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLLockableName,
     })
 
-    gql_type_base_thread.AddFieldConfig("Children", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("Children", &graphql.Field{
       Type: GQLListThread(),
       Resolve: GQLThreadChildren,
     })
 
-    gql_type_base_thread.AddFieldConfig("Parent", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("Parent", &graphql.Field{
       Type: GQLInterfaceThread(),
       Resolve: GQLThreadParent,
     })
 
-    gql_type_base_thread.AddFieldConfig("Requirements", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("Requirements", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableRequirements,
     })
 
-    gql_type_base_thread.AddFieldConfig("Owner", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("Owner", &graphql.Field{
       Type: GQLInterfaceLockable(),
       Resolve: GQLLockableOwner,
     })
 
-    gql_type_base_thread.AddFieldConfig("Dependencies", &graphql.Field{
+    gql_type_simple_thread.AddFieldConfig("Dependencies", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableDependencies,
     })
   }
-  return gql_type_base_thread
+  return gql_type_simple_thread
 }
 
-var gql_type_base_lockable *graphql.Object = nil
-func GQLTypeBaseLockable() * graphql.Object {
-  if gql_type_base_lockable == nil {
-    gql_type_base_lockable = graphql.NewObject(graphql.ObjectConfig{
+var gql_type_simple_lockable *graphql.Object = nil
+func GQLTypeSimpleLockable() * graphql.Object {
+  if gql_type_simple_lockable == nil {
+    gql_type_simple_lockable = graphql.NewObject(graphql.ObjectConfig{
       Name: "BaseLockable",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
@@ -511,38 +511,38 @@ func GQLTypeBaseLockable() * graphql.Object {
       Fields: graphql.Fields{},
     })
 
-    gql_type_base_lockable.AddFieldConfig("ID", &graphql.Field{
+    gql_type_simple_lockable.AddFieldConfig("ID", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLNodeID,
     })
 
-    gql_type_base_lockable.AddFieldConfig("Name", &graphql.Field{
+    gql_type_simple_lockable.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLLockableName,
     })
 
-    gql_type_base_lockable.AddFieldConfig("Requirements", &graphql.Field{
+    gql_type_simple_lockable.AddFieldConfig("Requirements", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableRequirements,
     })
 
-    gql_type_base_lockable.AddFieldConfig("Owner", &graphql.Field{
+    gql_type_simple_lockable.AddFieldConfig("Owner", &graphql.Field{
       Type: GQLInterfaceLockable(),
       Resolve: GQLLockableOwner,
     })
 
-    gql_type_base_lockable.AddFieldConfig("Dependencies", &graphql.Field{
+    gql_type_simple_lockable.AddFieldConfig("Dependencies", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableDependencies,
     })
   }
-  return gql_type_base_lockable
+  return gql_type_simple_lockable
 }
 
-var gql_type_base_node *graphql.Object = nil
-func GQLTypeBaseNode() * graphql.Object {
-  if gql_type_base_node == nil {
-    gql_type_base_node = graphql.NewObject(graphql.ObjectConfig{
+var gql_type_simple_node *graphql.Object = nil
+func GQLTypeGraphNode() * graphql.Object {
+  if gql_type_simple_node == nil {
+    gql_type_simple_node = graphql.NewObject(graphql.ObjectConfig{
       Name: "BaseNode",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
@@ -565,18 +565,18 @@ func GQLTypeBaseNode() * graphql.Object {
       Fields: graphql.Fields{},
     })
 
-    gql_type_base_node.AddFieldConfig("ID", &graphql.Field{
+    gql_type_simple_node.AddFieldConfig("ID", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLNodeID,
     })
 
-    gql_type_base_node.AddFieldConfig("Name", &graphql.Field{
+    gql_type_simple_node.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLLockableName,
     })
   }
 
-  return gql_type_base_node
+  return gql_type_simple_node
 }
 
 func GQLSignalFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {

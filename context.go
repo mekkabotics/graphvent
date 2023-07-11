@@ -19,12 +19,16 @@ type NodeLoadFunc func(*Context, NodeID, []byte, NodeMap)(Node, error)
 type NodeDef struct {
   Load NodeLoadFunc
   Type NodeType
+  GQLType *graphql.Object
+  Reflect reflect.Type
 }
 
-func NewNodeDef(type_name string, load_func NodeLoadFunc) NodeDef {
+func NewNodeDef(type_name string, reflect reflect.Type, load_func NodeLoadFunc, gql_type *graphql.Object) NodeDef {
   return NodeDef{
     Type: NodeType(type_name),
     Load: load_func,
+    GQLType: gql_type,
+    Reflect: reflect,
   }
 }
 
@@ -32,26 +36,62 @@ type Context struct {
   DB * badger.DB
   Log Logger
   Types map[uint64]NodeDef
-  GQL * GQLContext
+  GQL GQLContext
 }
 
-func (ctx * Context) RegisterNodeType(type_name string, load_func NodeLoadFunc) error {
-  if load_func == nil {
-    return fmt.Errorf("Cannot register a node without a load function")
+func (ctx * Context) RebuildSchema() error {
+  schemaConfig := graphql.SchemaConfig{
+    Types: ctx.GQL.TypeList,
+    Query: ctx.GQL.Query,
+    Mutation: ctx.GQL.Mutation,
+    Subscription: ctx.GQL.Subscription,
   }
 
-  def := NodeDef{
-    Type: NodeType(type_name),
-    Load: load_func,
+  schema, err := graphql.NewSchema(schemaConfig)
+  if err != nil {
+    return err
+  }
+
+  ctx.GQL.Schema = schema
+  return nil
+}
+
+func (ctx * Context) AddGQLType(gql_type graphql.Type) {
+  ctx.GQL.TypeList = append(ctx.GQL.TypeList, gql_type)
+}
+
+func (ctx * Context) RegisterNodeType(def NodeDef) error {
+  if def.Load == nil {
+    return fmt.Errorf("Cannot register a node without a load function: %s", def.Type)
+  }
+
+  if def.Reflect == nil {
+    return fmt.Errorf("Cannot register a node without a reflect type: %s", def.Type)
+  }
+
+  if def.GQLType == nil {
+    return fmt.Errorf("Cannot register a node without a gql type: %s", def.Type)
   }
 
   type_hash := def.Type.Hash()
   _, exists := ctx.Types[type_hash]
   if exists == true {
-    return fmt.Errorf("Cannot register node of type %s, type already exists in context", type_name)
+    return fmt.Errorf("Cannot register node of type %s, type already exists in context", def.Type)
   }
 
   ctx.Types[type_hash] = def
+
+  if def.Reflect.Implements(ctx.GQL.NodeType) {
+    ctx.GQL.ValidNodes[def.Reflect] = def.GQLType
+  }
+  if def.Reflect.Implements(ctx.GQL.LockableType) {
+    ctx.GQL.ValidLockables[def.Reflect] = def.GQLType
+  }
+  if def.Reflect.Implements(ctx.GQL.ThreadType) {
+    ctx.GQL.ValidThreads[def.Reflect] = def.GQLType
+  }
+  ctx.GQL.TypeList = append(ctx.GQL.TypeList, def.GQLType)
+
   return nil
 }
 
@@ -61,151 +101,92 @@ type FieldMap map[string]*graphql.Field
 
 type GQLContext struct {
   Schema graphql.Schema
-  ValidNodes ObjTypeMap
+
   NodeType reflect.Type
-  ValidLockables ObjTypeMap
   LockableType reflect.Type
-  ValidThreads ObjTypeMap
   ThreadType reflect.Type
+
+  TypeList TypeList
+
+  ValidNodes ObjTypeMap
+  ValidLockables ObjTypeMap
+  ValidThreads ObjTypeMap
+
+  Query *graphql.Object
+  Mutation *graphql.Object
+  Subscription *graphql.Object
 }
 
-func NewGQLContext(additional_types TypeList, extended_types ObjTypeMap, extended_queries FieldMap, extended_subscriptions FieldMap, extended_mutations FieldMap) (*GQLContext, error) {
-  type_list := TypeList{
-    GQLTypeSignalInput(),
-  }
+func NewGQLContext() GQLContext {
+  query := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Query",
+    Fields: graphql.Fields{},
+  })
 
-  for _, gql_type := range(additional_types) {
-    type_list = append(type_list, gql_type)
-  }
+  mutation := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Mutation",
+    Fields: graphql.Fields{},
+  })
 
-  type_map := ObjTypeMap{}
-  type_map[reflect.TypeOf((*GraphNode)(nil))] =  GQLTypeBaseNode()
-  type_map[reflect.TypeOf((*SimpleLockable)(nil))] =  GQLTypeBaseLockable()
-  type_map[reflect.TypeOf((*SimpleThread)(nil))] = GQLTypeBaseThread()
-  type_map[reflect.TypeOf((*GQLThread)(nil))] = GQLTypeGQLThread()
-  type_map[reflect.TypeOf((*BaseSignal)(nil))] = GQLTypeSignal()
-
-  for go_t, gql_t := range(extended_types) {
-    type_map[go_t] = gql_t
-  }
-
-  valid_nodes := ObjTypeMap{}
-  valid_lockables := ObjTypeMap{}
-  valid_threads := ObjTypeMap{}
-
-  node_type := reflect.TypeOf((*Node)(nil)).Elem()
-  lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
-  thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
-
-  for go_t, gql_t := range(type_map) {
-    if go_t.Implements(node_type) {
-      valid_nodes[go_t] = gql_t
-    }
-    if go_t.Implements(lockable_type) {
-      valid_lockables[go_t] = gql_t
-    }
-    if go_t.Implements(thread_type) {
-      valid_threads[go_t] = gql_t
-    }
-    type_list = append(type_list, gql_t)
-  }
-
-  queries := graphql.Fields{
-    "Self": GQLQuerySelf(),
-  }
-
-  for key, val := range(extended_queries) {
-    queries[key] = val
-  }
-
-  subscriptions := graphql.Fields{
-    "Update": GQLSubscriptionUpdate(),
-    "Self": GQLSubscriptionSelf(),
-  }
-
-  for key, val := range(extended_subscriptions) {
-    subscriptions[key] = val
-  }
-
-  mutations := graphql.Fields{
-    "SendUpdate": GQLMutationSendUpdate(),
-  }
-
-  for key, val := range(extended_mutations) {
-    mutations[key] = val
-  }
-
-  schemaConfig  := graphql.SchemaConfig{
-    Types: type_list,
-    Query: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Query",
-      Fields: queries,
-    }),
-    Mutation: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Mutation",
-      Fields: mutations,
-    }),
-    Subscription: graphql.NewObject(graphql.ObjectConfig{
-      Name: "Subscription",
-      Fields: subscriptions,
-    }),
-  }
-
-  schema, err := graphql.NewSchema(schemaConfig)
-  if err != nil{
-    return nil, err
-  }
+  subscription := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Subscription",
+    Fields: graphql.Fields{},
+  })
 
   ctx := GQLContext{
-    Schema: schema,
-    ValidNodes: valid_nodes,
-    NodeType: node_type,
-    ValidThreads: valid_threads,
-    ThreadType: thread_type,
-    ValidLockables: valid_lockables,
-    LockableType: lockable_type,
+    Schema: graphql.Schema{},
+    TypeList: TypeList{},
+    ValidNodes: ObjTypeMap{},
+    NodeType: reflect.TypeOf((*Node)(nil)).Elem(),
+    ValidThreads: ObjTypeMap{},
+    ThreadType: reflect.TypeOf((*Thread)(nil)).Elem(),
+    ValidLockables: ObjTypeMap{},
+    LockableType: reflect.TypeOf((*Lockable)(nil)).Elem(),
+    Query: query,
+    Mutation: mutation,
+    Subscription: subscription,
   }
 
-  return &ctx, nil
+  return ctx
 }
 
-func NewContext(db * badger.DB, log Logger, extra_nodes map[string]NodeLoadFunc, types TypeList, type_map ObjTypeMap, queries FieldMap, subscriptions FieldMap, mutations FieldMap) * Context {
-  gql, err := NewGQLContext(types, type_map, queries, subscriptions, mutations)
-  if err != nil {
-    panic(err)
-  }
-
+func NewContext(db * badger.DB, log Logger) * Context {
   ctx := &Context{
-    GQL: gql,
+    GQL: NewGQLContext(),
     DB: db,
     Log: log,
     Types: map[uint64]NodeDef{},
   }
 
-
-
-  err = ctx.RegisterNodeType("graph_node", LoadGraphNode)
+  err := ctx.RegisterNodeType(NewNodeDef("graph_node", reflect.TypeOf((*GraphNode)(nil)), LoadGraphNode, GQLTypeGraphNode()))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType("simple_lockable", LoadSimpleLockable)
+  err = ctx.RegisterNodeType(NewNodeDef("simple_lockable", reflect.TypeOf((*SimpleLockable)(nil)), LoadSimpleLockable, GQLTypeSimpleLockable()))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType("simple_thread", LoadSimpleThread)
+  err = ctx.RegisterNodeType(NewNodeDef("simple_thread", reflect.TypeOf((*SimpleThread)(nil)), LoadSimpleThread, GQLTypeSimpleThread()))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType("gql_thread", LoadGQLThread)
+  err = ctx.RegisterNodeType(NewNodeDef("gql_thread", reflect.TypeOf((*GQLThread)(nil)), LoadGQLThread, GQLTypeGQLThread()))
   if err != nil {
     panic(err)
   }
 
-  for name, load_fn := range(extra_nodes) {
-    err := ctx.RegisterNodeType(name, load_fn)
-    if err != nil {
-      panic(err)
-    }
+  ctx.AddGQLType(GQLTypeSignal())
+
+  ctx.GQL.Query.AddFieldConfig("Self", GQLQuerySelf())
+
+  ctx.GQL.Subscription.AddFieldConfig("Update", GQLSubscriptionUpdate())
+  ctx.GQL.Subscription.AddFieldConfig("Self", GQLSubscriptionSelf())
+
+  ctx.GQL.Mutation.AddFieldConfig("SendUpdate", GQLMutationSendUpdate())
+
+  err = ctx.RebuildSchema()
+  if err != nil {
+    panic(err)
   }
 
   return ctx

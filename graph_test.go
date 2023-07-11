@@ -58,7 +58,7 @@ func logTestContext(t * testing.T, components []string) * Context {
     t.Fatal(err)
   }
 
-  return NewContext(db, NewConsoleLogger(components), map[string]NodeLoadFunc{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  return NewContext(db, NewConsoleLogger(components))
 }
 
 func testContext(t * testing.T) * Context {
@@ -67,7 +67,7 @@ func testContext(t * testing.T) * Context {
     t.Fatal(err)
   }
 
-  return NewContext(db, NewConsoleLogger([]string{}), map[string]NodeLoadFunc{}, TypeList{}, ObjTypeMap{}, FieldMap{}, FieldMap{}, FieldMap{})
+  return NewContext(db, NewConsoleLogger([]string{}))
 }
 
 func fatalErr(t * testing.T, err error) {
