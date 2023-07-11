@@ -18,13 +18,13 @@ func TestGQLThread(t * testing.T) {
   t2 := &t2_r
 
   err := UpdateStates(ctx, []Node{gql_t, t1, t2}, func(nodes NodeMap) error {
-    i1 := NewGQLThreadInfo(true, "start", "restore")
+    i1 := NewParentThreadInfo(true, "start", "restore")
     err := LinkThreads(ctx, gql_t, t1, &i1, nodes)
     if err != nil {
       return err
     }
 
-    i2 := NewGQLThreadInfo(false, "start", "restore")
+    i2 := NewParentThreadInfo(false, "start", "restore")
     return LinkThreads(ctx, gql_t, t2, &i2, nodes)
   })
   fatalErr(t, err)
@@ -53,7 +53,7 @@ func TestGQLDBLoad(t * testing.T) {
   gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":8080")
   gql := &gql_r
 
-  info := NewGQLThreadInfo(true, "start", "restore")
+  info := NewParentThreadInfo(true, "start", "restore")
   err := UpdateStates(ctx, []Node{gql, t1, l1}, func(nodes NodeMap) error {
     err := LinkLockables(ctx, gql, []Lockable{l1}, nodes)
     if err != nil {

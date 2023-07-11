@@ -345,7 +345,7 @@ func (thread * GQLThread) Serialize() ([]byte, error) {
 }
 
 func (thread * GQLThread) DeserializeInfo(ctx *Context, data []byte) (ThreadInfo, error) {
-  var info GQLThreadInfo
+  var info ParentThreadInfo
   err := json.Unmarshal(data, &info)
   if err != nil {
     return nil, err
@@ -364,20 +364,6 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
   return GQLThreadJSON{
     SimpleThreadJSON: thread_json,
     Listen: thread.Listen,
-  }
-}
-
-type GQLThreadInfo struct {
-  Start bool `json:"start"`
-  StartAction string `json:"start_action"`
-  RestoreAction string `json:"restore_action"`
-}
-
-func NewGQLThreadInfo(start bool, start_action string, restore_action string) GQLThreadInfo {
-  return GQLThreadInfo{
-    Start: start,
-    StartAction: start_action,
-    RestoreAction: restore_action,
   }
 }
 
@@ -401,7 +387,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
 
 func NewGQLThread(id NodeID, name string, state_name string, listen string) GQLThread {
   return GQLThread{
-    SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*GQLThreadInfo)(nil)), gql_actions, gql_handlers),
+    SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*ParentThreadInfo)(nil)), gql_actions, gql_handlers),
     Listen: listen,
     http_done: &sync.WaitGroup{},
   }
@@ -412,19 +398,7 @@ var gql_actions ThreadActions = ThreadActions{
   "restore": func(ctx * Context, thread Thread) (string, error) {
     // Start all the threads that should be "started"
     ctx.Log.Logf("gql", "GQL_THREAD_RESTORE: %s", thread.ID())
-
-    UpdateStates(ctx, []Node{thread}, func(nodes NodeMap)(error) {
-      return UpdateMoreStates(ctx, NodeList(thread.Children()), nodes, func(nodes NodeMap) error {
-        for _, child := range(thread.Children()) {
-          should_run := (thread.ChildInfo(child.ID())).(*GQLThreadInfo)
-          if should_run.Start == true && child.State() != "finished" {
-            ChildGo(ctx, thread, child, should_run.RestoreAction)
-          }
-        }
-        return nil
-      })
-    })
-
+    ThreadRestore(ctx, thread)
     return "start_server", nil
   },
   "start": func(ctx * Context, thread Thread) (string, error) {
@@ -480,7 +454,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
   "child_added": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: %+v", signal)
     UpdateStates(ctx, []Node{thread}, func(nodes NodeMap)(error) {
-      should_run, exists := thread.ChildInfo(signal.Source()).(*GQLThreadInfo)
+      should_run, exists := thread.ChildInfo(signal.Source()).(*ParentThreadInfo)
       if exists == false {
         ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: tried to start %s whis is not a child")
         return nil

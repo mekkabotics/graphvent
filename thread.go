@@ -246,6 +246,22 @@ type Thread interface {
   ChildWaits() *sync.WaitGroup
 }
 
+
+// Data required by a parent thread to restore it's children
+type ParentThreadInfo struct {
+  Start bool `json:"start"`
+  StartAction string `json:"start_action"`
+  RestoreAction string `json:"restore_action"`
+}
+
+func NewParentThreadInfo(start bool, start_action string, restore_action string) ParentThreadInfo {
+  return ParentThreadInfo{
+    Start: start,
+    StartAction: start_action,
+    RestoreAction: restore_action,
+  }
+}
+
 type SimpleThread struct {
   SimpleLockable
 
@@ -530,8 +546,22 @@ func (thread * SimpleThread) AllowedToTakeLock(new_owner Lockable, lockable Lock
   return false
 }
 
+var ThreadRestore = func(ctx * Context, thread Thread) {
+  UpdateStates(ctx, []Node{thread}, func(nodes NodeMap)(error) {
+    return UpdateMoreStates(ctx, NodeList(thread.Children()), nodes, func(nodes NodeMap) error {
+      for _, child := range(thread.Children()) {
+        should_run := (thread.ChildInfo(child.ID())).(*ParentThreadInfo)
+        if should_run.Start == true && child.State() != "finished" {
+          ChildGo(ctx, thread, child, should_run.RestoreAction)
+        }
+      }
+      return nil
+    })
+  })
+}
+
 var ThreadStart = func(ctx * Context, thread Thread) error {
-  err := UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
+  return UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
     owner_id := NodeID("")
     if thread.Owner() != nil {
       owner_id = thread.Owner().ID()
@@ -544,12 +574,6 @@ var ThreadStart = func(ctx * Context, thread Thread) error {
     }
     return thread.SetState("started")
   })
-
-  if err != nil {
-    return err
-  }
-
-  return nil
 }
 
 var ThreadDefaultStart = func(ctx * Context, thread Thread) (string, error) {
