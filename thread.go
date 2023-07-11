@@ -551,7 +551,9 @@ var ThreadRestore = func(ctx * Context, thread Thread) {
     return UpdateMoreStates(ctx, NodeList(thread.Children()), nodes, func(nodes NodeMap) error {
       for _, child := range(thread.Children()) {
         should_run := (thread.ChildInfo(child.ID())).(*ParentThreadInfo)
+        ctx.Log.Logf("thread", "THREAD_RESTORE: %s -> %s: %+v", thread.ID(), child.ID(), should_run)
         if should_run.Start == true && child.State() != "finished" {
+          ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID(), child.ID())
           ChildGo(ctx, thread, child, should_run.RestoreAction)
         }
       }
