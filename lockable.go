@@ -448,7 +448,7 @@ func LockLockables(ctx * Context, to_lock []Lockable, new_owner Lockable, nodes 
       new_owner.RecordLock(req, old_owner)
     // Otherwise if the new owner already owns it, no need to update state
     } else if old_owner.ID() == new_owner.ID() {
-      ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), old_owner.ID())
+      ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), req.ID())
     // Otherwise update the state
     } else {
       req.SetOwner(new_owner)
