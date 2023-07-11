@@ -408,7 +408,8 @@ func LockLockables(ctx * Context, to_lock []Lockable, new_owner Lockable, nodes 
     if req.Owner() != nil {
       owner := req.Owner()
       if owner.ID() == new_owner.ID() {
-        return fmt.Errorf("LOCKABLE_LOCK_ERR: %s already owns %s, cannot lock again", new_owner.ID(), req.ID())
+        // If we already own the lock, nothing to do
+        continue
       } else if owner.ID() == req.ID() {
         if req.AllowedToTakeLock(new_owner, req) == false {
           return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", new_owner.ID(), req.ID(), owner.ID())
