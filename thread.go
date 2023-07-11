@@ -9,7 +9,7 @@ import (
   "encoding/json"
 )
 
-// Update the threads listeners, and notify the parent to do the same
+// SimpleThread.Signal updates the parent and children, and sends the signal to an internal channel
 func (thread * SimpleThread) Signal(ctx * Context, signal GraphSignal, nodes NodeMap) error {
   err := thread.SimpleLockable.Signal(ctx, signal, nodes)
   if err != nil {

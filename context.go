@@ -7,15 +7,10 @@ import (
   "fmt"
 )
 
-// For persistance, each node needs the following functions(* is a placeholder for the node/state type):
-// Load*State - StateLoadFunc that returns the NodeState interface to attach to the node
-// Load* - NodeLoadFunc that returns the GraphNode restored from it's loaded state
-
-// For convenience, the following functions are a good idea to define for composability:
-// Restore*State - takes in the nodes serialized data to allow for easier nesting of inherited Load*State functions
-// Save*State - serialize the node into it's json counterpart to be included as part of a larger json
-
+// NodeLoadFunc is the footprint of the function used to create a new node in memory from persisted bytes
 type NodeLoadFunc func(*Context, NodeID, []byte, NodeMap)(Node, error)
+
+// A NodeDef is a description of a node that can be added to a Context
 type NodeDef struct {
   Load NodeLoadFunc
   Type NodeType
@@ -23,6 +18,7 @@ type NodeDef struct {
   Reflect reflect.Type
 }
 
+// Create a new Node def, extracting the Type and Reflect from example
 func NewNodeDef(example Node, load_func NodeLoadFunc, gql_type *graphql.Object) NodeDef {
   return NodeDef{
     Type: example.Type(),
@@ -32,13 +28,19 @@ func NewNodeDef(example Node, load_func NodeLoadFunc, gql_type *graphql.Object) 
   }
 }
 
+// A Context is all the data needed to run a graphvent
 type Context struct {
+  // DB is the database connection used to load and write nodes
   DB * badger.DB
+  // Log is an interface used to record events happening
   Log Logger
+  // A mapping between type hashes and their corresponding node definitions
   Types map[uint64]NodeDef
+  // GQL substructure
   GQL GQLContext
 }
 
+// Recreate the GQL schema after making changes
 func (ctx * Context) RebuildSchema() error {
   schemaConfig := graphql.SchemaConfig{
     Types: ctx.GQL.TypeList,
@@ -56,10 +58,12 @@ func (ctx * Context) RebuildSchema() error {
   return nil
 }
 
+// Add a non-node type to the gql context
 func (ctx * Context) AddGQLType(gql_type graphql.Type) {
   ctx.GQL.TypeList = append(ctx.GQL.TypeList, gql_type)
 }
 
+// Add a node to a context, returns an error if the def is invalid or already exists in the context
 func (ctx * Context) RegisterNodeType(def NodeDef) error {
   if def.Load == nil {
     return fmt.Errorf("Cannot register a node without a load function: %s", def.Type)
@@ -95,19 +99,23 @@ func (ctx * Context) RegisterNodeType(def NodeDef) error {
   return nil
 }
 
-type TypeList []graphql.Type
+// Map of go types to graphql types
 type ObjTypeMap map[reflect.Type]*graphql.Object
-type FieldMap map[string]*graphql.Field
 
+// GQL Specific Context information
 type GQLContext struct {
+  // Generated GQL schema
   Schema graphql.Schema
 
+  // Interface types to compare against
   NodeType reflect.Type
   LockableType reflect.Type
   ThreadType reflect.Type
 
-  TypeList TypeList
+  // List of GQL types
+  TypeList []graphql.Type
 
+  // Interface type maps to map go types of specific interfaces to gql types
   ValidNodes ObjTypeMap
   ValidLockables ObjTypeMap
   ValidThreads ObjTypeMap
@@ -117,6 +125,7 @@ type GQLContext struct {
   Subscription *graphql.Object
 }
 
+// Create a new GQL context without any content
 func NewGQLContext() GQLContext {
   query := graphql.NewObject(graphql.ObjectConfig{
     Name: "Query",
@@ -135,7 +144,7 @@ func NewGQLContext() GQLContext {
 
   ctx := GQLContext{
     Schema: graphql.Schema{},
-    TypeList: TypeList{},
+    TypeList: []graphql.Type{},
     ValidNodes: ObjTypeMap{},
     NodeType: reflect.TypeOf((*Node)(nil)).Elem(),
     ValidThreads: ObjTypeMap{},
@@ -150,6 +159,7 @@ func NewGQLContext() GQLContext {
   return ctx
 }
 
+// Create a new Context with all the library content added
 func NewContext(db * badger.DB, log Logger) * Context {
   ctx := &Context{
     GQL: NewGQLContext(),

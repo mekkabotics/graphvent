@@ -54,7 +54,7 @@ func TestGQLDBLoad(t * testing.T) {
   gql := &gql_r
 
   info := NewGQLThreadInfo(true, "start", "restore")
-  err := UpdateStates(ctx, []Node{gql, t1}, func(nodes NodeMap) error {
+  err := UpdateStates(ctx, []Node{gql, t1, l1}, func(nodes NodeMap) error {
     err := LinkLockables(ctx, gql, []Lockable{l1}, nodes)
     if err != nil {
       return err
