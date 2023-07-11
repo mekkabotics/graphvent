@@ -366,17 +366,17 @@ func RestoreSimpleThread(ctx *Context, thread Thread, j SimpleThreadJSON, nodes 
       return fmt.Errorf("%+v is not a Thread as expected", child_node)
     }
 
-    var parsed_info ThreadInfo
+    var info_ser []byte
     if info_raw != nil {
-      info_ser, err := json.Marshal(info_raw)
+      info_ser, err = json.Marshal(info_raw)
       if err != nil {
         return err
       }
+    }
 
-      parsed_info, err = thread.DeserializeInfo(ctx, info_ser)
-      if err != nil {
-        return err
-      }
+    parsed_info, err := thread.DeserializeInfo(ctx, info_ser)
+    if err != nil {
+      return err
     }
 
     thread.AddChild(child_t, parsed_info)
