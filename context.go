@@ -23,12 +23,12 @@ type NodeDef struct {
   Reflect reflect.Type
 }
 
-func NewNodeDef(type_name string, reflect reflect.Type, load_func NodeLoadFunc, gql_type *graphql.Object) NodeDef {
+func NewNodeDef(example Node, load_func NodeLoadFunc, gql_type *graphql.Object) NodeDef {
   return NodeDef{
-    Type: NodeType(type_name),
+    Type: example.Type(),
     Load: load_func,
     GQLType: gql_type,
-    Reflect: reflect,
+    Reflect: reflect.TypeOf(example),
   }
 }
 
@@ -158,19 +158,19 @@ func NewContext(db * badger.DB, log Logger) * Context {
     Types: map[uint64]NodeDef{},
   }
 
-  err := ctx.RegisterNodeType(NewNodeDef("graph_node", reflect.TypeOf((*GraphNode)(nil)), LoadGraphNode, GQLTypeGraphNode()))
+  err := ctx.RegisterNodeType(NewNodeDef((*GraphNode)(nil), LoadGraphNode, GQLTypeGraphNode()))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef("simple_lockable", reflect.TypeOf((*SimpleLockable)(nil)), LoadSimpleLockable, GQLTypeSimpleLockable()))
+  err = ctx.RegisterNodeType(NewNodeDef((*SimpleLockable)(nil), LoadSimpleLockable, GQLTypeSimpleLockable()))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef("simple_thread", reflect.TypeOf((*SimpleThread)(nil)), LoadSimpleThread, GQLTypeSimpleThread()))
+  err = ctx.RegisterNodeType(NewNodeDef((*SimpleThread)(nil), LoadSimpleThread, GQLTypeSimpleThread()))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef("gql_thread", reflect.TypeOf((*GQLThread)(nil)), LoadGQLThread, GQLTypeGQLThread()))
+  err = ctx.RegisterNodeType(NewNodeDef((*GQLThread)(nil), LoadGQLThread, GQLTypeGQLThread()))
   if err != nil {
     panic(err)
   }
