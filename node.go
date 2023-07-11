@@ -201,6 +201,7 @@ func WriteNodes(ctx * Context, nodes NodeMap) error {
   i := 0
   for _, node := range(nodes) {
     node_bytes, err := getNodeBytes(ctx, node)
+    ctx.Log.Logf("db", "DB_WRITE: %+v", node)
     if err != nil {
       return err
     }
