@@ -521,6 +521,15 @@ func (thread * SimpleThread) ClearTimeout() {
   thread.timeout_chan = nil
 }
 
+func (thread * SimpleThread) AllowedToTakeLock(new_owner Lockable, lockable Lockable) bool {
+  for _, child := range(thread.children) {
+    if new_owner.ID() == child.ID() {
+      return true
+    }
+  }
+  return false
+}
+
 var ThreadStart = func(ctx * Context, thread Thread) error {
   err := UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
     owner_id := NodeID("")
