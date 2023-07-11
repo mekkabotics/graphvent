@@ -441,11 +441,18 @@ func LockLockables(ctx * Context, to_lock []Lockable, new_owner Lockable, nodes 
   // At this point state modification will be started, so no errors can be returned
   for _, req := range(to_lock) {
     old_owner := req.Owner()
-    req.SetOwner(new_owner)
-    new_owner.RecordLock(req, old_owner)
+    // If the lockable was previously unowned, update the state
     if old_owner == nil {
       ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s locked %s", new_owner.ID(), req.ID())
+      req.SetOwner(new_owner)
+      new_owner.RecordLock(req, old_owner)
+    // Otherwise if the new owner already owns it, no need to update state
+    } else if old_owner.ID() == new_owner.ID() {
+      ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), old_owner.ID())
+    // Otherwise update the state
     } else {
+      req.SetOwner(new_owner)
+      new_owner.RecordLock(req, old_owner)
       ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s took lock of %s from %s", new_owner.ID(), req.ID(), old_owner.ID())
     }
   }
