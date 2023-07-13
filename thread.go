@@ -535,6 +535,7 @@ func (thread * SimpleThread) Timeout() <-chan time.Time {
 
 func (thread * SimpleThread) ClearTimeout() {
   thread.timeout_chan = nil
+  thread.timeout_action = ""
 }
 
 func (thread * SimpleThread) AllowedToTakeLock(new_owner Lockable, lockable Lockable) bool {
