@@ -246,12 +246,19 @@ type Thread interface {
   ChildWaits() *sync.WaitGroup
 }
 
+type ParentInfo interface {
+  Parent() *ParentThreadInfo
+}
 
 // Data required by a parent thread to restore it's children
 type ParentThreadInfo struct {
   Start bool `json:"start"`
   StartAction string `json:"start_action"`
   RestoreAction string `json:"restore_action"`
+}
+
+func (info * ParentThreadInfo) Parent() *ParentThreadInfo{
+  return info
 }
 
 func NewParentThreadInfo(start bool, start_action string, restore_action string) ParentThreadInfo {
@@ -551,7 +558,7 @@ var ThreadRestore = func(ctx * Context, thread Thread) {
   UpdateStates(ctx, []Node{thread}, func(nodes NodeMap)(error) {
     return UpdateMoreStates(ctx, NodeList(thread.Children()), nodes, func(nodes NodeMap) error {
       for _, child := range(thread.Children()) {
-        should_run := (thread.ChildInfo(child.ID())).(*ParentThreadInfo)
+        should_run := (thread.ChildInfo(child.ID())).(ParentInfo).Parent()
         ctx.Log.Logf("thread", "THREAD_RESTORE: %s -> %s: %+v", thread.ID(), child.ID(), should_run)
         if should_run.Start == true && child.State() != "finished" {
           ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID(), child.ID())
