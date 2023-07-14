@@ -125,6 +125,14 @@ func (e GQLUnauthorized) Error() string {
   return fmt.Sprintf("GQL_UNAUTHORIZED_ERROR: %s", string(e))
 }
 
+func (e GQLUnauthorized) MarshalJSON() ([]byte, error) {
+  return json.MarshalIndent(&struct{
+    Error string `json:"error"`
+  }{
+    Error: string(e),
+  }, "", "  ")
+}
+
 func checkForAuthHeader(header http.Header) (string, bool) {
   auths, ok := header["Authorization"]
   if ok == false {
@@ -158,7 +166,9 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
     auth, ok := checkForAuthHeader(r.Header)
     if ok == false {
+
       ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no auth header included in request header")
+      json.NewEncoder(w).Encode(GQLUnauthorized("No TM Auth header provided"))
       return
     }
     ctx.Log.Logf("gql", "GQL_AUTH: %s", auth)
@@ -259,6 +269,7 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
     auth, ok := checkForAuthHeader(r.Header)
     if ok == false {
       ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no auth header included in request header")
+      json.NewEncoder(w).Encode(GQLUnauthorized("No TM Auth header provided"))
       return
     }
     ctx.Log.Logf("gql", "GQL_AUTH: %s", auth)
