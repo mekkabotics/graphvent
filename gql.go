@@ -161,6 +161,7 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
       ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no auth header included in request header")
       return
     }
+    ctx.Log.Logf("gql", "GQL_AUTH: %s", auth)
 
     str, err := io.ReadAll(r.Body)
     if err != nil {
@@ -253,7 +254,15 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
     for header, value := range(r.Header) {
       header_map[header] = value
     }
+
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
+    auth, ok := checkForAuthHeader(r.Header)
+    if ok == false {
+      ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no auth header included in request header")
+      return
+    }
+    ctx.Log.Logf("gql", "GQL_AUTH: %s", auth)
+
     u := ws.HTTPUpgrader{
       Protocol: func(protocol string) bool {
         ctx.Log.Logf("gqlws", "UPGRADE_PROTOCOL: %s", string(protocol))
