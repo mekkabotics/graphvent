@@ -87,7 +87,7 @@ func TestThreadDBLoad(t * testing.T) {
 
   err = UseStates(ctx, []Node{t1}, func(nodes NodeMap) error {
     ser, err := t1.Serialize()
-    fmt.Printf("\n%s\n\n", ser)
+    ctx.Log.Logf("test", "\n%s\n\n", ser)
     return err
   })
 
@@ -96,7 +96,7 @@ func TestThreadDBLoad(t * testing.T) {
 
   err = UseStates(ctx, []Node{t1_loaded}, func(nodes NodeMap) error {
     ser, err := t1_loaded.Serialize()
-    fmt.Printf("\n%s\n\n", ser)
+    ctx.Log.Logf("test", "\n%s\n\n", ser)
     return err
   })
 }

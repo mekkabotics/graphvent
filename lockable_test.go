@@ -298,7 +298,7 @@ func TestLockableLockTieredConflict(t * testing.T) {
 }
 
 func TestLockableSimpleUpdate(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "update", "lockable"})
+  ctx := logTestContext(t, []string{})
 
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
@@ -316,7 +316,7 @@ func TestLockableSimpleUpdate(t * testing.T) {
 }
 
 func TestLockableDownUpdate(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "update", "lockable"})
+  ctx := logTestContext(t, []string{})
 
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
@@ -345,7 +345,7 @@ func TestLockableDownUpdate(t * testing.T) {
 }
 
 func TestLockableUpUpdate(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "update", "lockable"})
+  ctx := logTestContext(t, []string{})
 
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
@@ -374,7 +374,7 @@ func TestLockableUpUpdate(t * testing.T) {
 }
 
 func TestOwnerNotUpdatedTwice(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal", "lockable", "listeners"})
+  ctx := logTestContext(t, []string{})
 
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
@@ -461,7 +461,7 @@ func TestLockableDBLoad(t * testing.T){
 
   err = UseStates(ctx, []Node{l3}, func(nodes NodeMap) error {
     ser, err := l3.Serialize()
-    fmt.Printf("\n%s\n\n", ser)
+    ctx.Log.Logf("test", "\n%s\n\n", ser)
     return err
   })
   fatalErr(t, err)
@@ -472,14 +472,14 @@ func TestLockableDBLoad(t * testing.T){
   // TODO: add more equivalence checks
   err = UseStates(ctx, []Node{l3_loaded}, func(nodes NodeMap) error {
     ser, err := l3_loaded.Serialize()
-    fmt.Printf("\n%s\n\n", ser)
+    ctx.Log.Logf("test", "\n%s\n\n", ser)
     return err
   })
   fatalErr(t, err)
 }
 
 func TestLockableUnlink(t * testing.T){
-  ctx := logTestContext(t, []string{"lockable"})
+  ctx := logTestContext(t, []string{})
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
   l2_r := NewSimpleLockable(RandID(), "Test Lockable 2")
