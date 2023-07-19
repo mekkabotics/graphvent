@@ -62,6 +62,7 @@ func NewAuthReqJSON(curve ecdh.Curve, id *ecdsa.PrivateKey) (AuthReqJSON, *ecdh.
 type AuthRespJSON struct {
   Granted time.Time `json:"granted"`
   ECDHPubkey []byte `json:"echd_server"`
+  Signature []byte `json:"signature"`
 }
 
 func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, []byte, error) {
@@ -110,14 +111,27 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, []byte, 
       return AuthRespJSON{}, nil, err
     }
 
+    ec_key_pub := ec_key.PublicKey().Bytes()
+
+    granted := time.Now()
+    time_ser, _ := granted.MarshalJSON()
+    resp_sig_data := append(ec_key_pub, time_ser...)
+    resp_sig_hash := sha512.Sum512(resp_sig_data)
+
+    resp_sig, err := ecdsa.SignASN1(rand.Reader, thread.Key, resp_sig_hash[:])
+    if err != nil {
+      return AuthRespJSON{}, nil, err
+    }
+
     shared_secret, err := ec_key.ECDH(remote)
     if err != nil {
       return AuthRespJSON{}, nil, err
     }
 
     return AuthRespJSON{
-      Granted: time.Now(),
-      ECDHPubkey: ec_key.PublicKey().Bytes(),
+      Granted: granted,
+      ECDHPubkey: ec_key_pub,
+      Signature: resp_sig,
     }, shared_secret, nil
 }
 
