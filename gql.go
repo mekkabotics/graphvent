@@ -23,6 +23,7 @@ import (
   "crypto/sha512"
   "crypto/rand"
   "crypto/x509"
+  "bytes"
   "github.com/google/uuid"
 )
 
@@ -66,7 +67,7 @@ type AuthRespJSON struct {
   Signature []byte `json:"signature"`
 }
 
-func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.PublicKey, []byte, error) {
+func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
     // Check if req.Time is within +- 1 second of now
     now := time.Now()
     earliest := now.Add(-1 * time.Second)
@@ -131,17 +132,49 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.P
       return AuthRespJSON{}, nil, nil, err
     }
 
+    secret_hash := sha512.Sum512(shared_secret)
+    buf := bytes.NewReader(secret_hash[:])
+    shared_key, err := ecdsa.GenerateKey(thread.Key.Curve, buf)
+    if err != nil {
+      return AuthRespJSON{}, nil, nil, err
+    }
+
     return AuthRespJSON{
       Granted: granted,
       ECDHPubkey: ec_key_pub,
       Signature: resp_sig,
-    }, remote_key, shared_secret, nil
+    }, remote_key, shared_key, nil
+}
+
+func ParseAuthRespJSON(resp AuthRespJSON, ecdsa_curve elliptic.Curve, ecdh_curve ecdh.Curve, ec_key *ecdh.PrivateKey) (*ecdsa.PrivateKey, error) {
+  remote, err := ecdh_curve.NewPublicKey(resp.ECDHPubkey)
+  if err != nil {
+    return nil, err
+  }
+
+  shared_secret, err := ec_key.ECDH(remote)
+  if err != nil {
+    return nil, err
+  }
+
+  secret_hash := sha512.Sum512(shared_secret)
+  buf := bytes.NewReader(secret_hash[:])
+  shared_key, err := ecdsa.GenerateKey(ecdsa_curve, buf)
+  if err != nil {
+    return nil, err
+  }
+
+  return shared_key, nil
 }
 
 type AuthData struct {
   Granted time.Time
   Pubkey *ecdsa.PublicKey
-  Shared []byte
+  Shared *ecdsa.PrivateKey
+}
+
+func (data AuthData) String() string {
+  return fmt.Sprintf("{Granted: %+v, Pubkey: %s, Shared: %s}", data.Granted, KeyID(data.Pubkey).String(), KeyID(&data.Shared.PublicKey).String())
 }
 
 type AuthDataJSON struct {
@@ -174,9 +207,9 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       return
     }
 
-    resp, remote_id, _, err := NewAuthRespJSON(server, req)
+    resp, remote_id, shared_key, err := NewAuthRespJSON(server, req)
     if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_ERROR: %e", err)
+      ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_ERROR: %s", err)
       return
     }
 
@@ -195,17 +228,22 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       return
     }
 
-    ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_SUCCESS: %s", str)
+    key_id := KeyID(remote_id)
 
-    key_hash := KeyID(remote_id)
-
-    _, exists := server.AuthMap[key_hash]
-    if exists {
-      ctx.Log.Logf("gql", "REFRESHING AUTH FOR %+s", req.Pubkey)
-    } else {
-      ctx.Log.Logf("gql", "AUTHORIZING NEW USER %+s", req.Pubkey)
+    new_auth := AuthData{
+      Granted: time.Now(),
+      Pubkey: remote_id,
+      Shared: shared_key,
     }
 
+    _, exists := server.AuthMap[key_id]
+    if exists {
+      ctx.Log.Logf("gql", "REFRESHING AUTH FOR %s - %s", key_id, new_auth)
+    } else {
+      ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, new_auth)
+    }
+
+    server.AuthMap[key_id] = new_auth
   }
 }
 
@@ -356,13 +394,29 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
       header_map[header] = value
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
-    auth, ok := checkForAuthHeader(r.Header)
+    username, password, ok := r.BasicAuth()
     if ok == false {
       ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no auth header included in request header")
-      json.NewEncoder(w).Encode(GQLUnauthorized("No TM Auth header provided"))
+      json.NewEncoder(w).Encode(GQLUnauthorized("No Auth header provided"))
       return
     }
-    ctx.Log.Logf("gql", "GQL_AUTH: %s", auth)
+
+    auth_id, err := ParseID(username)
+    if err != nil {
+      ctx.Log.Logf("gql", "GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
+      json.NewEncoder(w).Encode(GQLUnauthorized("Failed to parse ID from username"))
+      return
+    }
+
+    auth, exists := server.AuthMap[auth_id]
+    if exists == false {
+      ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no existing authorization for client %s", auth_id)
+      json.NewEncoder(w).Encode(GQLUnauthorized("No matching authorization for client"))
+      return
+    }
+
+    req_ctx := context.WithValue(gql_ctx, "auth", auth)
+    ctx.Log.Logf("gql", "GQL_AUTH: %+v - %s", auth, password)
 
     str, err := io.ReadAll(r.Body)
     if err != nil {
@@ -371,8 +425,6 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
  }
     query := GQLWSPayload{}
     json.Unmarshal(str, &query)
-
-    req_ctx := context.WithValue(gql_ctx, "auth", auth)
 
     params := graphql.Params{
       Schema: ctx.GQL.Schema,
@@ -457,13 +509,29 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
     }
 
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
-    auth, ok := checkForAuthHeader(r.Header)
+    username, password, ok := r.BasicAuth()
     if ok == false {
       ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no auth header included in request header")
-      json.NewEncoder(w).Encode(GQLUnauthorized("No TM Auth header provided"))
+      json.NewEncoder(w).Encode(GQLUnauthorized("No Auth header provided"))
       return
     }
-    ctx.Log.Logf("gql", "GQL_AUTH: %s", auth)
+
+    auth_id, err := ParseID(username)
+    if err != nil {
+      ctx.Log.Logf("gql", "GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
+      json.NewEncoder(w).Encode(GQLUnauthorized("Failed to parse ID from username"))
+      return
+    }
+
+    auth, exists := server.AuthMap[auth_id]
+    if exists == false {
+      ctx.Log.Logf("gql", "GQL_REQUEST_ERR: no existing authorization for client %s", auth_id)
+      json.NewEncoder(w).Encode(GQLUnauthorized("No matching authorization for client"))
+      return
+    }
+
+    req_ctx := context.WithValue(gql_ctx, "auth", auth)
+    ctx.Log.Logf("gql", "GQL_AUTH: %+v - %s", auth, password)
 
     u := ws.HTTPUpgrader{
       Protocol: func(protocol string) bool {
@@ -508,7 +576,7 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
           params := graphql.Params{
             Schema: ctx.GQL.Schema,
-            Context: gql_ctx,
+            Context: req_ctx,
             RequestString: msg.Payload.Query,
           }
           if msg.Payload.OperationName != "" {
@@ -640,10 +708,14 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
 
   auth_map := map[string]AuthDataJSON{}
   for id, data := range(thread.AuthMap) {
+    shared, err := x509.MarshalECPrivateKey(data.Shared)
+    if err != nil {
+      panic(err)
+    }
     auth_map[id.String()] = AuthDataJSON{
       Granted: data.Granted,
       Pubkey: elliptic.Marshal(data.Pubkey.Curve, data.Pubkey.X, data.Pubkey.Y),
-      Shared: thread.AuthMap[id].Shared,
+      Shared: shared,
     }
   }
 
@@ -684,6 +756,10 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
     if x == nil {
       return nil, fmt.Errorf("Failed to load public key for curve %+v from %+v", key.Curve, auth_json.Pubkey)
     }
+    shared, err := x509.ParseECPrivateKey(auth_json.Shared)
+    if err != nil {
+      return nil, err
+    }
     thread.AuthMap[id] = AuthData{
       Granted: auth_json.Granted,
       Pubkey: &ecdsa.PublicKey{
@@ -691,7 +767,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
         X: x,
         Y: y,
       },
-      Shared: auth_json.Shared,
+      Shared: shared,
     }
   }
   nodes[id] = &thread

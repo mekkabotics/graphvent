@@ -53,7 +53,7 @@ func TestGQLThread(t * testing.T) {
 }
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{})
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
 
@@ -172,7 +172,7 @@ func TestGQLAuth(t * testing.T) {
     id, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
     fatalErr(t, err)
 
-    auth_req, _, err := NewAuthReqJSON(ecdh.P256(), id)
+    auth_req, ec_key, err := NewAuthReqJSON(ecdh.P256(), id)
     fatalErr(t, err)
 
     str, err := json.Marshal(auth_req)
@@ -186,7 +186,15 @@ func TestGQLAuth(t * testing.T) {
     body, err := io.ReadAll(resp.Body)
     resp.Body.Close()
     fatalErr(t, err)
-    ctx.Log.Logf("test", "RESP_BODY: %s", body)
+
+    var j AuthRespJSON
+    err = json.Unmarshal(body, &j)
+    fatalErr(t, err)
+
+    shared_key, err := ParseAuthRespJSON(j, elliptic.P256(), ecdh.P256(), ec_key)
+    fatalErr(t, err)
+    ctx.Log.Logf("test", "TEST_SHARED_SECRET: %s", KeyID(&shared_key.PublicKey).String())
+
     done <- nil
   }(gql_t)
 
