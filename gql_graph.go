@@ -823,14 +823,19 @@ func GQLMutationSendUpdate() *graphql.Field {
           return nil, fmt.Errorf("Bad direction: %d", signal_map["Direction"])
         }
 
-        id , ok := p.Args["id"].(string)
+        id_str, ok := p.Args["id"].(string)
         if ok == false {
           return nil, fmt.Errorf("Failed to cast arg id to string")
         }
 
+        id, err := ParseID(id_str)
+        if err != nil {
+          return nil, err
+        }
+
         var node Node = nil
-        err := UseStates(ctx, []Node{server}, func(nodes NodeMap) (error){
-          node = FindChild(ctx, server, NodeID(id), nodes)
+        err = UseStates(ctx, []Node{server}, func(nodes NodeMap) (error){
+          node = FindChild(ctx, server, id, nodes)
           if node == nil {
             return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
           }

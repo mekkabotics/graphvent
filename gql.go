@@ -23,6 +23,7 @@ import (
   "crypto/sha512"
   "crypto/rand"
   "crypto/x509"
+  "github.com/google/uuid"
 )
 
 type AuthReqJSON struct {
@@ -65,26 +66,26 @@ type AuthRespJSON struct {
   Signature []byte `json:"signature"`
 }
 
-func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, []byte, error) {
+func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.PublicKey, []byte, error) {
     // Check if req.Time is within +- 1 second of now
     now := time.Now()
     earliest := now.Add(-1 * time.Second)
     latest := now.Add(1 * time.Second)
     // If req.Time is before the earliest acceptable time, or after the latest acceptible time
     if req.Time.Compare(earliest) == -1 {
-      return AuthRespJSON{}, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_LATE: %s", req.Time)
+      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_LATE: %s", req.Time)
     } else if req.Time.Compare(latest) == 1 {
-      return AuthRespJSON{}, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_EARLY: %s", req.Time)
+      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_EARLY: %s", req.Time)
     }
 
     x, y := elliptic.Unmarshal(thread.Key.Curve, req.Pubkey)
     if x == nil {
-      return AuthRespJSON{}, nil, fmt.Errorf("GQL_AUTH_UNMARSHAL_FAIL: %+v", req.Pubkey)
+      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_UNMARSHAL_FAIL: %+v", req.Pubkey)
     }
 
     remote, err := thread.ECDH.NewPublicKey(req.ECDHPubkey)
     if err != nil {
-      return AuthRespJSON{}, nil, err
+      return AuthRespJSON{}, nil, nil, err
     }
 
     // Verify the signature
@@ -92,23 +93,25 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, []byte, 
     sig_data := append(req.ECDHPubkey, time_bytes...)
     sig_hash := sha512.Sum512(sig_data)
 
+    remote_key := &ecdsa.PublicKey{
+      Curve: thread.Key.Curve,
+      X: x,
+      Y: y,
+    }
+
     verified := ecdsa.VerifyASN1(
-      &ecdsa.PublicKey{
-        Curve: thread.Key.Curve,
-        X: x,
-        Y: y,
-      },
+      remote_key,
       sig_hash[:],
       req.Signature,
     )
 
     if verified == false {
-      return AuthRespJSON{}, nil, fmt.Errorf("GQL_AUTH_VERIFY_FAIL: %+v", req)
+      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_VERIFY_FAIL: %+v", req)
     }
 
     ec_key, err := thread.ECDH.GenerateKey(rand.Reader)
     if err != nil {
-      return AuthRespJSON{}, nil, err
+      return AuthRespJSON{}, nil, nil, err
     }
 
     ec_key_pub := ec_key.PublicKey().Bytes()
@@ -120,35 +123,37 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, []byte, 
 
     resp_sig, err := ecdsa.SignASN1(rand.Reader, thread.Key, resp_sig_hash[:])
     if err != nil {
-      return AuthRespJSON{}, nil, err
+      return AuthRespJSON{}, nil, nil, err
     }
 
     shared_secret, err := ec_key.ECDH(remote)
     if err != nil {
-      return AuthRespJSON{}, nil, err
+      return AuthRespJSON{}, nil, nil, err
     }
 
     return AuthRespJSON{
       Granted: granted,
       ECDHPubkey: ec_key_pub,
       Signature: resp_sig,
-    }, shared_secret, nil
+    }, remote_key, shared_secret, nil
 }
 
 type AuthData struct {
   Granted time.Time
-  Pubkey ecdh.PublicKey
-  ECDHClient ecdh.PublicKey
+  Pubkey *ecdsa.PublicKey
+  Shared []byte
 }
 
 type AuthDataJSON struct {
   Granted time.Time `json:"granted"`
-  Pubkey []byte `json:"pbkey"`
-  ECDHClient []byte `json:"ecdh_client"`
+  Pubkey []byte `json:"pubkey"`
+  Shared []byte `json:"shared"`
 }
 
-func HashKey(pub []byte) uint64 {
-  return 0
+func KeyID(pub *ecdsa.PublicKey) NodeID {
+  ser := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+  str := uuid.NewHash(sha512.New(), ZeroUUID, ser, 3)
+  return NodeID(str)
 }
 
 func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *http.Request) {
@@ -169,7 +174,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       return
     }
 
-    resp, _, err := NewAuthRespJSON(server, req)
+    resp, remote_id, _, err := NewAuthRespJSON(server, req)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_ERROR: %e", err)
       return
@@ -192,13 +197,13 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
 
     ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_SUCCESS: %s", str)
 
-    key_hash := HashKey(req.Pubkey)
+    key_hash := KeyID(remote_id)
 
     _, exists := server.AuthMap[key_hash]
     if exists {
-      // New user
+      ctx.Log.Logf("gql", "REFRESHING AUTH FOR %+s", req.Pubkey)
     } else {
-      // Existing user
+      ctx.Log.Logf("gql", "AUTHORIZING NEW USER %+s", req.Pubkey)
     }
 
   }
@@ -578,7 +583,7 @@ type GQLThread struct {
   http_server *http.Server
   http_done *sync.WaitGroup
   Listen string
-  AuthMap map[uint64]AuthData
+  AuthMap map[NodeID]AuthData
   Key *ecdsa.PrivateKey
   ECDH ecdh.Curve
 }
@@ -604,7 +609,7 @@ func (thread * GQLThread) DeserializeInfo(ctx *Context, data []byte) (ThreadInfo
 type GQLThreadJSON struct {
   SimpleThreadJSON
   Listen string `json:"listen"`
-  AuthMap map[uint64]AuthData `json:"auth_map"`
+  AuthMap map[string]AuthDataJSON `json:"auth_map"`
   Key []byte `json:"key"`
   ECDH uint8 `json:"ecdh_curve"`
 }
@@ -633,10 +638,19 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
     panic(err)
   }
 
+  auth_map := map[string]AuthDataJSON{}
+  for id, data := range(thread.AuthMap) {
+    auth_map[id.String()] = AuthDataJSON{
+      Granted: data.Granted,
+      Pubkey: elliptic.Marshal(data.Pubkey.Curve, data.Pubkey.X, data.Pubkey.Y),
+      Shared: thread.AuthMap[id].Shared,
+    }
+  }
+
   return GQLThreadJSON{
     SimpleThreadJSON: thread_json,
     Listen: thread.Listen,
-    AuthMap: thread.AuthMap,
+    AuthMap: auth_map,
     Key: ser_key,
     ECDH: ecdh_curve_ids[thread.ECDH],
   }
@@ -660,7 +674,26 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
   }
 
   thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key)
-  thread.AuthMap = j.AuthMap
+  thread.AuthMap = map[NodeID]AuthData{}
+  for id_str, auth_json := range(j.AuthMap) {
+    id, err := ParseID(id_str)
+    if err != nil {
+      return nil, err
+    }
+    x, y := elliptic.Unmarshal(key.Curve, auth_json.Pubkey)
+    if x == nil {
+      return nil, fmt.Errorf("Failed to load public key for curve %+v from %+v", key.Curve, auth_json.Pubkey)
+    }
+    thread.AuthMap[id] = AuthData{
+      Granted: auth_json.Granted,
+      Pubkey: &ecdsa.PublicKey{
+        Curve: key.Curve,
+        X: x,
+        Y: y,
+      },
+      Shared: auth_json.Shared,
+    }
+  }
   nodes[id] = &thread
 
   err = RestoreSimpleThread(ctx, &thread, j.SimpleThreadJSON, nodes)
@@ -675,7 +708,7 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
   return GQLThread{
     SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*ParentThreadInfo)(nil)), gql_actions, gql_handlers),
     Listen: listen,
-    AuthMap: map[uint64]AuthData{},
+    AuthMap: map[NodeID]AuthData{},
     http_done: &sync.WaitGroup{},
     Key: key,
     ECDH: ecdh_curve,

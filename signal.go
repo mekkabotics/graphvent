@@ -48,7 +48,7 @@ func (signal BaseSignal) Type() string {
 }
 
 func NewBaseSignal(source Node, _type string, direction SignalDirection) BaseSignal {
-  var source_id NodeID = "nil"
+  var source_id NodeID = NodeID{}
   if source != nil {
     source_id = source.ID()
   }

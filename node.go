@@ -10,9 +10,26 @@ import (
 )
 
 // IDs are how nodes are uniquely identified, and can be serialized for the database
-type NodeID string
+type NodeID uuid.UUID
+
+var ZeroUUID = uuid.UUID{}
+var ZeroID = NodeID(ZeroUUID)
+
 func (id NodeID) Serialize() []byte {
-  return []byte(id)
+  ser, _ := (uuid.UUID)(id).MarshalBinary()
+  return ser
+}
+
+func (id NodeID) String() string {
+  return (uuid.UUID)(id).String()
+}
+
+func ParseID(str string) (NodeID, error) {
+  id_uuid, err := uuid.Parse(str)
+  if err != nil {
+    return NodeID{}, err
+  }
+  return NodeID(id_uuid), nil
 }
 
 // Types are how nodes are associated with structs at runtime(and from the DB)
@@ -27,8 +44,7 @@ func (node_type NodeType) Hash() uint64 {
 
 // Generate a random NodeID
 func RandID() NodeID {
-  uuid_str := uuid.New().String()
-  return NodeID(uuid_str)
+  return NodeID(uuid.New())
 }
 
 // A Node represents data that can be read by multiple goroutines and written to by one, with a unique ID attached, and a method to process updates(including propagating them to connected nodes)
@@ -169,7 +185,7 @@ func getNodeBytes(node Node) ([]byte, error) {
   }
   ser, err := node.Serialize()
   if err != nil {
-    return nil, fmt.Errorf("DB_SERIALIZE_ERROR: %e", err)
+    return nil, fmt.Errorf("DB_SERIALIZE_ERROR: %s", err)
   }
 
   header := NewDBHeader(node.Type())

@@ -64,13 +64,12 @@ type SimpleLockableJSON struct {
   Owner *NodeID `json:"owner"`
   Dependencies []NodeID `json:"dependencies"`
   Requirements []NodeID `json:"requirements"`
-  LocksHeld map[NodeID]*NodeID `json:"locks_held"`
+  LocksHeld map[string]*NodeID `json:"locks_held"`
 }
 
 func (lockable * SimpleLockable) Serialize() ([]byte, error) {
   lockable_json := NewSimpleLockableJSON(lockable)
   return json.MarshalIndent(&lockable_json, "", "  ")
-
 }
 
 func NewSimpleLockableJSON(lockable *SimpleLockable) SimpleLockableJSON {
@@ -90,13 +89,13 @@ func NewSimpleLockableJSON(lockable *SimpleLockable) SimpleLockableJSON {
     owner_id = &new_str
   }
 
-  locks_held := map[NodeID]*NodeID{}
+  locks_held := map[string]*NodeID{}
   for lockable_id, node := range(lockable.locks_held) {
     if node == nil {
-      locks_held[lockable_id] = nil
+      locks_held[lockable_id.String()] = nil
     } else {
       str := node.ID()
-      locks_held[lockable_id] = &str
+      locks_held[lockable_id.String()] = &str
     }
   }
   return SimpleLockableJSON{
@@ -590,7 +589,8 @@ func RestoreSimpleLockable(ctx * Context, lockable Lockable, j SimpleLockableJSO
     lockable.AddRequirement(req_l)
   }
 
-  for l_id, h_id := range(j.LocksHeld) {
+  for l_id_str, h_id := range(j.LocksHeld) {
+    l_id, err := ParseID(l_id_str)
     l, err := LoadNodeRecurse(ctx, l_id, nodes)
     if err != nil {
       return err

@@ -24,7 +24,7 @@ func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, si
       if signal.Type() == signal_type {
         ctx.Log.Logf("test", "SIGNAL_TYPE_FOUND: %s - %s %+v\n", signal.Type(), signal.Source(), listener)
         if source == nil {
-          if signal.Source() == "" {
+          if signal.Source() == ZeroID {
             return signal
           }
         } else {

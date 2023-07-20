@@ -53,13 +53,13 @@ func TestGQLThread(t * testing.T) {
 }
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{})
+  ctx := logTestContext(t, []string{"test"})
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
 
   t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
   t1 := &t1_r
-  update_channel := UpdateChannel(t1, 10, "test")
+  update_channel := UpdateChannel(t1, 10, NodeID{})
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
@@ -86,7 +86,7 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
-  if errors.Is(err, NewThreadAbortedError("")) {
+  if errors.Is(err, NewThreadAbortedError(NodeID{})) {
     ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
   } else {
     fatalErr(t, err)
@@ -97,8 +97,8 @@ func TestGQLDBLoad(t * testing.T) {
   err = UseStates(ctx, []Node{gql, t1}, func(nodes NodeMap) error {
     ser1, err := gql.Serialize()
     ser2, err := t1.Serialize()
-    ctx.Log.Logf("thread", "\n%s\n\n", ser1)
-    ctx.Log.Logf("thread", "\n%s\n\n", ser2)
+    ctx.Log.Logf("test", "\n%s\n\n", ser1)
+    ctx.Log.Logf("test", "\n%s\n\n", ser2)
     return err
   })
 
@@ -112,7 +112,7 @@ func TestGQLDBLoad(t * testing.T) {
     ctx.Log.Logf("test", "\n%s\n\n", ser)
     child := gql_loaded.(Thread).Children()[0].(*SimpleThread)
     t1_loaded = child
-    update_channel_2 = UpdateChannel(t1_loaded, 10, "test")
+    update_channel_2 = UpdateChannel(t1_loaded, 10, NodeID{})
     err = UseMoreStates(ctx, []Node{child}, nodes, func(nodes NodeMap) error {
       ser, err := child.Serialize()
       ctx.Log.Logf("test", "\n%s\n\n", ser)
@@ -123,7 +123,7 @@ func TestGQLDBLoad(t * testing.T) {
   })
 
   err = ThreadLoop(ctx, gql_loaded.(Thread), "restore")
-  if errors.Is(err, NewThreadAbortedError("")) {
+  if errors.Is(err, NewThreadAbortedError(NodeID{})) {
     ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
   } else {
     fatalErr(t, err)
@@ -143,7 +143,7 @@ func TestGQLAuth(t * testing.T) {
 
   var update_channel chan GraphSignal
   err = UseStates(ctx, []Node{gql_t}, func(nodes NodeMap) error {
-    update_channel = UpdateChannel(gql_t, 10, "test")
+    update_channel = UpdateChannel(gql_t, 10, NodeID{})
     return nil
   })
   fatalErr(t, err)

@@ -74,7 +74,7 @@ func TestLockableSelfLock(t * testing.T) {
   fatalErr(t, err)
 
   err = UseStates(ctx, []Node{l1}, func(nodes NodeMap) (error) {
-    owner_id := NodeID("")
+    owner_id := NodeID{}
     if l1.owner != nil {
       owner_id = l1.owner.ID()
     }
@@ -120,7 +120,7 @@ func TestLockableSelfLockTiered(t * testing.T) {
   fatalErr(t, err)
 
   err = UseStates(ctx, []Node{l1, l2, l3}, func(nodes NodeMap) (error) {
-    owner_1 := NodeID("")
+    owner_1 := NodeID{}
     if l1.owner != nil {
       owner_1 = l1.owner.ID()
     }
@@ -128,7 +128,7 @@ func TestLockableSelfLockTiered(t * testing.T) {
       return fmt.Errorf("l1 is owned by %s instead of l3", owner_1)
     }
 
-    owner_2 := NodeID("")
+    owner_2 := NodeID{}
     if l2.owner != nil {
       owner_2 = l2.owner.ID()
     }
@@ -181,7 +181,7 @@ func TestLockableLockOther(t * testing.T) {
   fatalErr(t, err)
 
   err = UseStates(ctx, []Node{l1}, func(nodes NodeMap) (error) {
-    owner_id := NodeID("")
+    owner_id := NodeID{}
     if l1.owner != nil {
       owner_id = l1.owner.ID()
     }
@@ -236,7 +236,7 @@ func TestLockableLockSimpleConflict(t * testing.T) {
   fatalErr(t, err)
 
   err = UseStates(ctx, []Node{l1}, func(nodes NodeMap) (error) {
-    owner_id := NodeID("")
+    owner_id := NodeID{}
     if l1.owner != nil {
       owner_id = l1.owner.ID()
     }
@@ -304,7 +304,7 @@ func TestLockableSimpleUpdate(t * testing.T) {
   l1 := &l1_r
 
 
-  update_channel := UpdateChannel(l1, 1, "test")
+  update_channel := UpdateChannel(l1, 1, NodeID{})
 
   go func() {
     UseStates(ctx, []Node{l1}, func(nodes NodeMap) error {
@@ -333,7 +333,7 @@ func TestLockableDownUpdate(t * testing.T) {
   })
   fatalErr(t, err)
 
-  update_channel := UpdateChannel(l1, 1, "test")
+  update_channel := UpdateChannel(l1, 1, NodeID{})
 
   go func() {
     UseStates(ctx, []Node{l2}, func(nodes NodeMap) error {
@@ -362,7 +362,7 @@ func TestLockableUpUpdate(t * testing.T) {
   })
   fatalErr(t, err)
 
-  update_channel := UpdateChannel(l3, 1, "test")
+  update_channel := UpdateChannel(l3, 1, NodeID{})
 
   go func() {
     UseStates(ctx, []Node{l2}, func(nodes NodeMap) error {
@@ -390,7 +390,7 @@ func TestOwnerNotUpdatedTwice(t * testing.T) {
   })
   fatalErr(t, err)
 
-  update_channel := UpdateChannel(l2, 1, "test")
+  update_channel := UpdateChannel(l2, 1, NodeID{})
 
   go func() {
     err := UseStates(ctx, []Node{l1}, func(nodes NodeMap) error {

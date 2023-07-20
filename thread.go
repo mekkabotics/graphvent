@@ -7,6 +7,7 @@ import (
   "errors"
   "reflect"
   "encoding/json"
+  "github.com/google/uuid"
 )
 
 // SimpleThread.Signal updates the parent and children, and sends the signal to an internal channel
@@ -305,7 +306,7 @@ func (thread * SimpleThread) SignalChannel() <-chan GraphSignal {
 
 type SimpleThreadJSON struct {
   Parent *NodeID `json:"parent"`
-  Children map[NodeID]interface{} `json:"children"`
+  Children map[string]interface{} `json:"children"`
   Timeout time.Time `json:"timeout"`
   TimeoutAction string `json:"timeout_action"`
   StateName string `json:"state_name"`
@@ -313,9 +314,9 @@ type SimpleThreadJSON struct {
 }
 
 func NewSimpleThreadJSON(thread *SimpleThread) SimpleThreadJSON {
-  children := map[NodeID]interface{}{}
+  children := map[string]interface{}{}
   for _, child := range(thread.children) {
-    children[child.ID()] = thread.child_info[child.ID()]
+    children[child.ID().String()] = thread.child_info[child.ID()]
   }
 
   var parent_id *NodeID = nil
@@ -379,7 +380,11 @@ func RestoreSimpleThread(ctx *Context, thread Thread, j SimpleThreadJSON, nodes 
     thread.SetParent(p_t)
   }
 
-  for id, info_raw := range(j.Children) {
+  for id_str, info_raw := range(j.Children) {
+    id, err := ParseID(id_str)
+    if err != nil {
+      return err
+    }
     child_node, err := LoadNodeRecurse(ctx, id, nodes)
     if err != nil {
       return err
@@ -572,7 +577,7 @@ var ThreadRestore = func(ctx * Context, thread Thread) {
 
 var ThreadStart = func(ctx * Context, thread Thread) error {
   return UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
-    owner_id := NodeID("")
+    owner_id := NodeID{}
     if thread.Owner() != nil {
       owner_id = thread.Owner().ID()
     }
@@ -636,12 +641,12 @@ var ThreadWait = func(ctx * Context, thread Thread) (string, error) {
 type ThreadAbortedError NodeID
 
 func (e ThreadAbortedError) Is(target error) bool {
-  error_type := reflect.TypeOf(ThreadAbortedError(""))
+  error_type := reflect.TypeOf(ThreadAbortedError(NodeID{}))
   target_type := reflect.TypeOf(target)
   return error_type == target_type
 }
 func (e ThreadAbortedError) Error() string {
-  return fmt.Sprintf("Aborted by %s", string(e))
+  return fmt.Sprintf("Aborted by %s", (uuid.UUID)(e).String())
 }
 func NewThreadAbortedError(aborter NodeID) ThreadAbortedError {
   return ThreadAbortedError(aborter)
