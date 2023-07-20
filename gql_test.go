@@ -14,6 +14,7 @@ import (
   "crypto/ecdh"
   "crypto/ecdsa"
   "crypto/elliptic"
+  "encoding/base64"
 )
 
 func TestGQLThread(t * testing.T) {
@@ -61,13 +62,22 @@ func TestGQLDBLoad(t * testing.T) {
   t1 := &t1_r
   update_channel := UpdateChannel(t1, 10, NodeID{})
 
+  u1_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+  fatalErr(t, err)
+
+  u1_shared := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x23, 0x45, 0x67}
+
+  u1_r := NewGQLUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared)
+  u1 := &u1_r
+
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
   gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key)
   gql := &gql_r
 
   info := NewParentThreadInfo(true, "start", "restore")
-  err = UpdateStates(ctx, []Node{gql, t1, l1}, func(nodes NodeMap) error {
+  err = UpdateStates(ctx, []Node{gql, t1, l1, u1}, func(nodes NodeMap) error {
+    gql.Users[KeyID(&u1_key.PublicKey)] = u1
     err := LinkLockables(ctx, gql, []Lockable{l1}, nodes)
     if err != nil {
       return err
@@ -177,23 +187,57 @@ func TestGQLAuth(t * testing.T) {
 
     str, err := json.Marshal(auth_req)
     fatalErr(t, err)
+
     b := bytes.NewBuffer(str)
     req, err := http.NewRequest("PUT", url, b)
     fatalErr(t, err)
-    req.Header.Add("Authorization", "TM baddata")
+
     resp, err := client.Do(req)
     fatalErr(t, err)
+
     body, err := io.ReadAll(resp.Body)
-    resp.Body.Close()
     fatalErr(t, err)
+
+    resp.Body.Close()
 
     var j AuthRespJSON
     err = json.Unmarshal(body, &j)
     fatalErr(t, err)
 
-    shared_key, err := ParseAuthRespJSON(j, elliptic.P256(), ecdh.P256(), ec_key)
+    shared, err := ParseAuthRespJSON(j, elliptic.P256(), ecdh.P256(), ec_key)
     fatalErr(t, err)
-    ctx.Log.Logf("test", "TEST_SHARED_SECRET: %s", KeyID(&shared_key.PublicKey).String())
+
+    url = fmt.Sprintf("http://localhost:%d/gql", port)
+    ser, err := json.MarshalIndent(&GQLPayload{
+      Query: "query { Self { ID } }",
+    }, "", "  ")
+    fatalErr(t, err)
+
+    b = bytes.NewBuffer(ser)
+    req, err = http.NewRequest("GET", url, b)
+    fatalErr(t, err)
+
+    req.SetBasicAuth(KeyID(&id.PublicKey).String(), base64.StdEncoding.EncodeToString(shared))
+    resp, err = client.Do(req)
+    fatalErr(t, err)
+
+    body, err = io.ReadAll(resp.Body)
+    fatalErr(t, err)
+
+    resp.Body.Close()
+
+    ctx.Log.Logf("test", "TEST_RESP: %s", body)
+
+    req.SetBasicAuth(KeyID(&id.PublicKey).String(), "BAD_PASSWORD")
+    resp, err = client.Do(req)
+    fatalErr(t, err)
+
+    body, err = io.ReadAll(resp.Body)
+    fatalErr(t, err)
+
+    resp.Body.Close()
+
+    ctx.Log.Logf("test", "TEST_RESP: %s", body)
 
     done <- nil
   }(gql_t)

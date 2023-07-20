@@ -355,7 +355,7 @@ func LoadSimpleThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   return &thread, nil
 }
 
-// SimpleThread as no associated info with children
+// SimpleThread has no associated info with children
 func (thread * SimpleThread) DeserializeInfo(ctx *Context, data []byte) (ThreadInfo, error) {
   if len(data) > 0 {
     return nil, fmt.Errorf("SimpleThread expected to deserialize no info but got %d length data: %s", len(data), string(data))

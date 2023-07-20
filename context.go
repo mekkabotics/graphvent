@@ -185,6 +185,11 @@ func NewContext(db * badger.DB, log Logger) * Context {
     panic(err)
   }
 
+  err = ctx.RegisterNodeType(NewNodeDef((*GQLUser)(nil), LoadGQLUser, GQLTypeGQLUser()))
+  if err != nil {
+    panic(err)
+  }
+
   ctx.AddGQLType(GQLTypeSignal())
 
   ctx.GQL.Query.AddFieldConfig("Self", GQLQuerySelf())

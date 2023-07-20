@@ -72,6 +72,7 @@ func testContext(t * testing.T) * Context {
 
 func fatalErr(t * testing.T, err error) {
   if err != nil {
+    pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
     t.Fatal(err)
   }
 }
