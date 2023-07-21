@@ -562,7 +562,22 @@ func (thread * SimpleThread) AllowedToTakeLock(new_owner Lockable, lockable Lock
   return false
 }
 
-var ThreadRestore = func(ctx * Context, thread Thread) {
+func ThreadStartChild(ctx *Context, thread Thread, signal StartChildSignal) error {
+  return UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
+    child := thread.Child(signal.ChildID)
+    if child == nil {
+      return fmt.Errorf("%s is not a child of %s", signal.ChildID, thread.ID())
+    }
+
+    info := thread.ChildInfo(signal.ChildID).(*ParentThreadInfo)
+    info.Start = true
+    ChildGo(ctx, thread, child, signal.Action)
+
+    return nil
+  })
+}
+
+func ThreadRestore(ctx * Context, thread Thread) {
   UpdateStates(ctx, []Node{thread}, func(nodes NodeMap)(error) {
     return UpdateMoreStates(ctx, NodeList(thread.Children()), nodes, func(nodes NodeMap) error {
       for _, child := range(thread.Children()) {
@@ -578,7 +593,7 @@ var ThreadRestore = func(ctx * Context, thread Thread) {
   })
 }
 
-var ThreadStart = func(ctx * Context, thread Thread) error {
+func ThreadStart(ctx * Context, thread Thread) error {
   return UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
     owner_id := NodeID{}
     if thread.Owner() != nil {
@@ -594,7 +609,7 @@ var ThreadStart = func(ctx * Context, thread Thread) error {
   })
 }
 
-var ThreadDefaultStart = func(ctx * Context, thread Thread) (string, error) {
+func ThreadDefaultStart(ctx * Context, thread Thread) (string, error) {
   ctx.Log.Logf("thread", "THREAD_DEFAULT_START: %s", thread.ID())
   err := ThreadStart(ctx, thread)
   if err != nil {
@@ -603,12 +618,12 @@ var ThreadDefaultStart = func(ctx * Context, thread Thread) (string, error) {
   return "wait", nil
 }
 
-var ThreadDefaultRestore = func(ctx * Context, thread Thread) (string, error) {
+func ThreadDefaultRestore(ctx * Context, thread Thread) (string, error) {
   ctx.Log.Logf("thread", "THREAD_DEFAULT_RESTORE: %s", thread.ID())
   return "wait", nil
 }
 
-var ThreadWait = func(ctx * Context, thread Thread) (string, error) {
+func ThreadWait(ctx * Context, thread Thread) (string, error) {
   ctx.Log.Logf("thread", "THREAD_WAIT: %s TIMEOUT: %+v", thread.ID(), thread.Timeout())
   for {
     select {
