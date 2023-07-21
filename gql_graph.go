@@ -385,6 +385,43 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   return owner, nil
 }
 
+func GQLThreadUsers(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(*GQLThread)
+  if ok == false || node == nil {
+    return nil, fmt.Errorf("Failed to cast source to GQLThread")
+  }
+
+  ctx, ok := p.Context.Value("graph_context").(*Context)
+  if ok == false {
+    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
+  }
+
+  var users []*User
+  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) error {
+    users = make([]*User, len(node.Users))
+    i := 0
+    for _, user := range(node.Users) {
+      users[i] = user
+      i += 1
+    }
+    return nil
+  })
+
+  if err != nil {
+    return nil, err
+  }
+
+  return users, nil
+}
+
+var gql_list_user *graphql.List = nil
+func GQLListUser() *graphql.List {
+  if gql_list_user == nil {
+    gql_list_user = graphql.NewList(GQLTypeUser())
+  }
+  return gql_list_user
+}
+
 var gql_type_user *graphql.Object = nil
 func GQLTypeUser() * graphql.Object {
   if gql_type_user == nil {
@@ -500,6 +537,11 @@ func GQLTypeGQLThread() * graphql.Object {
     gql_type_gql_thread.AddFieldConfig("Dependencies", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableDependencies,
+    })
+
+    gql_type_gql_thread.AddFieldConfig("Users", &graphql.Field{
+      Type: GQLListUser(),
+      Resolve: GQLThreadUsers,
     })
   }
   return gql_type_gql_thread
