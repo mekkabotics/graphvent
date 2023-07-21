@@ -641,6 +641,8 @@ type GQLThreadJSON struct {
   Users []string `json:"users"`
   Key []byte `json:"key"`
   ECDH uint8 `json:"ecdh_curve"`
+  SSLKey []byte `json:"ssl_key"`
+  SSLCert []byte `json:"ssl_cert"`
 }
 
 var ecdsa_curves = map[uint8]elliptic.Curve{
@@ -680,6 +682,8 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
     Users: users,
     Key: ser_key,
     ECDH: ecdh_curve_ids[thread.ECDH],
+    SSLKey: thread.ssl_key,
+    SSLCert: thread.ssl_cert,
   }
 }
 
@@ -700,7 +704,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
     return nil, err
   }
 
-  thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, nil, nil)
+  thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, j.SSLCert, j.SSLKey)
   thread.Users = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
     id, err := ParseID(id_str)
