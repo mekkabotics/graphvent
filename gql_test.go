@@ -237,7 +237,7 @@ func TestGQLAuth(t * testing.T) {
 
     url = fmt.Sprintf("https://localhost:%d/gql", port)
     ser, err := json.MarshalIndent(&GQLPayload{
-      Query: "query { Self { Users { ID } } }",
+      Query: "query { Self { Users { ID, Name } } }",
     }, "", "  ")
     fatalErr(t, err)
 

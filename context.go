@@ -120,6 +120,10 @@ type GQLContext struct {
   ValidLockables ObjTypeMap
   ValidThreads ObjTypeMap
 
+  BaseNodeType *graphql.Object
+  BaseLockableType *graphql.Object
+  BaseThreadType *graphql.Object
+
   Query *graphql.Object
   Mutation *graphql.Object
   Subscription *graphql.Object
@@ -154,6 +158,7 @@ func NewGQLContext() GQLContext {
     Query: query,
     Mutation: mutation,
     Subscription: subscription,
+    BaseNodeType: GQLTypeGraphNode.Type,
   }
 
   return ctx
@@ -168,48 +173,49 @@ func NewContext(db * badger.DB, log Logger) * Context {
     Types: map[uint64]NodeDef{},
   }
 
-  err := ctx.RegisterNodeType(NewNodeDef((*GraphNode)(nil), LoadGraphNode, GQLTypeGraphNode()))
+  err := ctx.RegisterNodeType(NewNodeDef((*GraphNode)(nil), LoadGraphNode, GQLTypeGraphNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*SimpleLockable)(nil), LoadSimpleLockable, GQLTypeSimpleLockable()))
+  err = ctx.RegisterNodeType(NewNodeDef((*SimpleLockable)(nil), LoadSimpleLockable, GQLTypeSimpleLockable.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*SimpleThread)(nil), LoadSimpleThread, GQLTypeSimpleThread()))
+  err = ctx.RegisterNodeType(NewNodeDef((*SimpleThread)(nil), LoadSimpleThread, GQLTypeSimpleThread.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*GQLThread)(nil), LoadGQLThread, GQLTypeGQLThread()))
+  err = ctx.RegisterNodeType(NewNodeDef((*GQLThread)(nil), LoadGQLThread, GQLTypeGQLThread.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*User)(nil), LoadUser, GQLTypeUser()))
+  err = ctx.RegisterNodeType(NewNodeDef((*User)(nil), LoadUser, GQLTypeUser.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*PerNodePolicy)(nil), LoadPerNodePolicy, GQLTypeGraphNode()))
+  err = ctx.RegisterNodeType(NewNodeDef((*PerNodePolicy)(nil), LoadPerNodePolicy, GQLTypeGraphNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*SimplePolicy)(nil), LoadSimplePolicy, GQLTypeGraphNode()))
+  err = ctx.RegisterNodeType(NewNodeDef((*SimplePolicy)(nil), LoadSimplePolicy, GQLTypeGraphNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*PerTagPolicy)(nil), LoadPerTagPolicy, GQLTypeGraphNode()))
+  err = ctx.RegisterNodeType(NewNodeDef((*PerTagPolicy)(nil), LoadPerTagPolicy, GQLTypeGraphNode.Type))
   if err != nil {
     panic(err)
   }
 
-  ctx.AddGQLType(GQLTypeSignal())
+  ctx.AddGQLType(GQLTypeSignal.Type)
 
-  ctx.GQL.Query.AddFieldConfig("Self", GQLQuerySelf())
+  ctx.GQL.Query.AddFieldConfig("Self", GQLQuerySelf)
+  ctx.GQL.Query.AddFieldConfig("User", GQLQueryUser)
 
-  ctx.GQL.Subscription.AddFieldConfig("Update", GQLSubscriptionUpdate())
-  ctx.GQL.Subscription.AddFieldConfig("Self", GQLSubscriptionSelf())
+  ctx.GQL.Subscription.AddFieldConfig("Update", GQLSubscriptionUpdate)
+  ctx.GQL.Subscription.AddFieldConfig("Self", GQLSubscriptionSelf)
 
-  ctx.GQL.Mutation.AddFieldConfig("sendUpdate", GQLMutationSendUpdate())
-  ctx.GQL.Mutation.AddFieldConfig("startChild", GQLMutationStartChild())
+  ctx.GQL.Mutation.AddFieldConfig("sendUpdate", GQLMutationSendUpdate)
+  ctx.GQL.Mutation.AddFieldConfig("startChild", GQLMutationStartChild)
 
   err = ctx.RebuildSchema()
   if err != nil {

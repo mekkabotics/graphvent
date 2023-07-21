@@ -101,6 +101,12 @@ func (node * GraphNode) Serialize() ([]byte, error) {
 }
 
 func (node *GraphNode) Allowed(action string, resource string, principal Node) error {
+  if principal == nil {
+    return fmt.Errorf("nil is not allowed to perform any actions")
+  }
+  if node.ID() == principal.ID() {
+    return nil
+  }
   for _, policy := range(node.policies) {
     if policy.Allows(action, resource, principal) == true {
       return nil

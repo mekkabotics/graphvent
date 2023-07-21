@@ -50,33 +50,26 @@ func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *G
   return c, nil
 }
 
-var gql_subscription_self * graphql.Field = nil
-func GQLSubscriptionSelf() * graphql.Field {
-  if gql_subscription_self == nil {
-    gql_subscription_self = &graphql.Field{
-      Type: GQLTypeGQLThread(),
-      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-        return p.Source, nil
-      },
-      Subscribe: GQLSubscribeSelf,
-    }
+var GQLSubscriptionSelf = NewField(func()*graphql.Field{
+  gql_subscription_self := &graphql.Field{
+    Type: GQLTypeGQLThread.Type,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      return p.Source, nil
+    },
+    Subscribe: GQLSubscribeSelf,
   }
 
   return gql_subscription_self
-}
+})
 
-var gql_subscription_update * graphql.Field = nil
-func GQLSubscriptionUpdate() * graphql.Field {
-  if gql_subscription_update == nil {
-    gql_subscription_update = &graphql.Field{
-      Type: GQLTypeSignal(),
-      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-        return p.Source, nil
-      },
-      Subscribe: GQLSubscribeSignal,
-    }
+var GQLSubscriptionUpdate = NewField(func()*graphql.Field{
+  gql_subscription_update := &graphql.Field{
+    Type: GQLTypeSignal.Type,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      return p.Source, nil
+    },
+    Subscribe: GQLSubscribeSignal,
   }
-
   return gql_subscription_update
-}
+})
 
