@@ -708,6 +708,8 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
   }
 
   thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, j.TLSCert, j.TLSKey)
+  nodes[id] = &thread
+
   thread.Users = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
     id, err := ParseID(id_str)
@@ -720,7 +722,6 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
     }
     thread.Users[id] = user.(*User)
   }
-  nodes[id] = &thread
 
   err = RestoreSimpleThread(ctx, &thread, j.SimpleThreadJSON, nodes)
   if err != nil {

@@ -4,17 +4,17 @@ import (
   "encoding/json"
 )
 
-// A policy represents a set of rules attached to a Node that allow it to preform actions
+// A policy represents a set of rules attached to a Node that allow principals to perform actions on it
 type Policy interface {
   Node
-  // Returns true if the policy allows the action on the given principal
+  // Returns true if the principal is allowed to perform the action on the resource
   Allows(action string, resource string, principal NodeID) bool
 }
 
 type NodeActions map[string][]string
 func (actions NodeActions) Allows(action string, resource string) bool {
   for _, a := range(actions[""]) {
-    if a == action {
+    if a == action || a == "*" {
       return true
     }
   }
@@ -22,7 +22,7 @@ func (actions NodeActions) Allows(action string, resource string) bool {
   resource_actions, exists := actions[resource]
   if exists == true {
     for _, a := range(resource_actions) {
-      if a == action {
+      if a == action || a == "*" {
         return true
       }
     }
@@ -31,14 +31,16 @@ func (actions NodeActions) Allows(action string, resource string) bool {
   return false
 }
 
-func NewNodeActions(wildcard_actions []string) NodeActions {
-  actions := NodeActions{}
+func NewNodeActions(resource_actions NodeActions, wildcard_actions []string) NodeActions {
+  if resource_actions == nil {
+    resource_actions = NodeActions{}
+  }
   // Wildcard actions, all actions in "" will be allowed on all resources
   if wildcard_actions == nil {
     wildcard_actions = []string{}
   }
-  actions[""] = wildcard_actions
-  return actions
+  resource_actions[""] = wildcard_actions
+  return resource_actions
 }
 
 type PerNodePolicy struct {
@@ -76,7 +78,7 @@ func NewPerNodePolicy(id NodeID, node_actions map[NodeID]NodeActions, wildcard_a
   }
 
   if wildcard_actions == nil {
-    wildcard_actions = NewNodeActions(nil)
+    wildcard_actions = NewNodeActions(nil, nil)
   }
 
   return PerNodePolicy{
@@ -115,7 +117,6 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
 }
 
 func (policy *PerNodePolicy) Allows(action string, resource string, principal NodeID) bool {
-  // Check wildcard actions
   if policy.WildcardActions.Allows(action, resource) == true {
     return true
   }

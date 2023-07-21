@@ -22,6 +22,10 @@ func TestGQLThread(t * testing.T) {
   ctx := logTestContext(t, []string{})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
+
+  p1_r := NewPerNodePolicy(RandID(), nil, NewNodeActions(nil, []string{"enumerate"}))
+  p1 := &p1_r
+
   gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql_t := &gql_t_r
 
@@ -30,9 +34,13 @@ func TestGQLThread(t * testing.T) {
   t2_r := NewSimpleThread(RandID(), "Test thread 2", "init", nil, BaseThreadActions, BaseThreadHandlers)
   t2 := &t2_r
 
-  err = UpdateStates(ctx, []Node{gql_t, t1, t2}, func(nodes NodeMap) error {
+  err = UpdateStates(ctx, []Node{gql_t, t1, t2, p1}, func(nodes NodeMap) error {
+    err := gql_t.AddPolicy(p1)
+    if err != nil {
+      return err
+    }
     i1 := NewParentThreadInfo(true, "start", "restore")
-    err := LinkThreads(ctx, gql_t, t1, &i1, nodes)
+    err = LinkThreads(ctx, gql_t, t1, &i1, nodes)
     if err != nil {
       return err
     }
@@ -71,7 +79,7 @@ func TestGQLDBLoad(t * testing.T) {
   u1_r := NewUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared)
   u1 := &u1_r
 
-  p1_r := NewPerNodePolicy(RandID(), nil, NewNodeActions([]string{"*"}))
+  p1_r := NewPerNodePolicy(RandID(), nil, NewNodeActions(nil, []string{"enumerate"}))
   p1 := &p1_r
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -81,7 +89,7 @@ func TestGQLDBLoad(t * testing.T) {
 
   info := NewParentThreadInfo(true, "start", "restore")
   err = UpdateStates(ctx, []Node{gql, t1, l1, u1, p1}, func(nodes NodeMap) error {
-    err := u1.AddPolicy(p1)
+    err := gql.AddPolicy(p1)
     if err != nil {
       return err
     }
@@ -152,12 +160,19 @@ func TestGQLDBLoad(t * testing.T) {
 }
 
 func TestGQLAuth(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "gql"})
+  ctx := logTestContext(t, []string{"test", "gql", "db"})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
+  p1_r := NewPerNodePolicy(RandID(), nil, NewNodeActions(nil, []string{"*"}))
+  p1 := &p1_r
+
   gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql_t := &gql_t_r
+
+  err = UpdateStates(ctx, []Node{gql_t, p1}, func(nodes NodeMap) error {
+    return gql_t.AddPolicy(p1)
+  })
 
   done := make(chan error, 1)
 

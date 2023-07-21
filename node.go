@@ -69,7 +69,7 @@ type Node interface {
   ID() NodeID
   Type() NodeType
 
-  Allowed(action string, resource string, principal NodeID) bool
+  Allowed(action string, resource string, principal NodeID) error
   AddPolicy(Policy) error
   RemovePolicy(Policy) error
 
@@ -100,13 +100,13 @@ func (node * GraphNode) Serialize() ([]byte, error) {
   return json.MarshalIndent(&node_json, "", "  ")
 }
 
-func (node *GraphNode) Allowed(action string, resource string, principal NodeID) bool {
+func (node *GraphNode) Allowed(action string, resource string, principal NodeID) error {
   for _, policy := range(node.policies) {
     if policy.Allows(action, resource, principal) == true {
-      return true
+      return nil
     }
   }
-  return false
+  return fmt.Errorf("%s is not allowed to perform %s.%s on %s", principal.String(), resource, action, node.ID().String())
 }
 
 func (node *GraphNode) AddPolicy(policy Policy) error {

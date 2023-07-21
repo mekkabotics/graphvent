@@ -894,14 +894,14 @@ func GQLMutationSendUpdate() *graphql.Field {
         },
       },
       Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-        server, ok := p.Context.Value("gql_server").(*GQLThread)
-        if ok == false {
-          return nil, fmt.Errorf("Failed to cast context gql_server to GQLServer: %+v", p.Context.Value("gql_server"))
+        ctx, server, user, err := GQLPrepResolve(p)
+        if err != nil {
+          return nil, err
         }
 
-        ctx, ok := p.Context.Value("graph_context").(*Context)
-        if ok == false {
-          return nil, fmt.Errorf("Failed to cast context graph_context to Context: %+v", p.Context.Value("graph_context"))
+        err = server.Allowed("signal", "self", user.ID())
+        if err != nil {
+          return nil, err
         }
 
         signal_map, ok := p.Args["signal"].(map[string]interface{})
@@ -950,15 +950,40 @@ func GQLMutationSendUpdate() *graphql.Field {
   return gql_mutation_send_update
 }
 
+func GQLPrepResolve(p graphql.ResolveParams) (*Context, *GQLThread, *User, error) {
+  context, ok := p.Context.Value("graph_context").(*Context)
+  if ok == false {
+    return nil, nil, nil, fmt.Errorf("failed to cast graph_context to *Context")
+  }
+
+  server, ok := p.Context.Value("gql_server").(*GQLThread)
+  if ok == false {
+    return nil, nil, nil, fmt.Errorf("failed to cast gql_server to *GQLThread")
+  }
+
+  user, ok := p.Context.Value("user").(*User)
+  if ok == false {
+    return nil, nil, nil, fmt.Errorf("failed to cast user to *User")
+  }
+
+  return context, server, user, nil
+}
+
 var gql_query_self *graphql.Field = nil
 func GQLQuerySelf() *graphql.Field {
   if gql_query_self == nil {
     gql_query_self = &graphql.Field{
       Type: GQLTypeGQLThread(),
       Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-        server, ok := p.Context.Value("gql_server").(*GQLThread)
-        if ok == false {
-          return nil, fmt.Errorf("failed to cast gql_server to GQLThread")
+        _, server, user, err := GQLPrepResolve(p)
+
+        if err != nil {
+          return nil, err
+        }
+
+        err = server.Allowed("enumerate", "self", user.ID())
+        if err != nil {
+          return nil, fmt.Errorf("User %s is not allowed to perform self.enumerate on %s", user.ID(), server.ID())
         }
 
         return server, nil
