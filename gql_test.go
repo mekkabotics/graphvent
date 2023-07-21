@@ -9,17 +9,13 @@ import (
   "io"
   "fmt"
   "encoding/json"
-  "encoding/pem"
   "bytes"
   "crypto/rand"
   "crypto/ecdh"
   "crypto/ecdsa"
   "crypto/elliptic"
-  "crypto/x509"
-  "crypto/x509/pkix"
   "crypto/tls"
   "encoding/base64"
-  "math/big"
 )
 
 func TestGQLThread(t * testing.T) {
@@ -160,37 +156,7 @@ func TestGQLAuth(t * testing.T) {
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-  serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
-  fatalErr(t, err)
-
-  notBefore := time.Now()
-  notAfter := notBefore.Add(365*24*time.Hour)
-
-
-  template := x509.Certificate{
-    SerialNumber: serialNumber,
-    Subject: pkix.Name{
-      Organization: []string{"mekkanized"},
-    },
-    NotBefore: notBefore,
-    NotAfter: notAfter,
-    KeyUsage: x509.KeyUsageDigitalSignature,
-    ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-    BasicConstraintsValid: true,
-  }
-
-  ssl_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-  fatalErr(t, err)
-  ssl_cert, err := x509.CreateCertificate(rand.Reader, &template, &template, &ssl_key.PublicKey, ssl_key)
-  fatalErr(t, err)
-  ssl_cert_bytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ssl_cert})
-
-  ssl_key_bytes, err := x509.MarshalECPrivateKey(ssl_key)
-  fatalErr(t, err)
-  ssl_key_pem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ssl_key_bytes})
-
-  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, ssl_cert_bytes, ssl_key_pem)
+  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql_t := &gql_t_r
 
   done := make(chan error, 1)
