@@ -950,6 +950,81 @@ func GQLMutationSendUpdate() *graphql.Field {
   return gql_mutation_send_update
 }
 
+var gql_mutation_start_child *graphql.Field = nil
+func GQLMutationStartChild() *graphql.Field {
+  if gql_mutation_start_child == nil {
+    gql_mutation_start_child = &graphql.Field{
+      Type: GQLTypeSignal(),
+      Args: graphql.FieldConfigArgument{
+        "parent_id": &graphql.ArgumentConfig{
+          Type: graphql.String,
+        },
+        "child_id": &graphql.ArgumentConfig{
+          Type: graphql.String,
+        },
+        "action": &graphql.ArgumentConfig{
+          Type: graphql.String,
+          DefaultValue: "start",
+        },
+      },
+      Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+        server, ok := p.Context.Value("gql_server").(*GQLThread)
+        if ok == false {
+          return nil, fmt.Errorf("Failed to cast context gql_server to GQLServer: %+v", p.Context.Value("gql_server"))
+        }
+
+        ctx, ok := p.Context.Value("graph_context").(*Context)
+        if ok == false {
+          return nil, fmt.Errorf("Failed to cast context graph_context to Context: %+v", p.Context.Value("graph_context"))
+        }
+
+        parent_str, ok := p.Args["parent_id"].(string)
+        if ok == false {
+          return nil, fmt.Errorf("Failed to cast arg parent_id to string: %+v", p.Args["parent_id"])
+        }
+        parent_id, err := ParseID(parent_str)
+        if err != nil {
+          return nil, err
+        }
+
+        child_str, ok := p.Args["child_id"].(string)
+        if ok == false {
+          return nil, fmt.Errorf("Failed to cast arg child_id to string: %+v", p.Args["child_id"])
+        }
+        child_id, err := ParseID(child_str)
+        if err != nil {
+          return nil, err
+        }
+
+        action, ok := p.Args["action"].(string)
+        if ok == false {
+          return nil, fmt.Errorf("Failed to cast arg action to string: %+v", p.Args["action"])
+        }
+
+        var signal GraphSignal
+        err = UseStates(ctx, []Node{server}, func(nodes NodeMap) (error){
+          node := FindChild(ctx, server, parent_id, nodes)
+          if node == nil {
+            return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
+          }
+          return UseMoreStates(ctx, []Node{node}, nodes, func(NodeMap) error {
+            signal = NewStartChildSignal(server,  child_id, action)
+            return node.Signal(ctx, signal, nodes)
+          })
+        })
+        if err != nil {
+          return nil, err
+        }
+
+        // TODO: wait for the result of the signal to send back instead of just the signal
+        return signal, nil
+      },
+    }
+  }
+
+  return gql_mutation_start_child
+}
+
 func GQLPrepResolve(p graphql.ResolveParams) (*Context, *GQLThread, *User, error) {
   context, ok := p.Context.Value("graph_context").(*Context)
   if ok == false {

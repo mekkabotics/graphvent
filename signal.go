@@ -80,3 +80,17 @@ func AbortSignal(source Node) BaseSignal {
 func CancelSignal(source Node) BaseSignal {
   return NewBaseSignal(source, "cancel", Down)
 }
+
+type StartChildSignal struct {
+  BaseSignal
+  ChildID NodeID `json:"child_id"`
+  Action string `json:"action"`
+}
+
+func NewStartChildSignal(source Node, child_id NodeID, action string) StartChildSignal {
+  return StartChildSignal{
+    BaseSignal: NewBaseSignal(source, "start_child", Direct),
+    ChildID: child_id,
+    Action: action,
+  }
+}
