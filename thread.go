@@ -305,7 +305,7 @@ func (thread * SimpleThread) SignalChannel() <-chan GraphSignal {
 }
 
 type SimpleThreadJSON struct {
-  Parent *NodeID `json:"parent"`
+  Parent string `json:"parent"`
   Children map[string]interface{} `json:"children"`
   Timeout time.Time `json:"timeout"`
   TimeoutAction string `json:"timeout_action"`
@@ -319,10 +319,9 @@ func NewSimpleThreadJSON(thread *SimpleThread) SimpleThreadJSON {
     children[child.ID().String()] = thread.child_info[child.ID()]
   }
 
-  var parent_id *NodeID = nil
+  parent_id := ""
   if thread.parent != nil {
-    new_str := thread.parent.ID()
-    parent_id = &new_str
+    parent_id = thread.parent.ID().String()
   }
 
   lockable_json := NewSimpleLockableJSON(&thread.SimpleLockable)
@@ -368,8 +367,12 @@ func RestoreSimpleThread(ctx *Context, thread Thread, j SimpleThreadJSON, nodes 
     thread.SetTimeout(j.Timeout, j.TimeoutAction)
   }
 
-  if j.Parent != nil {
-    p, err := LoadNodeRecurse(ctx, *j.Parent, nodes)
+  if j.Parent != "" {
+    parent_id, err := ParseID(j.Parent)
+    if err != nil {
+      return err
+    }
+    p, err := LoadNodeRecurse(ctx, parent_id, nodes)
     if err != nil {
       return err
     }
