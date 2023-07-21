@@ -6,7 +6,9 @@ import (
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
   "encoding/binary"
-  "crypto/sha256"
+  "crypto/sha512"
+  "crypto/ecdsa"
+  "crypto/elliptic"
 )
 
 // IDs are how nodes are uniquely identified, and can be serialized for the database
@@ -32,14 +34,18 @@ func ParseID(str string) (NodeID, error) {
   return NodeID(id_uuid), nil
 }
 
+func KeyID(pub *ecdsa.PublicKey) NodeID {
+  ser := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+  str := uuid.NewHash(sha512.New(), ZeroUUID, ser, 3)
+  return NodeID(str)
+}
+
 // Types are how nodes are associated with structs at runtime(and from the DB)
 type NodeType string
 func (node_type NodeType) Hash() uint64 {
-  hash := sha256.New()
-  hash.Write([]byte(node_type))
-  bytes := hash.Sum(nil)
+  hash := sha512.Sum512([]byte(node_type))
 
-  return binary.BigEndian.Uint64(bytes[(len(bytes)-9):(len(bytes)-1)])
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
 // Generate a random NodeID
