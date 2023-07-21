@@ -153,7 +153,7 @@ func ParseAuthRespJSON(resp AuthRespJSON, ecdsa_curve elliptic.Curve, ecdh_curve
   return shared_secret, nil
 }
 
-type GQLUser struct {
+type User struct {
   SimpleLockable
 
   Granted time.Time
@@ -161,7 +161,7 @@ type GQLUser struct {
   Shared []byte
 }
 
-type GQLUserJSON struct {
+type UserJSON struct {
   SimpleLockableJSON
   Granted time.Time `json:"granted"`
   Pubkey []byte `json:"pubkey"`
@@ -174,18 +174,18 @@ func KeyID(pub *ecdsa.PublicKey) NodeID {
   return NodeID(str)
 }
 
-func (user *GQLUser) Type() NodeType {
+func (user *User) Type() NodeType {
   return NodeType("gql_user")
 }
 
-func (user *GQLUser) Serialize() ([]byte, error) {
+func (user *User) Serialize() ([]byte, error) {
   lockable_json := NewSimpleLockableJSON(&user.SimpleLockable)
   pubkey, err := x509.MarshalPKIXPublicKey(user.Pubkey)
   if err != nil {
     return nil, err
   }
 
-  return json.MarshalIndent(&GQLUserJSON{
+  return json.MarshalIndent(&UserJSON{
     SimpleLockableJSON: lockable_json,
     Granted: user.Granted,
     Shared: user.Shared,
@@ -193,8 +193,8 @@ func (user *GQLUser) Serialize() ([]byte, error) {
   }, "", "  ")
 }
 
-func LoadGQLUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j GQLUserJSON
+func LoadUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
+  var j UserJSON
   err := json.Unmarshal(data, &j)
   if err != nil {
     return nil, err
@@ -213,7 +213,7 @@ func LoadGQLUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, err
     return nil, fmt.Errorf("Invalid key type")
   }
 
-  user := NewGQLUser(j.Name, j.Granted, pubkey, j.Shared)
+  user := NewUser(j.Name, j.Granted, pubkey, j.Shared)
   nodes[id] = &user
 
   err = RestoreSimpleLockable(ctx, &user, j.SimpleLockableJSON, nodes)
@@ -224,9 +224,9 @@ func LoadGQLUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, err
   return &user, nil
 }
 
-func NewGQLUser(name string, granted time.Time, pubkey *ecdsa.PublicKey, shared []byte) GQLUser {
+func NewUser(name string, granted time.Time, pubkey *ecdsa.PublicKey, shared []byte) User {
   id := KeyID(pubkey)
-  return GQLUser{
+  return User{
     SimpleLockable: NewSimpleLockable(id, name),
     Granted: granted,
     Pubkey: pubkey,
@@ -281,7 +281,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
     } else {
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
-      new_user := NewGQLUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared)
+      new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared)
       err := UpdateStates(ctx, []Node{server}, func(nodes NodeMap) error {
         server.Users[key_id] = &new_user
         return nil
@@ -429,7 +429,7 @@ func checkForAuthHeader(header http.Header) (string, bool) {
   return "", false
 }
 
-func CheckAuth(server *GQLThread, r *http.Request) (*GQLUser, error) {
+func CheckAuth(server *GQLThread, r *http.Request) (*User, error) {
   username, password, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
@@ -691,7 +691,7 @@ type GQLThread struct {
   http_server *http.Server
   http_done *sync.WaitGroup
   Listen string
-  Users map[NodeID]*GQLUser
+  Users map[NodeID]*User
   Key *ecdsa.PrivateKey
   ECDH ecdh.Curve
 }
@@ -780,7 +780,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
   }
 
   thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key)
-  thread.Users = map[NodeID]*GQLUser{}
+  thread.Users = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
     id, err := ParseID(id_str)
     if err != nil {
@@ -790,7 +790,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
     if err != nil {
       return nil, err
     }
-    thread.Users[id] = user.(*GQLUser)
+    thread.Users[id] = user.(*User)
   }
   nodes[id] = &thread
 
@@ -806,7 +806,7 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
   return GQLThread{
     SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*ParentThreadInfo)(nil)), gql_actions, gql_handlers),
     Listen: listen,
-    Users: map[NodeID]*GQLUser{},
+    Users: map[NodeID]*User{},
     http_done: &sync.WaitGroup{},
     Key: key,
     ECDH: ecdh_curve,

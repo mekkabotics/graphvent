@@ -385,11 +385,11 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   return owner, nil
 }
 
-var gql_type_gql_user *graphql.Object = nil
-func GQLTypeGQLUser() * graphql.Object {
-  if gql_type_gql_user == nil {
-    gql_type_gql_user = graphql.NewObject(graphql.ObjectConfig{
-      Name: "GQLUser",
+var gql_type_user *graphql.Object = nil
+func GQLTypeUser() * graphql.Object {
+  if gql_type_user == nil {
+    gql_type_user = graphql.NewObject(graphql.ObjectConfig{
+      Name: "User",
       Interfaces: []*graphql.Interface{
         GQLInterfaceNode(),
         GQLInterfaceLockable(),
@@ -412,32 +412,32 @@ func GQLTypeGQLUser() * graphql.Object {
       Fields: graphql.Fields{},
     })
 
-    gql_type_gql_user.AddFieldConfig("ID", &graphql.Field{
+    gql_type_user.AddFieldConfig("ID", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLNodeID,
     })
 
-    gql_type_gql_user.AddFieldConfig("Name", &graphql.Field{
+    gql_type_user.AddFieldConfig("Name", &graphql.Field{
       Type: graphql.String,
       Resolve: GQLLockableName,
     })
 
-    gql_type_gql_user.AddFieldConfig("Requirements", &graphql.Field{
+    gql_type_user.AddFieldConfig("Requirements", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableRequirements,
     })
 
-    gql_type_gql_user.AddFieldConfig("Owner", &graphql.Field{
+    gql_type_user.AddFieldConfig("Owner", &graphql.Field{
       Type: GQLInterfaceLockable(),
       Resolve: GQLLockableOwner,
     })
 
-    gql_type_gql_user.AddFieldConfig("Dependencies", &graphql.Field{
+    gql_type_user.AddFieldConfig("Dependencies", &graphql.Field{
       Type: GQLListLockable(),
       Resolve: GQLLockableDependencies,
     })
   }
-  return gql_type_gql_user
+  return gql_type_user
 }
 
 var gql_type_gql_thread *graphql.Object = nil

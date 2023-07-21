@@ -67,7 +67,7 @@ func TestGQLDBLoad(t * testing.T) {
 
   u1_shared := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x23, 0x45, 0x67}
 
-  u1_r := NewGQLUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared)
+  u1_r := NewUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared)
   u1 := &u1_r
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
