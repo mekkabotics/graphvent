@@ -203,7 +203,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
     } else {
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
-      new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared)
+      new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared, []string{"gql"})
       err := UpdateStates(ctx, []Node{server, &new_user}, func(nodes NodeMap) error {
         server.Users[key_id] = &new_user
         return nil

@@ -45,14 +45,12 @@ func NewNodeActions(resource_actions NodeActions, wildcard_actions []string) Nod
 
 type PerNodePolicy struct {
   GraphNode
-  NodeActions map[NodeID]NodeActions
-  WildcardActions NodeActions
+  Actions map[NodeID]NodeActions
 }
 
 type PerNodePolicyJSON struct {
   GraphNodeJSON
-  NodeActions map[string]map[string][]string `json:"allowed_actions"`
-  WildcardActions map[string][]string `json:"wildcard_actions"`
+  Actions map[string]map[string][]string `json:"actions"`
 }
 
 func (policy *PerNodePolicy) Type() NodeType {
@@ -61,30 +59,24 @@ func (policy *PerNodePolicy) Type() NodeType {
 
 func (policy *PerNodePolicy) Serialize() ([]byte, error) {
   allowed_actions := map[string]map[string][]string{}
-  for principal, actions := range(policy.NodeActions) {
+  for principal, actions := range(policy.Actions) {
     allowed_actions[principal.String()] = actions
   }
 
   return json.MarshalIndent(&PerNodePolicyJSON{
     GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
-    NodeActions: allowed_actions,
-    WildcardActions: policy.WildcardActions,
+    Actions: allowed_actions,
   }, "", "  ")
 }
 
-func NewPerNodePolicy(id NodeID, node_actions map[NodeID]NodeActions, wildcard_actions NodeActions) PerNodePolicy {
-  if node_actions == nil {
-    node_actions = map[NodeID]NodeActions{}
-  }
-
-  if wildcard_actions == nil {
-    wildcard_actions = NewNodeActions(nil, nil)
+func NewPerNodePolicy(id NodeID, actions map[NodeID]NodeActions) PerNodePolicy {
+  if actions == nil {
+    actions = map[NodeID]NodeActions{}
   }
 
   return PerNodePolicy{
     GraphNode: NewGraphNode(id),
-    NodeActions: node_actions,
-    WildcardActions: wildcard_actions,
+    Actions: actions,
   }
 }
 
@@ -95,17 +87,17 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
     return nil, err
   }
 
-  allowed_actions := map[NodeID]NodeActions{}
-  for principal_str, actions := range(j.NodeActions) {
+  actions := map[NodeID]NodeActions{}
+  for principal_str, node_actions := range(j.Actions) {
     principal_id, err := ParseID(principal_str)
     if err != nil {
       return nil, err
     }
 
-    allowed_actions[principal_id] = actions
+    actions[principal_id] = node_actions
   }
 
-  policy := NewPerNodePolicy(id, allowed_actions, j.WildcardActions)
+  policy := NewPerNodePolicy(id, actions)
   nodes[id] = &policy
 
   err = RestoreGraphNode(ctx, &policy.GraphNode, j.GraphNodeJSON, nodes)
@@ -117,11 +109,7 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
 }
 
 func (policy *PerNodePolicy) Allows(action string, resource string, principal NodeID) bool {
-  if policy.WildcardActions.Allows(action, resource) == true {
-    return true
-  }
-
-  node_actions, exists := policy.NodeActions[principal]
+  node_actions, exists := policy.Actions[principal]
   if exists == false {
     return false
   }
@@ -132,3 +120,58 @@ func (policy *PerNodePolicy) Allows(action string, resource string, principal No
 
   return false
 }
+
+type SimplePolicy struct {
+  GraphNode
+  Actions NodeActions
+}
+
+type SimplePolicyJSON struct {
+  GraphNodeJSON
+  Actions map[string][]string `json:"actions"`
+}
+
+func (policy *SimplePolicy) Type() NodeType {
+  return NodeType("simple_policy")
+}
+
+func (policy *SimplePolicy) Serialize() ([]byte, error) {
+  return json.MarshalIndent(&SimplePolicyJSON{
+    GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
+    Actions: policy.Actions,
+  }, "", "  ")
+}
+
+func NewSimplePolicy(id NodeID, actions NodeActions) SimplePolicy {
+  if actions == nil {
+    actions = NodeActions{}
+  }
+
+  return SimplePolicy{
+    GraphNode: NewGraphNode(id),
+    Actions: actions,
+  }
+}
+
+func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
+  var j SimplePolicyJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  policy := NewSimplePolicy(id, j.Actions)
+  nodes[id] = &policy
+
+  err = RestoreGraphNode(ctx, &policy.GraphNode, j.GraphNodeJSON, nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  return &policy, nil
+}
+
+func (policy *SimplePolicy) Allows(action string, resource string, principal NodeID) bool {
+  return policy.Actions.Allows(action, resource)
+}
+
