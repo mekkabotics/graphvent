@@ -899,7 +899,7 @@ func GQLMutationSendUpdate() *graphql.Field {
           return nil, err
         }
 
-        err = server.Allowed("signal", "self", user.ID())
+        err = server.Allowed("signal", "self", user)
         if err != nil {
           return nil, err
         }
@@ -981,7 +981,7 @@ func GQLQuerySelf() *graphql.Field {
           return nil, err
         }
 
-        err = server.Allowed("enumerate", "self", user.ID())
+        err = server.Allowed("enumerate", "self", user)
         if err != nil {
           return nil, fmt.Errorf("User %s is not allowed to perform self.enumerate on %s", user.ID(), server.ID())
         }

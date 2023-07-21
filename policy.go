@@ -8,7 +8,7 @@ import (
 type Policy interface {
   Node
   // Returns true if the principal is allowed to perform the action on the resource
-  Allows(action string, resource string, principal NodeID) bool
+  Allows(action string, resource string, principal Node) bool
 }
 
 type NodeActions map[string][]string
@@ -108,8 +108,8 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
   return &policy, nil
 }
 
-func (policy *PerNodePolicy) Allows(action string, resource string, principal NodeID) bool {
-  node_actions, exists := policy.Actions[principal]
+func (policy *PerNodePolicy) Allows(action string, resource string, principal Node) bool {
+  node_actions, exists := policy.Actions[principal.ID()]
   if exists == false {
     return false
   }
@@ -171,7 +171,7 @@ func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   return &policy, nil
 }
 
-func (policy *SimplePolicy) Allows(action string, resource string, principal NodeID) bool {
+func (policy *SimplePolicy) Allows(action string, resource string, principal Node) bool {
   return policy.Actions.Allows(action, resource)
 }
 
