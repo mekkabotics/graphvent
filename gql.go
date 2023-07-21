@@ -879,6 +879,23 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
     })
     return "wait", nil
   },
+  "start_child": func(ctx *Context, thread Thread, signal GraphSignal) (string, error) {
+    ctx.Log.Logf("gql", "GQL_START_CHILD")
+    sig, ok := signal.(StartChildSignal)
+    if ok == false {
+      ctx.Log.Logf("gql", "GQL_START_CHILD_BAD_SIGNAL: %+v", signal)
+      return "wait", nil
+    }
+
+    err := ThreadStartChild(ctx, thread, sig)
+    if err != nil {
+      ctx.Log.Logf("gql", "GQL_START_CHILD_ERR: %s", err)
+    } else {
+      ctx.Log.Logf("gql", "GQL_START_CHILD: %s", sig.ChildID.String())
+    }
+
+    return "wait", nil
+  },
   "abort": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_ABORT")
     server := thread.(*GQLThread)
