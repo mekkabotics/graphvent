@@ -24,6 +24,7 @@ import (
   "crypto/sha512"
   "crypto/rand"
   "crypto/x509"
+  "crypto/tls"
 )
 
 type AuthReqJSON struct {
@@ -608,6 +609,8 @@ type GQLThread struct {
   tcp_listener net.Listener
   http_server *http.Server
   http_done *sync.WaitGroup
+  ssl_key []byte
+  ssl_cert []byte
   Listen string
   Users map[NodeID]*User
   Key *ecdsa.PrivateKey
@@ -697,7 +700,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
     return nil, err
   }
 
-  thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key)
+  thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, nil, nil)
   thread.Users = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
     id, err := ParseID(id_str)
@@ -720,7 +723,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
   return &thread, nil
 }
 
-func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey) GQLThread {
+func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, ssl_cert []byte, ssl_key []byte) GQLThread {
   return GQLThread{
     SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*ParentThreadInfo)(nil)), gql_actions, gql_handlers),
     Listen: listen,
@@ -728,6 +731,8 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
     http_done: &sync.WaitGroup{},
     Key: key,
     ECDH: ecdh_curve,
+    ssl_cert: ssl_cert,
+    ssl_key: ssl_key,
   }
 }
 
@@ -773,17 +778,35 @@ var gql_actions ThreadActions = ThreadActions{
       Handler: mux,
     }
 
-    listener, err := net.Listen("tcp", http_server.Addr)
+    var listener net.Listener
+    l, err := net.Listen("tcp", http_server.Addr)
     if err != nil {
       return "", fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
-
     }
+    listener = l
+
+    if server.ssl_cert != nil {
+      ser, _ := json.Marshal(server.ssl_cert)
+      ctx.Log.Logf("gql", "SSL_CERT: %s", ser)
+      cert, err := tls.X509KeyPair(server.ssl_cert, server.ssl_key)
+      if err != nil {
+        return "", err
+      }
+
+      config := tls.Config{
+        Certificates: []tls.Certificate{cert},
+        NextProtos: []string{"http/1.1"},
+      }
+
+      listener = tls.NewListener(l, &config)
+    }
+
 
     server.http_done.Add(1)
     go func(server *GQLThread) {
       defer server.http_done.Done()
 
-      err = http_server.Serve(listener)
+      err := http_server.Serve(listener)
       if err != http.ErrServerClosed {
           panic(fmt.Sprintf("Failed to start gql server: %s", err))
       }

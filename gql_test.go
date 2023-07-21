@@ -9,19 +9,24 @@ import (
   "io"
   "fmt"
   "encoding/json"
+  "encoding/pem"
   "bytes"
   "crypto/rand"
   "crypto/ecdh"
   "crypto/ecdsa"
   "crypto/elliptic"
+  "crypto/x509"
+  "crypto/x509/pkix"
+  "crypto/tls"
   "encoding/base64"
+  "math/big"
 )
 
 func TestGQLThread(t * testing.T) {
   ctx := logTestContext(t, []string{})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
-  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key)
+  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql_t := &gql_t_r
 
   t1_r := NewSimpleThread(RandID(), "Test thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
@@ -75,7 +80,7 @@ func TestGQLDBLoad(t * testing.T) {
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
-  gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key)
+  gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql := &gql_r
 
   info := NewParentThreadInfo(true, "start", "restore")
@@ -154,7 +159,38 @@ func TestGQLAuth(t * testing.T) {
   ctx := logTestContext(t, []string{"test", "gql"})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
-  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key)
+
+  serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+  serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+  fatalErr(t, err)
+
+  notBefore := time.Now()
+  notAfter := notBefore.Add(365*24*time.Hour)
+
+
+  template := x509.Certificate{
+    SerialNumber: serialNumber,
+    Subject: pkix.Name{
+      Organization: []string{"mekkanized"},
+    },
+    NotBefore: notBefore,
+    NotAfter: notAfter,
+    KeyUsage: x509.KeyUsageDigitalSignature,
+    ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+    BasicConstraintsValid: true,
+  }
+
+  ssl_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+  fatalErr(t, err)
+  ssl_cert, err := x509.CreateCertificate(rand.Reader, &template, &template, &ssl_key.PublicKey, ssl_key)
+  fatalErr(t, err)
+  ssl_cert_bytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ssl_cert})
+
+  ssl_key_bytes, err := x509.MarshalECPrivateKey(ssl_key)
+  fatalErr(t, err)
+  ssl_key_pem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ssl_key_bytes})
+
+  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, ssl_cert_bytes, ssl_key_pem)
   gql_t := &gql_t_r
 
   done := make(chan error, 1)
@@ -184,8 +220,18 @@ func TestGQLAuth(t * testing.T) {
     (*GraphTester)(t).WaitForValue(ctx, update_channel, "server_started", gql_t, 100*time.Millisecond, "Server didn't start")
     port := gql_t.tcp_listener.Addr().(*net.TCPAddr).Port
     ctx.Log.Logf("test", "GQL_PORT: %d", port)
-    client := &http.Client{}
-    url := fmt.Sprintf("http://localhost:%d/auth", port)
+
+    customTransport := &http.Transport{
+      Proxy:                 http.DefaultTransport.(*http.Transport).Proxy,
+      DialContext:           http.DefaultTransport.(*http.Transport).DialContext,
+      MaxIdleConns:          http.DefaultTransport.(*http.Transport).MaxIdleConns,
+      IdleConnTimeout:       http.DefaultTransport.(*http.Transport).IdleConnTimeout,
+      ExpectContinueTimeout: http.DefaultTransport.(*http.Transport).ExpectContinueTimeout,
+      TLSHandshakeTimeout:   http.DefaultTransport.(*http.Transport).TLSHandshakeTimeout,
+      TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+    }
+    client := &http.Client{Transport: customTransport}
+    url := fmt.Sprintf("https://localhost:%d/auth", port)
 
     id, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
     fatalErr(t, err)
@@ -215,7 +261,7 @@ func TestGQLAuth(t * testing.T) {
     shared, err := ParseAuthRespJSON(j, elliptic.P256(), ecdh.P256(), ec_key)
     fatalErr(t, err)
 
-    url = fmt.Sprintf("http://localhost:%d/gql", port)
+    url = fmt.Sprintf("https://localhost:%d/gql", port)
     ser, err := json.MarshalIndent(&GQLPayload{
       Query: "query { Self { Users { ID } } }",
     }, "", "  ")
