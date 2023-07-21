@@ -58,14 +58,14 @@ func (policy *PerNodePolicy) Type() NodeType {
 }
 
 func (policy *PerNodePolicy) Serialize() ([]byte, error) {
-  allowed_actions := map[string]map[string][]string{}
-  for principal, actions := range(policy.Actions) {
-    allowed_actions[principal.String()] = actions
+  actions := map[string]map[string][]string{}
+  for principal, resource_actions := range(policy.Actions) {
+    actions[principal.String()] = resource_actions
   }
 
   return json.MarshalIndent(&PerNodePolicyJSON{
     GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
-    Actions: allowed_actions,
+    Actions: actions,
   }, "", "  ")
 }
 
@@ -173,5 +173,82 @@ func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
 
 func (policy *SimplePolicy) Allows(action string, resource string, principal Node) bool {
   return policy.Actions.Allows(action, resource)
+}
+
+type PerTagPolicy struct {
+  GraphNode
+  Actions map[string]NodeActions
+}
+
+type PerTagPolicyJSON struct {
+  GraphNodeJSON
+  Actions map[string]map[string][]string `json:"json"`
+}
+
+func (policy *PerTagPolicy) Type() NodeType {
+  return NodeType("per_tag_policy")
+}
+
+func (policy *PerTagPolicy) Serialize() ([]byte, error) {
+  actions := map[string]map[string][]string{}
+  for tag, tag_actions := range(policy.Actions) {
+    actions[tag] = tag_actions
+  }
+
+  return json.MarshalIndent(&PerTagPolicyJSON{
+    GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
+    Actions: actions,
+  }, "", "  ")
+}
+
+func NewPerTagPolicy(id NodeID, actions map[string]NodeActions) PerTagPolicy {
+  if actions == nil {
+    actions = map[string]NodeActions{}
+  }
+
+  return PerTagPolicy{
+    GraphNode: NewGraphNode(id),
+    Actions: actions,
+  }
+}
+
+func LoadPerTagPolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
+  var j PerTagPolicyJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  actions := map[string]NodeActions{}
+  for tag, tag_actions := range(j.Actions) {
+    actions[tag] = tag_actions
+  }
+
+  policy := NewPerTagPolicy(id, actions)
+  nodes[id] = &policy
+
+  err = RestoreGraphNode(ctx, &policy.GraphNode, j.GraphNodeJSON, nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  return &policy, nil
+}
+
+func (policy *PerTagPolicy) Allows(action string, resource string, principal Node) bool {
+  user, ok := principal.(*User)
+  if ok == false {
+    return false
+  }
+
+  for _, tag := range(user.Tags) {
+    tag_actions, exists := policy.Actions[tag]
+    if exists == true {
+      if tag_actions.Allows(action, resource) == true {
+        return true
+      }
+    }
+  }
+  return false
 }
 
