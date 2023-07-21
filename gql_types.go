@@ -5,10 +5,8 @@ import (
   "reflect"
 )
 
-type Field *graphql.Field
-
-func NewField(init func()*graphql.Field) Field {
-  return Field(init())
+func NewField(init func()*graphql.Field) *graphql.Field {
+  return init()
 }
 
 type Singleton[K graphql.Type] struct {
