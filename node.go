@@ -69,7 +69,7 @@ type Node interface {
   ID() NodeID
   Type() NodeType
 
-  Allowed(action string, principal NodeID) bool
+  Allowed(action string, resource string, principal NodeID) bool
   AddPolicy(Policy) error
   RemovePolicy(Policy) error
 
@@ -92,7 +92,7 @@ type GraphNode struct {
 }
 
 type GraphNodeJSON struct {
-  Policies []NodeID `json:"policies"`
+  Policies []string `json:"policies"`
 }
 
 func (node * GraphNode) Serialize() ([]byte, error) {
@@ -100,9 +100,9 @@ func (node * GraphNode) Serialize() ([]byte, error) {
   return json.MarshalIndent(&node_json, "", "  ")
 }
 
-func (node *GraphNode) Allowed(action string, principal NodeID) bool {
+func (node *GraphNode) Allowed(action string, resource string, principal NodeID) bool {
   for _, policy := range(node.policies) {
-    if policy.Allows(action, principal) == true {
+    if policy.Allows(action, resource, principal) == true {
       return true
     }
   }
@@ -138,10 +138,10 @@ func (node *GraphNode) RemovePolicy(policy Policy) error {
 }
 
 func NewGraphNodeJSON(node *GraphNode) GraphNodeJSON {
-  policies := make([]NodeID, len(node.policies))
+  policies := make([]string, len(node.policies))
   i := 0
   for _, policy := range(node.policies) {
-    policies[i] = policy.ID()
+    policies[i] = policy.ID().String()
     i += 1
   }
   return GraphNodeJSON{
@@ -150,7 +150,11 @@ func NewGraphNodeJSON(node *GraphNode) GraphNodeJSON {
 }
 
 func RestoreGraphNode(ctx *Context, node Node, j GraphNodeJSON, nodes NodeMap) error {
-  for _, policy_id := range(j.Policies) {
+  for _, policy_str := range(j.Policies) {
+    policy_id, err := ParseID(policy_str)
+    if err != nil {
+      return err
+    }
     policy_ptr, err := LoadNodeRecurse(ctx, policy_id, nodes)
     if err != nil {
       return err

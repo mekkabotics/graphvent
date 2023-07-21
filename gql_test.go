@@ -70,7 +70,7 @@ func TestGQLDBLoad(t * testing.T) {
   u1_r := NewUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared)
   u1 := &u1_r
 
-  p1_r := NewAllNodePolicy(RandID(), []string{"*"})
+  p1_r := NewPerNodePolicy(RandID(), nil, NewNodeActions([]string{"*"}))
   p1 := &p1_r
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -111,9 +111,9 @@ func TestGQLDBLoad(t * testing.T) {
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", t1, 100*time.Millisecond, "Didn't receive thread_abort from t1 on t1")
 
-  err = UseStates(ctx, []Node{gql, t1}, func(nodes NodeMap) error {
+  err = UseStates(ctx, []Node{gql, u1}, func(nodes NodeMap) error {
     ser1, err := gql.Serialize()
-    ser2, err := t1.Serialize()
+    ser2, err := u1.Serialize()
     ctx.Log.Logf("test", "\n%s\n\n", ser1)
     ctx.Log.Logf("test", "\n%s\n\n", ser2)
     return err
@@ -127,11 +127,12 @@ func TestGQLDBLoad(t * testing.T) {
   err = UseStates(ctx, []Node{gql_loaded}, func(nodes NodeMap) error {
     ser, err := gql_loaded.Serialize()
     ctx.Log.Logf("test", "\n%s\n\n", ser)
+    u_loaded := gql_loaded.(*GQLThread).Users[u1.ID()]
     child := gql_loaded.(Thread).Children()[0].(*SimpleThread)
     t1_loaded = child
     update_channel_2 = UpdateChannel(t1_loaded, 10, NodeID{})
-    err = UseMoreStates(ctx, []Node{child}, nodes, func(nodes NodeMap) error {
-      ser, err := child.Serialize()
+    err = UseMoreStates(ctx, []Node{u_loaded}, nodes, func(nodes NodeMap) error {
+      ser, err := u_loaded.Serialize()
       ctx.Log.Logf("test", "\n%s\n\n", ser)
       return err
     })

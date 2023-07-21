@@ -62,10 +62,10 @@ func (state * SimpleLockable) Type() NodeType {
 type SimpleLockableJSON struct {
   GraphNodeJSON
   Name string `json:"name"`
-  Owner *NodeID `json:"owner"`
-  Dependencies []NodeID `json:"dependencies"`
-  Requirements []NodeID `json:"requirements"`
-  LocksHeld map[string]*NodeID `json:"locks_held"`
+  Owner string `json:"owner"`
+  Dependencies []string `json:"dependencies"`
+  Requirements []string `json:"requirements"`
+  LocksHeld map[string]string `json:"locks_held"`
 }
 
 func (lockable * SimpleLockable) Serialize() ([]byte, error) {
@@ -74,29 +74,27 @@ func (lockable * SimpleLockable) Serialize() ([]byte, error) {
 }
 
 func NewSimpleLockableJSON(lockable *SimpleLockable) SimpleLockableJSON {
-  requirement_ids := make([]NodeID, len(lockable.requirements))
+  requirement_ids := make([]string, len(lockable.requirements))
   for i, requirement := range(lockable.requirements) {
-    requirement_ids[i] = requirement.ID()
+    requirement_ids[i] = requirement.ID().String()
   }
 
-  dependency_ids := make([]NodeID, len(lockable.dependencies))
+  dependency_ids := make([]string, len(lockable.dependencies))
   for i, dependency := range(lockable.dependencies) {
-    dependency_ids[i] = dependency.ID()
+    dependency_ids[i] = dependency.ID().String()
   }
 
-  var owner_id *NodeID = nil
+  owner_id := ""
   if lockable.owner != nil {
-    new_str := lockable.owner.ID()
-    owner_id = &new_str
+    owner_id = lockable.owner.ID().String()
   }
 
-  locks_held := map[string]*NodeID{}
+  locks_held := map[string]string{}
   for lockable_id, node := range(lockable.locks_held) {
     if node == nil {
-      locks_held[lockable_id.String()] = nil
+      locks_held[lockable_id.String()] = ""
     } else {
-      str := node.ID()
-      locks_held[lockable_id.String()] = &str
+      locks_held[lockable_id.String()] = node.ID().String()
     }
   }
 
@@ -558,43 +556,55 @@ func NewSimpleLockable(id NodeID, name string) SimpleLockable {
 
 // Helper function to load links when loading a struct that embeds SimpleLockable
 func RestoreSimpleLockable(ctx * Context, lockable Lockable, j SimpleLockableJSON, nodes NodeMap) error {
-  if j.Owner != nil {
-    o, err := LoadNodeRecurse(ctx, *j.Owner, nodes)
+  if j.Owner != "" {
+    owner_id, err := ParseID(j.Owner)
     if err != nil {
       return err
     }
-    o_l, ok := o.(Lockable)
-    if ok == false {
-      return fmt.Errorf("%s is not a Lockable", *j.Owner)
+    owner_node, err := LoadNodeRecurse(ctx, owner_id, nodes)
+    if err != nil {
+      return err
     }
-    lockable.SetOwner(o_l)
+    owner, ok := owner_node.(Lockable)
+    if ok == false {
+      return fmt.Errorf("%s is not a Lockable", j.Owner)
+    }
+    lockable.SetOwner(owner)
   }
 
-  for _, dep := range(j.Dependencies) {
-    dep_node, err := LoadNodeRecurse(ctx, dep, nodes)
+  for _, dep_str := range(j.Dependencies) {
+    dep_id, err := ParseID(dep_str)
     if err != nil {
       return err
     }
-    dep_l, ok := dep_node.(Lockable)
+    dep_node, err := LoadNodeRecurse(ctx, dep_id, nodes)
+    if err != nil {
+      return err
+    }
+    dep, ok := dep_node.(Lockable)
     if ok == false {
       return fmt.Errorf("%+v is not a Lockable as expected", dep_node)
     }
-    lockable.AddDependency(dep_l)
+    lockable.AddDependency(dep)
   }
 
-  for _, req := range(j.Requirements) {
-    req_node, err := LoadNodeRecurse(ctx, req, nodes)
+  for _, req_str := range(j.Requirements) {
+    req_id, err := ParseID(req_str)
     if err != nil {
       return err
     }
-    req_l, ok := req_node.(Lockable)
+    req_node, err := LoadNodeRecurse(ctx, req_id, nodes)
+    if err != nil {
+      return err
+    }
+    req, ok := req_node.(Lockable)
     if ok == false {
       return fmt.Errorf("%+v is not a Lockable as expected", req_node)
     }
-    lockable.AddRequirement(req_l)
+    lockable.AddRequirement(req)
   }
 
-  for l_id_str, h_id := range(j.LocksHeld) {
+  for l_id_str, h_str := range(j.LocksHeld) {
     l_id, err := ParseID(l_id_str)
     l, err := LoadNodeRecurse(ctx, l_id, nodes)
     if err != nil {
@@ -606,8 +616,12 @@ func RestoreSimpleLockable(ctx * Context, lockable Lockable, j SimpleLockableJSO
     }
 
     var h_l Lockable = nil
-    if h_id != nil {
-      h_node, err := LoadNodeRecurse(ctx, *h_id, nodes)
+    if h_str != "" {
+      h_id, err := ParseID(h_str)
+      if err != nil {
+        return err
+      }
+      h_node, err := LoadNodeRecurse(ctx, h_id, nodes)
       if err != nil {
         return err
       }
