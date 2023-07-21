@@ -24,7 +24,7 @@ type UserJSON struct {
 }
 
 func (user *User) Type() NodeType {
-  return NodeType("gql_user")
+  return NodeType("user")
 }
 
 func (user *User) Serialize() ([]byte, error) {
