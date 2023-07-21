@@ -201,7 +201,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
       new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared)
-      err := UpdateStates(ctx, []Node{server}, func(nodes NodeMap) error {
+      err := UpdateStates(ctx, []Node{server, &new_user}, func(nodes NodeMap) error {
         server.Users[key_id] = &new_user
         return nil
       })
