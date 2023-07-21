@@ -208,8 +208,8 @@ func NewContext(db * badger.DB, log Logger) * Context {
   ctx.GQL.Subscription.AddFieldConfig("Update", GQLSubscriptionUpdate())
   ctx.GQL.Subscription.AddFieldConfig("Self", GQLSubscriptionSelf())
 
-  ctx.GQL.Mutation.AddFieldConfig("SendUpdate", GQLMutationSendUpdate())
-  ctx.GQL.Mutation.AddFieldConfig("StartChild", GQLMutationStartChild())
+  ctx.GQL.Mutation.AddFieldConfig("sendUpdate", GQLMutationSendUpdate())
+  ctx.GQL.Mutation.AddFieldConfig("startChild", GQLMutationStartChild())
 
   err = ctx.RebuildSchema()
   if err != nil {
