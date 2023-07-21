@@ -157,7 +157,7 @@ func TestGQLAuth(t * testing.T) {
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  p1_r := NewSimplePolicy(RandID(), NewNodeActions(nil, []string{"*"}))
+  p1_r := NewPerTagPolicy(RandID(), map[string]NodeActions{"gql": NewNodeActions(nil, []string{"*"})})
   p1 := &p1_r
 
   gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
