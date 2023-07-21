@@ -6,6 +6,7 @@ import (
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
   "encoding/binary"
+  "encoding/json"
   "crypto/sha512"
   "crypto/ecdsa"
   "crypto/elliptic"
@@ -56,13 +57,22 @@ func RandID() NodeID {
 // A Node represents data that can be read by multiple goroutines and written to by one, with a unique ID attached, and a method to process updates(including propagating them to connected nodes)
 // RegisterChannel and UnregisterChannel are used to connect arbitrary listeners to the node
 type Node interface {
+  // State Locking interface
   sync.Locker
   RLock()
   RUnlock()
+
   // Serialize the Node for the database
   Serialize() ([]byte, error)
+
+  // Nodes have an ID, type, and ACL policies
   ID() NodeID
   Type() NodeType
+
+  Allowed(action string, principal NodeID) bool
+  AddPolicy(Policy) error
+  RemovePolicy(Policy) error
+
   // Send a GraphSignal to the node, requires that the node is locked for read so that it can propagate
   Signal(ctx *Context, signal GraphSignal, nodes NodeMap) error
   // Register a channel to receive updates sent to the node
@@ -78,11 +88,81 @@ type GraphNode struct {
 
   id NodeID
   listeners map[NodeID]chan GraphSignal
+  policies map[NodeID]Policy
 }
 
-// GraphNode doesn't serialize any additional information by default
+type GraphNodeJSON struct {
+  Policies []NodeID `json:"policies"`
+}
+
 func (node * GraphNode) Serialize() ([]byte, error) {
-  return nil, nil
+  node_json := NewGraphNodeJSON(node)
+  return json.MarshalIndent(&node_json, "", "  ")
+}
+
+func (node *GraphNode) Allowed(action string, principal NodeID) bool {
+  for _, policy := range(node.policies) {
+    if policy.Allows(action, principal) == true {
+      return true
+    }
+  }
+  return false
+}
+
+func (node *GraphNode) AddPolicy(policy Policy) error {
+  if policy == nil {
+    return fmt.Errorf("Cannot add nil as a policy")
+  }
+
+  _, exists := node.policies[policy.ID()]
+  if exists == true {
+    return fmt.Errorf("%s is already a policy for %s", policy.ID().String(), node.ID().String())
+  }
+
+  node.policies[policy.ID()] = policy
+  return nil
+}
+
+func (node *GraphNode) RemovePolicy(policy Policy) error {
+  if policy == nil {
+    return fmt.Errorf("Cannot add nil as a policy")
+  }
+
+  _, exists := node.policies[policy.ID()]
+  if exists == false {
+    return fmt.Errorf("%s is not a policy for %s", policy.ID().String(), node.ID().String())
+  }
+
+  delete(node.policies, policy.ID())
+  return nil
+}
+
+func NewGraphNodeJSON(node *GraphNode) GraphNodeJSON {
+  policies := make([]NodeID, len(node.policies))
+  i := 0
+  for _, policy := range(node.policies) {
+    policies[i] = policy.ID()
+    i += 1
+  }
+  return GraphNodeJSON{
+    Policies: policies,
+  }
+}
+
+func RestoreGraphNode(ctx *Context, node Node, j GraphNodeJSON, nodes NodeMap) error {
+  for _, policy_id := range(j.Policies) {
+    policy_ptr, err := LoadNodeRecurse(ctx, policy_id, nodes)
+    if err != nil {
+      return err
+    }
+
+    policy, ok := policy_ptr.(Policy)
+    if ok == false {
+      return fmt.Errorf("%s is not a Policy", policy_id)
+    }
+    node.AddPolicy(policy)
+  }
+  return nil
 }
 
 func LoadGraphNode(ctx * Context, id NodeID, data []byte, nodes NodeMap)(Node, error) {
@@ -153,6 +233,7 @@ func NewGraphNode(id NodeID) GraphNode {
   return GraphNode{
     id: id,
     listeners: map[NodeID]chan GraphSignal{},
+    policies: map[NodeID]Policy{},
   }
 }
 

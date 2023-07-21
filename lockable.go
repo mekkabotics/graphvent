@@ -60,6 +60,7 @@ func (state * SimpleLockable) Type() NodeType {
 }
 
 type SimpleLockableJSON struct {
+  GraphNodeJSON
   Name string `json:"name"`
   Owner *NodeID `json:"owner"`
   Dependencies []NodeID `json:"dependencies"`
@@ -98,7 +99,11 @@ func NewSimpleLockableJSON(lockable *SimpleLockable) SimpleLockableJSON {
       locks_held[lockable_id.String()] = &str
     }
   }
+
+  node_json := NewGraphNodeJSON(&lockable.GraphNode)
+
   return SimpleLockableJSON{
+    GraphNodeJSON: node_json,
     Name: lockable.name,
     Owner: owner_id,
     Dependencies: dependency_ids,
@@ -560,7 +565,7 @@ func RestoreSimpleLockable(ctx * Context, lockable Lockable, j SimpleLockableJSO
     }
     o_l, ok := o.(Lockable)
     if ok == false {
-      return fmt.Errorf("%s is not a Lockable", o.ID())
+      return fmt.Errorf("%s is not a Lockable", *j.Owner)
     }
     lockable.SetOwner(o_l)
   }
@@ -615,5 +620,5 @@ func RestoreSimpleLockable(ctx * Context, lockable Lockable, j SimpleLockableJSO
     lockable.RecordLock(l_l, h_l)
   }
 
-  return nil
+  return RestoreGraphNode(ctx, lockable, j.GraphNodeJSON, nodes)
 }

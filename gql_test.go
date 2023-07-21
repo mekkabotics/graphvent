@@ -70,15 +70,22 @@ func TestGQLDBLoad(t * testing.T) {
   u1_r := NewUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared)
   u1 := &u1_r
 
+  p1_r := NewAllNodePolicy(RandID(), []string{"*"})
+  p1 := &p1_r
+
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
   gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key)
   gql := &gql_r
 
   info := NewParentThreadInfo(true, "start", "restore")
-  err = UpdateStates(ctx, []Node{gql, t1, l1, u1}, func(nodes NodeMap) error {
+  err = UpdateStates(ctx, []Node{gql, t1, l1, u1, p1}, func(nodes NodeMap) error {
+    err := u1.AddPolicy(p1)
+    if err != nil {
+      return err
+    }
     gql.Users[KeyID(&u1_key.PublicKey)] = u1
-    err := LinkLockables(ctx, gql, []Lockable{l1}, nodes)
+    err = LinkLockables(ctx, gql, []Lockable{l1}, nodes)
     if err != nil {
       return err
     }

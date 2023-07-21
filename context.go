@@ -188,6 +188,14 @@ func NewContext(db * badger.DB, log Logger) * Context {
   if err != nil {
     panic(err)
   }
+  err = ctx.RegisterNodeType(NewNodeDef((*PerNodePolicy)(nil), LoadPerNodePolicy, GQLTypeGraphNode()))
+  if err != nil {
+    panic(err)
+  }
+  err = ctx.RegisterNodeType(NewNodeDef((*AllNodePolicy)(nil), LoadAllNodePolicy, GQLTypeGraphNode()))
+  if err != nil {
+    panic(err)
+  }
 
   ctx.AddGQLType(GQLTypeSignal())
 
