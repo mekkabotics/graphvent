@@ -63,19 +63,8 @@ var GQLTypeUser = NewSingleton(func() *graphql.Object {
       GQLInterfaceLockable.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
-        return false
-      }
-
-      lockable_type := ctx.GQL.LockableType
-      value_type := reflect.TypeOf(p.Value)
-
-      if value_type.Implements(lockable_type) {
-        return true
-      }
-
-      return false
+      _, ok := p.Value.(*User)
+      return ok
     },
     Fields: graphql.Fields{},
   })
