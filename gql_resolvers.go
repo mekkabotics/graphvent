@@ -5,23 +5,12 @@ import (
   "github.com/graphql-go/graphql"
 )
 
-func PrepResolve(p graphql.ResolveParams) (*Context, *GQLThread, *User, error) {
-  context, ok := p.Context.Value("graph_context").(*Context)
+func GetResolveContext(p graphql.ResolveParams) (*ResolveContext, error) {
+  resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
   if ok == false {
-    return nil, nil, nil, fmt.Errorf("failed to cast graph_context to *Context")
+    return nil, fmt.Errorf("Bad resolve in params context")
   }
-
-  server, ok := p.Context.Value("gql_server").(*GQLThread)
-  if ok == false {
-    return nil, nil, nil, fmt.Errorf("failed to cast gql_server to *GQLThread")
-  }
-
-  user, ok := p.Context.Value("user").(*User)
-  if ok == false {
-    return nil, nil, nil, fmt.Errorf("failed to cast user to *User")
-  }
-
-  return context, server, user, nil
+  return resolve_context, nil
 }
 
 func ExtractParam[K interface{}](p graphql.ResolveParams, name string) (K, error) {

@@ -16,12 +16,12 @@ var GQLMutationSendUpdate = NewField(func()*graphql.Field {
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, server, user, err := PrepResolve(p)
+      ctx, err := GetResolveContext(p)
       if err != nil {
         return nil, err
       }
 
-      err = server.Allowed("signal", "self", user)
+      err = ctx.Server.Allowed("signal", "self", ctx.User)
       if err != nil {
         return nil, err
       }
@@ -33,11 +33,11 @@ var GQLMutationSendUpdate = NewField(func()*graphql.Field {
 
       var signal GraphSignal = nil
       if signal_map["Direction"] == "up" {
-        signal = NewSignal(server, signal_map["Type"].(string))
+        signal = NewSignal(ctx.Server, signal_map["Type"].(string))
       } else if signal_map["Direction"] == "down" {
-        signal = NewDownSignal(server, signal_map["Type"].(string))
+        signal = NewDownSignal(ctx.Server, signal_map["Type"].(string))
       } else if signal_map["Direction"] == "direct" {
-        signal = NewDirectSignal(server, signal_map["Type"].(string))
+        signal = NewDirectSignal(ctx.Server, signal_map["Type"].(string))
       } else {
         return nil, fmt.Errorf("Bad direction: %d", signal_map["Direction"])
       }
@@ -48,12 +48,12 @@ var GQLMutationSendUpdate = NewField(func()*graphql.Field {
       }
 
       var node Node = nil
-      err = UseStates(ctx, []Node{server}, func(nodes NodeMap) (error){
-        node = FindChild(ctx, server, id, nodes)
+      err = UseStates(ctx.Context, []Node{ctx.Server}, func(nodes NodeMap) (error){
+        node = FindChild(ctx.Context, ctx.Server, id, nodes)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        node.Signal(ctx, signal, nodes)
+        node.Signal(ctx.Context, signal, nodes)
         return nil
       })
       if err != nil {
@@ -83,12 +83,12 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, server, user, err := PrepResolve(p)
+      ctx, err := GetResolveContext(p)
       if err != nil {
         return nil, err
       }
 
-      err = server.Allowed("start_child", "self", user)
+      err = ctx.Server.Allowed("start_child", "self", ctx.User)
       if err != nil {
         return nil, err
       }
@@ -109,14 +109,14 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       }
 
       var signal GraphSignal
-      err = UseStates(ctx, []Node{server}, func(nodes NodeMap) (error){
-        node := FindChild(ctx, server, parent_id, nodes)
+      err = UseStates(ctx.Context, []Node{ctx.Server}, func(nodes NodeMap) (error){
+        node := FindChild(ctx.Context, ctx.Server, parent_id, nodes)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
         }
-        return UseMoreStates(ctx, []Node{node}, nodes, func(NodeMap) error {
-          signal = NewStartChildSignal(server,  child_id, action)
-          return node.Signal(ctx, signal, nodes)
+        return UseMoreStates(ctx.Context, []Node{node}, nodes, func(NodeMap) error {
+          signal = NewStartChildSignal(ctx.Server,  child_id, action)
+          return node.Signal(ctx.Context, signal, nodes)
         })
       })
       if err != nil {

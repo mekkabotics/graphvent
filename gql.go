@@ -351,7 +351,13 @@ func checkForAuthHeader(header http.Header) (string, bool) {
   return "", false
 }
 
-func CheckAuth(server *GQLThread, r *http.Request) (*User, error) {
+type ResolveContext struct {
+  Context *Context
+  Server *GQLThread
+  User *User
+}
+
+func NewResolveContext(ctx *Context, server *GQLThread, r *http.Request) (*ResolveContext, error) {
   username, password, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
@@ -371,13 +377,15 @@ func CheckAuth(server *GQLThread, r *http.Request) (*User, error) {
     return nil, fmt.Errorf("GQL_AUTH_FAIL")
   }
 
-  return user, nil
+  return &ResolveContext{
+    Context: ctx,
+    Server: server,
+    User: user,
+  }, nil
 }
 
 func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *http.Request) {
   gql_ctx := context.Background()
-  gql_ctx = context.WithValue(gql_ctx, "graph_context", ctx)
-  gql_ctx = context.WithValue(gql_ctx, "gql_server", server)
 
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gql", "GQL REQUEST: %s", r.RemoteAddr)
@@ -388,13 +396,15 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
-    user, err := CheckAuth(server, r)
+    resolve_context, err := NewResolveContext(ctx, server, r)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       json.NewEncoder(w).Encode(GQLUnauthorized(fmt.Sprintf("%s", err)))
       return
     }
-    req_ctx := context.WithValue(gql_ctx, "user", user)
+
+    req_ctx := context.Background()
+    req_ctx = context.WithValue(gql_ctx, "resolve", resolve_context)
 
     str, err := io.ReadAll(r.Body)
     if err != nil {
@@ -488,12 +498,13 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
     }
 
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
-    user, err := CheckAuth(server, r)
+    resolve_context, err := NewResolveContext(ctx, server, r)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       return
     }
-    req_ctx := context.WithValue(gql_ctx, "user", user)
+    req_ctx := context.Background()
+    req_ctx = context.WithValue(req_ctx, "resolve", resolve_context)
 
     u := ws.HTTPUpgrader{
       Protocol: func(protocol string) bool {
