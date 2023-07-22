@@ -16,7 +16,7 @@ var GQLMutationSendUpdate = NewField(func()*graphql.Field {
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := GetResolveContext(p)
+      ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
       }
@@ -83,7 +83,7 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := GetResolveContext(p)
+      ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
       }

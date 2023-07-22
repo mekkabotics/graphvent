@@ -1,6 +1,5 @@
 package graphvent
 import (
-  "fmt"
   "github.com/graphql-go/graphql"
 )
 
@@ -17,19 +16,14 @@ func GQLSubscribeSelf(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *GQLThread, GraphSignal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
-  server, ok := p.Context.Value("gql_server").(*GQLThread)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to get gql_server from context and cast to GQLServer")
-  }
-
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to get graph_context from context and cast to Context")
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
   }
 
   c := make(chan interface{})
   go func(c chan interface{}, server *GQLThread) {
-    ctx.Log.Logf("gqlws", "GQL_SUBSCRIBE_THREAD_START")
+    ctx.Context.Log.Logf("gqlws", "GQL_SUBSCRIBE_THREAD_START")
     sig_c := UpdateChannel(server, 1, RandID())
     if send_nil == true {
       sig_c <- nil
@@ -39,14 +33,14 @@ func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *G
       if ok == false {
         return
       }
-      ret, err := fn(ctx, server, val, p)
+      ret, err := fn(ctx.Context, server, val, p)
       if err != nil {
-        ctx.Log.Logf("gqlws", "type convertor error %s", err)
+        ctx.Context.Log.Logf("gqlws", "type convertor error %s", err)
         return
       }
       c <- ret
     }
-  }(c, server)
+  }(c, ctx.Server)
   return c, nil
 }
 

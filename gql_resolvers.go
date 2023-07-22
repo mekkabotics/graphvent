@@ -5,7 +5,7 @@ import (
   "github.com/graphql-go/graphql"
 )
 
-func GetResolveContext(p graphql.ResolveParams) (*ResolveContext, error) {
+func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
   resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
   if ok == false {
     return nil, fmt.Errorf("Bad resolve in params context")
@@ -43,28 +43,42 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
 }
 
 func GQLNodeID(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Node)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Node")
   }
+
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) error {
+    return node.Allowed("read", "id", ctx.User)
+  })
+  if err != nil {
+    return nil, err
+  }
+
   return node.ID(), nil
 }
 
 func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(*GQLThread)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to GQLThread")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
 
   listen := ""
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) error {
     listen = node.Listen
-    return nil
+    return node.Allowed("read", "listen", ctx.User)
   })
 
   if err != nil {
@@ -75,20 +89,20 @@ func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Thread)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Thread")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var parent Thread = nil
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) (error) {
     parent = node.Parent()
-    return nil
+    return node.Allowed("read", "parent", ctx.User)
   })
 
   if err != nil {
@@ -99,20 +113,20 @@ func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Thread)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Thread")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var state string
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) (error) {
     state = node.State()
-    return nil
+    return node.Allowed("read", "state", ctx.User)
   })
 
   if err != nil {
@@ -123,20 +137,20 @@ func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Thread)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Thread")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var children []Thread = nil
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) (error) {
     children = node.Children()
-    return nil
+    return node.Allowed("read", "children", ctx.User)
   })
 
   if err != nil {
@@ -147,20 +161,20 @@ func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLLockableName(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Lockable)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false || node == nil {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   name := ""
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) error {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) error {
     name = node.Name()
-    return nil
+    return node.Allowed("read", "name", ctx.User)
   })
 
   if err != nil {
@@ -171,20 +185,20 @@ func GQLLockableName(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Lockable)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var requirements []Lockable = nil
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) (error) {
     requirements = node.Requirements()
-    return nil
+    return node.Allowed("read", "requirements", ctx.User)
   })
 
   if err != nil {
@@ -195,20 +209,20 @@ func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Lockable)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var dependencies []Lockable = nil
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) (error) {
     dependencies = node.Dependencies()
-    return nil
+    return node.Allowed("read", "dependencies", ctx.User)
   })
 
   if err != nil {
@@ -219,20 +233,20 @@ func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(Lockable)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var owner Node = nil
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) (error) {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) (error) {
     owner = node.Owner()
-    return nil
+    return node.Allowed("read", "owner", ctx.User)
   })
 
   if err != nil {
@@ -243,25 +257,25 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLThreadUsers(p graphql.ResolveParams) (interface{}, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return nil, err
+  }
+
   node, ok := p.Source.(*GQLThread)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to GQLThread")
   }
 
-  ctx, ok := p.Context.Value("graph_context").(*Context)
-  if ok == false {
-    return nil, fmt.Errorf("Failed to cast context graph_context to Context")
-  }
-
   var users []*User
-  err := UseStates(ctx, []Node{node}, func(nodes NodeMap) error {
+  err = UseStates(ctx.Context, []Node{node, ctx.User}, func(nodes NodeMap) error {
     users = make([]*User, len(node.Users))
     i := 0
     for _, user := range(node.Users) {
       users[i] = user
       i += 1
     }
-    return nil
+    return node.Allowed("read", "users", ctx.User)
   })
 
   if err != nil {

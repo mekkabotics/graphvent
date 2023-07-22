@@ -406,21 +406,22 @@ func LoadNodeRecurse(ctx * Context, id NodeID, nodes NodeMap) (Node, error) {
   return node, nil
 }
 
-// Internal function to check for a duplicate node in a slice by ID
-func checkForDuplicate(nodes []Node) error {
+// Internal function to filter duplicate nodes from a list
+func filterDuplicates(nodes []Node) []Node {
+  ret := []Node{}
   found := map[NodeID]bool{}
   for _, node := range(nodes) {
     if node == nil {
-      return fmt.Errorf("Cannot get state of nil node")
+      return []Node{}
     }
 
     _, exists := found[node.ID()]
-    if exists == true {
-      return fmt.Errorf("Attempted to get state of %s twice", node.ID())
+    if exists == false {
+      found[node.ID()] = true
+      ret = append(ret, node)
     }
-    found[node.ID()] = true
   }
-  return nil
+  return ret
 }
 
 // Convert any slice of types that implement Node to a []Node
@@ -443,10 +444,7 @@ func UseStates(ctx * Context, init_nodes []Node, nodes_fn NodesFn) error {
 
 // Add nodes to an existing read context and call nodes_fn with new_nodes locked for read
 func UseMoreStates(ctx * Context, new_nodes []Node, nodes NodeMap, nodes_fn NodesFn) error {
-  err := checkForDuplicate(new_nodes)
-  if err != nil {
-    return err
-  }
+  new_nodes = filterDuplicates(new_nodes)
 
   locked_nodes := []Node{}
   for _, node := range(new_nodes) {
@@ -458,7 +456,7 @@ func UseMoreStates(ctx * Context, new_nodes []Node, nodes NodeMap, nodes_fn Node
     }
   }
 
-  err = nodes_fn(nodes)
+  err := nodes_fn(nodes)
 
   for _, node := range(locked_nodes) {
     delete(nodes, node.ID())

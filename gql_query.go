@@ -6,7 +6,7 @@ import (
 var GQLQuerySelf = &graphql.Field{
   Type: GQLTypeGQLThread.Type,
   Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-    ctx, err := GetResolveContext(p)
+    ctx, err := PrepResolve(p)
     if err != nil {
       return nil, err
     }
@@ -23,7 +23,7 @@ var GQLQuerySelf = &graphql.Field{
 var GQLQueryUser = &graphql.Field{
   Type: GQLTypeUser.Type,
   Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-    ctx, err := GetResolveContext(p)
+    ctx, err := PrepResolve(p)
     if err != nil {
       return nil, err
     }
