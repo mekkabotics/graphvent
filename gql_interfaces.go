@@ -42,7 +42,6 @@ var GQLInterfaceNode = NewSingleton(func() *graphql.Interface {
       }
 
       valid_nodes := ctx.GQL.ValidNodes
-      node_type := ctx.GQL.NodeType
       p_type := reflect.TypeOf(p.Value)
 
       for key, value := range(valid_nodes) {
@@ -51,7 +50,8 @@ var GQLInterfaceNode = NewSingleton(func() *graphql.Interface {
         }
       }
 
-      if p_type.Implements(node_type) {
+      _, ok = p.Value.(Node)
+      if ok == true {
         return ctx.GQL.BaseNodeType
       }
 
@@ -95,7 +95,6 @@ var GQLInterfaceLockable = NewSingleton(func() *graphql.Interface {
       }
 
       valid_lockables := ctx.GQL.ValidLockables
-      lockable_type := ctx.GQL.LockableType
       p_type := reflect.TypeOf(p.Value)
 
       for key, value := range(valid_lockables) {
@@ -104,8 +103,9 @@ var GQLInterfaceLockable = NewSingleton(func() *graphql.Interface {
         }
       }
 
-      if p_type.Implements(lockable_type) {
-        return ctx.GQL.BaseThreadType
+      _, ok = p.Value.(Lockable)
+      if ok == true {
+        return ctx.GQL.BaseLockableType
       }
       return nil
     },
@@ -139,7 +139,6 @@ var GQLInterfaceThread = NewSingleton(func() *graphql.Interface {
       }
 
       valid_threads := ctx.GQL.ValidThreads
-      thread_type := ctx.GQL.ThreadType
       p_type := reflect.TypeOf(p.Value)
 
       for key, value := range(valid_threads) {
@@ -148,11 +147,11 @@ var GQLInterfaceThread = NewSingleton(func() *graphql.Interface {
         }
       }
 
-      if p_type.Implements(thread_type) {
+      _, ok = p.Value.(Thread)
+      if ok == true {
         return ctx.GQL.BaseThreadType
       }
 
-      ctx.Log.Logf("gql", "Found no type that matches %+v: %+v", p_type, p_type.Implements(thread_type))
       return nil
     },
     Fields: graphql.Fields{},

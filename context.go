@@ -85,13 +85,17 @@ func (ctx * Context) RegisterNodeType(def NodeDef) error {
 
   ctx.Types[type_hash] = def
 
-  if def.Reflect.Implements(ctx.GQL.NodeType) {
+  node_type := reflect.TypeOf((*Node)(nil)).Elem()
+  lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
+  thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
+
+  if def.Reflect.Implements(node_type) {
     ctx.GQL.ValidNodes[def.Reflect] = def.GQLType
   }
-  if def.Reflect.Implements(ctx.GQL.LockableType) {
+  if def.Reflect.Implements(lockable_type) {
     ctx.GQL.ValidLockables[def.Reflect] = def.GQLType
   }
-  if def.Reflect.Implements(ctx.GQL.ThreadType) {
+  if def.Reflect.Implements(thread_type) {
     ctx.GQL.ValidThreads[def.Reflect] = def.GQLType
   }
   ctx.GQL.TypeList = append(ctx.GQL.TypeList, def.GQLType)
@@ -106,11 +110,6 @@ type ObjTypeMap map[reflect.Type]*graphql.Object
 type GQLContext struct {
   // Generated GQL schema
   Schema graphql.Schema
-
-  // Interface types to compare against
-  NodeType reflect.Type
-  LockableType reflect.Type
-  ThreadType reflect.Type
 
   // List of GQL types
   TypeList []graphql.Type
@@ -150,15 +149,14 @@ func NewGQLContext() GQLContext {
     Schema: graphql.Schema{},
     TypeList: []graphql.Type{},
     ValidNodes: ObjTypeMap{},
-    NodeType: reflect.TypeOf((*Node)(nil)).Elem(),
     ValidThreads: ObjTypeMap{},
-    ThreadType: reflect.TypeOf((*Thread)(nil)).Elem(),
     ValidLockables: ObjTypeMap{},
-    LockableType: reflect.TypeOf((*Lockable)(nil)).Elem(),
     Query: query,
     Mutation: mutation,
     Subscription: subscription,
     BaseNodeType: GQLTypeGraphNode.Type,
+    BaseLockableType: GQLTypeSimpleLockable.Type,
+    BaseThreadType: GQLTypeSimpleThread.Type,
   }
 
   return ctx

@@ -2,7 +2,6 @@ package graphvent
 
 import (
   "github.com/graphql-go/graphql"
-  "reflect"
 )
 
 func AddNodeFields(obj *graphql.Object) {
@@ -113,20 +112,8 @@ var GQLTypeSimpleThread = NewSingleton(func() *graphql.Object {
       GQLInterfaceLockable.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
-        return false
-      }
-
-      thread_type := ctx.GQL.ThreadType
-
-      value_type := reflect.TypeOf(p.Value)
-
-      if value_type.Implements(thread_type) {
-        return true
-      }
-
-      return false
+      _, ok := p.Value.(Thread)
+      return ok
     },
     Fields: graphql.Fields{},
   })
@@ -144,19 +131,8 @@ var GQLTypeSimpleLockable = NewSingleton(func() *graphql.Object {
       GQLInterfaceLockable.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
-        return false
-      }
-
-      lockable_type := ctx.GQL.LockableType
-      value_type := reflect.TypeOf(p.Value)
-
-      if value_type.Implements(lockable_type) {
-        return true
-      }
-
-      return false
+      _, ok := p.Value.(Lockable)
+      return ok
     },
     Fields: graphql.Fields{},
   })
@@ -173,19 +149,8 @@ var GQLTypeGraphNode = NewSingleton(func() *graphql.Object {
       GQLInterfaceNode.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
-        return false
-      }
-
-      node_type := ctx.GQL.NodeType
-      value_type := reflect.TypeOf(p.Value)
-
-      if value_type.Implements(node_type) {
-        return true
-      }
-
-      return false
+      _, ok := p.Value.(Node)
+      return ok
     },
     Fields: graphql.Fields{},
   })
