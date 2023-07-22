@@ -53,12 +53,6 @@ func AddThreadFields(obj *graphql.Object) {
     Type: GQLInterfaceThread.Type,
     Resolve: GQLThreadParent,
   })
-
-  obj.AddFieldConfig("Listen", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLThreadListen,
-  })
-
 }
 
 var GQLTypeUser = NewSingleton(func() *graphql.Object {
@@ -111,6 +105,11 @@ var GQLTypeGQLThread = NewSingleton(func() *graphql.Object {
   gql_type_gql_thread.AddFieldConfig("Users", &graphql.Field{
     Type: GQLTypeUser.List,
     Resolve: GQLThreadUsers,
+  })
+
+  gql_type_gql_thread.AddFieldConfig("Listen", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLThreadListen,
   })
 
   return gql_type_gql_thread
