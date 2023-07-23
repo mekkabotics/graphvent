@@ -5,6 +5,7 @@ import (
   "fmt"
   "time"
   "runtime/pprof"
+  "runtime/debug"
   "os"
   badger "github.com/dgraph-io/badger/v3"
 )
@@ -63,7 +64,7 @@ func testContext(t * testing.T) * Context {
 
 func fatalErr(t * testing.T, err error) {
   if err != nil {
-    pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+    debug.PrintStack()
     t.Fatal(err)
   }
 }

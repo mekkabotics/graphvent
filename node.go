@@ -74,7 +74,7 @@ type Node interface {
   RemovePolicy(Policy) error
 
   // Send a GraphSignal to the node, requires that the node is locked for read so that it can propagate
-  Signal(context *ReadContext, signal GraphSignal) error
+  Signal(context *StateContext, signal GraphSignal) error
   // Register a channel to receive updates sent to the node
   RegisterChannel(id NodeID, listener chan GraphSignal)
   // Unregister a channel from receiving updates sent to the node
@@ -193,7 +193,7 @@ func (node * GraphNode) Type() NodeType {
 
 // Propagate the signal to registered listeners, if a listener isn't ready to receive the update
 // send it a notification that it was closed and then close it
-func (node * GraphNode) Signal(context *ReadContext, signal GraphSignal) error {
+func (node * GraphNode) Signal(context *StateContext, signal GraphSignal) error {
   context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID(), signal.String())
   node.listeners_lock.Lock()
   defer node.listeners_lock.Unlock()
@@ -293,20 +293,18 @@ func getNodeBytes(node Node) ([]byte, error) {
 }
 
 // Write multiple nodes to the database in a single transaction
-func WriteNodes(context *WriteContext) error {
-  if context == nil {
-    return fmt.Errorf("Cannot write nil to DB")
+func WriteNodes(context *StateContext) error {
+  err := ValidateStateContext(context, "write", true)
+  if err != nil {
+    return err
   }
-  if context.Locked == nil {
-    return fmt.Errorf("Cannot write nil map to DB")
-  }
+
   context.Graph.Log.Logf("db", "DB_WRITES: %d", len(context.Locked))
 
   serialized_bytes := make([][]byte, len(context.Locked))
   serialized_ids := make([][]byte, len(context.Locked))
   i := 0
-  for _, lock := range(context.Locked) {
-    node := lock.Node
+  for _, node := range(context.Locked) {
     node_bytes, err := getNodeBytes(node)
     context.Graph.Log.Logf("db", "DB_WRITE: %+v", node)
     if err != nil {
@@ -321,7 +319,7 @@ func WriteNodes(context *WriteContext) error {
     i++
   }
 
-  err := context.Graph.DB.Update(func(txn *badger.Txn) error {
+  return context.Graph.DB.Update(func(txn *badger.Txn) error {
     for i, id := range(serialized_ids) {
       err := txn.Set(id, serialized_bytes[i])
       if err != nil {
@@ -330,8 +328,6 @@ func WriteNodes(context *WriteContext) error {
     }
     return nil
   })
-
-  return err
 }
 
 // Get the bytes associates with `id` from the database after unwrapping the header, or error
@@ -450,17 +446,54 @@ type LockInfo struct {
 
 type LockMap map[NodeID]LockInfo
 
-type ReadContext struct {
+type StateContext struct {
+  Type string
   Graph *Context
-  Locked LockMap
+  Permissions map[NodeID]LockMap
+  Locked NodeMap
+  Started bool
+  Finished bool
 }
-type ReadFn func(*ReadContext)(error)
 
-type WriteContext struct {
-  Graph *Context
-  Locked LockMap
+func ValidateStateContext(context *StateContext, Type string, Finished bool) error {
+  if context == nil {
+    return fmt.Errorf("context is nil")
+  }
+  if context.Finished != Finished {
+    return fmt.Errorf("context in wrong Finished state")
+  }
+  if context.Type != Type {
+    return fmt.Errorf("%s is not a %s context", context.Type, Type)
+  }
+  if context.Locked == nil || context.Graph == nil || context.Permissions == nil {
+    return fmt.Errorf("context is not initialized correctly")
+  }
+  return nil
 }
-type WriteFn func(*WriteContext)(error)
+
+func NewReadContext(ctx *Context) *StateContext {
+  return &StateContext{
+    Type: "read",
+    Graph: ctx,
+    Permissions: map[NodeID]LockMap{},
+    Locked: NodeMap{},
+    Started: false,
+    Finished: false,
+  }
+}
+
+func NewWriteContext(ctx *Context) *StateContext {
+  return &StateContext{
+    Type: "write",
+    Graph: ctx,
+    Permissions: map[NodeID]LockMap{},
+    Locked: NodeMap{},
+    Started: false,
+    Finished: false,
+  }
+}
+
+type StateFn func(*StateContext)(error)
 
 func del[K comparable](list []K, val K) []K {
   idx := -1
@@ -478,146 +511,211 @@ func del[K comparable](list []K, val K) []K {
   return list[:len(list)-1]
 }
 
-// Start a read context for node under ctx for the resources specified in init_nodes, then run nodes_fn
-func UseStates(ctx *Context, node Node, nodes LockMap, read_fn ReadFn) error {
-  context := &ReadContext{
-    Graph: ctx,
-    Locked: LockMap{},
-  }
-  return UseMoreStates(context, node, nodes, read_fn)
-}
-
 // Add nodes to an existing read context and call nodes_fn with new_nodes locked for read
 // Check that the node has read permissions for the nodes, then add them to the read context and call nodes_fn with the nodes locked for read
-func UseMoreStates(context *ReadContext, node Node, new_nodes LockMap, read_fn ReadFn) error {
-  locked_nodes := []Node{}
+func UseStates(context *StateContext, princ Node, new_nodes LockMap, state_fn StateFn) error {
+  if princ == nil || new_nodes == nil || state_fn == nil {
+    return fmt.Errorf("nil passed to UseStates")
+  }
+
+  err := ValidateStateContext(context, "read", false)
+  if err != nil {
+    return err
+  }
+
+  final := false
+  if context.Started == false {
+    context.Started = true
+    final = true
+  }
+
+  new_locks := []Node{}
+  _, princ_locked := context.Locked[princ.ID()]
+  if princ_locked == false {
+    new_locks = append(new_locks, princ)
+    context.Graph.Log.Logf("mutex", "RLOCKING_PRINC %s", princ.ID().String())
+    princ.RLock()
+  }
+
+  princ_permissions, princ_exists := context.Permissions[princ.ID()]
   new_permissions := LockMap{}
+  if princ_exists == true {
+    for id, info := range(princ_permissions) {
+      new_permissions[id] = info
+    }
+  }
+
   for _, request := range(new_nodes) {
-    id := request.Node.ID()
-    new_permissions[id] = LockInfo{Node: request.Node, Resources: []string{}}
+    node := request.Node
+    if node == nil {
+      return fmt.Errorf("node in request list is nil")
+    }
+    id := node.ID()
+
+    if id != princ.ID() {
+      _, locked := context.Locked[id]
+      if locked == false {
+        new_locks = append(new_locks, node)
+        context.Graph.Log.Logf("mutex", "RLOCKING %s", id.String())
+        node.RLock()
+      }
+    }
+
+    node_permissions, node_exists := new_permissions[id]
+    if node_exists == false {
+      node_permissions = LockInfo{Node: node, Resources: []string{}}
+    }
+
     for _, resource := range(request.Resources) {
-      // If the permission for this resource is already granted, continue
-      current_permissions, exists := context.Locked[id]
-      if exists == true {
-        already_granted := false
-        for _, r := range(current_permissions.Resources) {
-          if r == resource {
-            already_granted = true
-            break
+      already_granted := false
+      for _, granted := range(node_permissions.Resources) {
+        if resource == granted {
+          already_granted = true
+        }
+      }
+
+      if already_granted == false {
+        err := node.Allowed("read", resource, princ)
+        if err != nil {
+          context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.write", id.String(), resource)
+          for _, n := range(new_locks) {
+            context.Graph.Log.Logf("mutex", "RUNLOCKING_ON_ERROR %s", id.String())
+            n.RUnlock()
           }
+          return err
         }
-        if already_granted == true {
-          continue
-        }
-      }
-
-      err := request.Node.Allowed("read", resource, node)
-      if err != nil {
-        return err
-      }
-
-      tmp := new_permissions[id]
-      tmp.Resources = append(tmp.Resources, resource)
-      new_permissions[id] = tmp
-    }
-
-
-    req_perms, exists := new_permissions[id]
-    if exists == true {
-      cur_perms, already_locked := context.Locked[id]
-      if already_locked == false {
-        request.Node.RLock()
-        context.Locked[id] = req_perms
-        locked_nodes = append(locked_nodes, request.Node)
+        context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.write", id.String(), resource)
       } else {
-        cur_perms.Resources = append(cur_perms.Resources, req_perms.Resources...)
+        context.Graph.Log.Logf("policy", "POLICY_ALREADY_GRANTED: %s %s.write", id.String(), resource)
       }
     }
+    new_permissions[id] = node_permissions
   }
 
-  err := read_fn(context)
-
-  for _, request := range(new_permissions) {
-    cur_perms := context.Locked[request.Node.ID()]
-    new_perms := cur_perms.Resources
-    for _, resource := range(cur_perms.Resources) {
-      new_perms = del(new_perms, resource)
-    }
-    cur_perms.Resources = new_perms
-    context.Locked[request.Node.ID()] = cur_perms
+  for _, node := range(new_locks) {
+    context.Locked[node.ID()] = node
   }
 
-  for _, node := range(locked_nodes) {
+  context.Permissions[princ.ID()] = new_permissions
+
+  err = state_fn(context)
+
+  context.Permissions[princ.ID()] = princ_permissions
+
+  for _, node := range(new_locks) {
+    context.Graph.Log.Logf("mutex", "RUNLOCKING %s", node.ID().String())
     delete(context.Locked, node.ID())
     node.RUnlock()
   }
 
-  return err
-}
-
-// Initiate a write context for nodes and call nodes_fn with nodes locked for read
-func UpdateStates(ctx *Context, node Node, nodes LockMap, write_fn WriteFn) error {
-  context := &WriteContext{
-    Graph: ctx,
-    Locked: LockMap{},
-  }
-  err := UpdateMoreStates(context, node, nodes, write_fn)
-  if err == nil {
-    err = WriteNodes(context)
-  }
-
-  for _, lock := range(context.Locked) {
-    lock.Node.Unlock()
+  if final == true {
+    context.Finished = true
   }
 
   return err
 }
 
 // Add nodes to an existing write context and call nodes_fn with nodes locked for read
-func UpdateMoreStates(context *WriteContext, node Node, new_nodes LockMap, write_fn WriteFn) error {
+// If context is nil
+func UpdateStates(context *StateContext, princ Node, new_nodes LockMap, state_fn StateFn) error {
+  if princ == nil || new_nodes == nil || state_fn == nil {
+    return fmt.Errorf("nil passed to UpdateStates")
+  }
+
+  err := ValidateStateContext(context, "write", false)
+  if err != nil {
+    return err
+  }
+
+  final := false
+  if context.Started == false {
+    context.Started = true
+    final = true
+  }
+
+  new_locks := []Node{}
+  _, princ_locked := context.Locked[princ.ID()]
+  if princ_locked == false {
+    new_locks = append(new_locks, princ)
+    context.Graph.Log.Logf("mutex", "LOCKING_PRINC %s", princ.ID().String())
+    princ.Lock()
+  }
+
+  princ_permissions, princ_exists := context.Permissions[princ.ID()]
   new_permissions := LockMap{}
-  for _, request := range(new_nodes) {
-    id := request.Node.ID()
-    new_permissions[id] = LockInfo{Node: request.Node, Resources: []string{}}
-    for _, resource := range(request.Resources) {
-      current_permissions, exists := context.Locked[id]
-      if exists == true {
-        already_granted := false
-        for _, r := range(current_permissions.Resources) {
-          if r == resource {
-            already_granted = true
-            break
-          }
-        }
-        if already_granted == true {
-          continue
-        }
-      }
-
-      err := request.Node.Allowed("write", resource, node)
-      if err != nil {
-        return err
-      }
-
-      tmp := new_permissions[id]
-      tmp.Resources = append(tmp.Resources, resource)
-      new_permissions[id] = tmp
-    }
-
-    req_perms, exists := new_permissions[id]
-    if exists == true {
-      cur_perms, already_locked := context.Locked[id]
-      if already_locked == false {
-        request.Node.Lock()
-        context.Locked[id] = req_perms
-      } else {
-        cur_perms.Resources = append(cur_perms.Resources, req_perms.Resources...)
-        context.Locked[id] = cur_perms
-      }
+  if princ_exists == true {
+    for id, info := range(princ_permissions) {
+      new_permissions[id] = info
     }
   }
 
-  return write_fn(context)
+  for _, request := range(new_nodes) {
+    node := request.Node
+    if node == nil {
+      return fmt.Errorf("node in request list is nil")
+    }
+    id := node.ID()
+
+    if id != princ.ID() {
+      _, locked := context.Locked[id]
+      if locked == false {
+        new_locks = append(new_locks, node)
+        context.Graph.Log.Logf("mutex", "LOCKING %s", id.String())
+        node.Lock()
+      }
+    }
+
+    node_permissions, node_exists := new_permissions[id]
+    if node_exists == false {
+      node_permissions = LockInfo{Node: node, Resources: []string{}}
+    }
+
+    for _, resource := range(request.Resources) {
+      already_granted := false
+      for _, granted := range(node_permissions.Resources) {
+        if resource == granted {
+          already_granted = true
+        }
+      }
+
+      if already_granted == false {
+        err := node.Allowed("write", resource, princ)
+        if err != nil {
+          context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.write", id.String(), resource)
+          for _, n := range(new_locks) {
+            context.Graph.Log.Logf("mutex", "UNLOCKING_ON_ERROR %s", id.String())
+            n.Unlock()
+          }
+          return err
+        }
+        context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.write", id.String(), resource)
+      } else {
+        context.Graph.Log.Logf("policy", "POLICY_ALREADY_GRANTED: %s %s.write", id.String(), resource)
+      }
+    }
+    new_permissions[id] = node_permissions
+  }
+
+  for _, node := range(new_locks) {
+    context.Locked[node.ID()] = node
+  }
+
+  context.Permissions[princ.ID()] = new_permissions
+
+  err = state_fn(context)
+
+  if final == true {
+    context.Finished = true
+    if err == nil {
+      err = WriteNodes(context)
+    }
+    for id, node := range(context.Locked) {
+      context.Graph.Log.Logf("mutex", "UNLOCKING %s", id.String())
+      node.Unlock()
+    }
+  }
+
+  return err
 }
 
 // Create a new channel with a buffer the size of buffer, and register it to node with the id

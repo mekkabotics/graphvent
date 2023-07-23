@@ -42,22 +42,11 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
   return id, nil
 }
 
+// TODO: think about what permissions should be needed to read ID, and if there's ever a case where they haven't already been granted
 func GQLNodeID(p graphql.ResolveParams) (interface{}, error) {
-  ctx, err := PrepResolve(p)
-  if err != nil {
-    return nil, err
-  }
-
   node, ok := p.Source.(Node)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Node")
-  }
-
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"id"})), func(context *ReadContext) error {
-    return nil
-  })
-  if err != nil {
-    return nil, err
   }
 
   return node.ID(), nil
@@ -76,7 +65,8 @@ func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
 
 
   listen := ""
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"listen"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"listen"}), func(context *StateContext) error {
     listen = node.Listen
     return nil
   })
@@ -100,7 +90,8 @@ func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var parent Thread = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"parent"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"parent"}), func(context *StateContext) error {
     parent = node.Parent()
     return nil
   })
@@ -124,7 +115,8 @@ func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var state string
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"state"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"state"}), func(context *StateContext) error {
     state = node.State()
     return nil
   })
@@ -148,7 +140,8 @@ func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var children []Thread = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"children"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"children"}), func(context *StateContext) error {
     children = node.Children()
     return nil
   })
@@ -172,7 +165,8 @@ func GQLLockableName(p graphql.ResolveParams) (interface{}, error) {
   }
 
   name := ""
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"name"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"name"}), func(context *StateContext) error {
     name = node.Name()
     return nil
   })
@@ -196,7 +190,8 @@ func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var requirements []Lockable = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"requirements"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"requirements"}), func(context *StateContext) error {
     requirements = node.Requirements()
     return nil
   })
@@ -220,7 +215,8 @@ func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var dependencies []Lockable = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"dependencies"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"dependencies"}), func(context *StateContext) error {
     dependencies = node.Dependencies()
     return nil
   })
@@ -244,7 +240,8 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var owner Node = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"owner"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"owner"}), func(context *StateContext) error {
     owner = node.Owner()
     return nil
   })
@@ -268,7 +265,8 @@ func GQLThreadUsers(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var users []*User
-  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"users"})), func(context *ReadContext) error {
+  context := NewReadContext(ctx.Context)
+  err = UseStates(context, ctx.User, NewLockInfo(node, []string{"users"}), func(context *StateContext) error {
     users = make([]*User, len(node.Users))
     i := 0
     for _, user := range(node.Users) {

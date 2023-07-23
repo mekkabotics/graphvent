@@ -29,14 +29,15 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
       }
 
       var node Node = nil
-      err = UseStates(ctx.Context, ctx.User, NewLockMap(
+      context := NewReadContext(ctx.Context)
+      err = UseStates(context, ctx.User, NewLockMap(
         NewLockInfo(ctx.Server, []string{"children"}),
-      ), func(context *ReadContext) (error){
+      ), func(context *StateContext) (error){
         node = FindChild(context, ctx.User, ctx.Server, id)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        return UseMoreStates(context, ctx.User, NewLockMap(NewLockInfo(node, []string{"signal"})), func(context *ReadContext) error {
+        return UseStates(context, ctx.User, NewLockInfo(node, []string{"signal"}), func(context *StateContext) error {
           return node.Signal(context, AbortSignal)
         })
       })
@@ -88,9 +89,10 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       }
 
       var signal GraphSignal
-      err = UseStates(ctx.Context, ctx.User, NewLockMap(
+      context := NewWriteContext(ctx.Context)
+      err = UseStates(context, ctx.User, NewLockMap(
         NewLockInfo(ctx.Server, []string{"children"}),
-      ), func(context *ReadContext) error {
+      ), func(context *StateContext) error {
         node := FindChild(context, ctx.User, ctx.Server, parent_id)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
@@ -101,7 +103,7 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
           return err
         }
 
-        return UseMoreStates(context, ctx.User, NewLockMap(NewLockInfo(node, []string{"start_child", "signal"})), func(context *ReadContext) error {
+        return UseStates(context, ctx.User, NewLockMap(NewLockInfo(node, []string{"start_child", "signal"})), func(context *StateContext) error {
           signal = NewStartChildSignal(child_id, action)
           return node.Signal(context, signal)
         })

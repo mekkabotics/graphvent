@@ -204,7 +204,8 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
       new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared, []string{"gql"})
-      err := UpdateStates(ctx, server, NewLockMap(LockMap{
+      context := NewWriteContext(ctx)
+      err := UpdateStates(context, server, NewLockMap(LockMap{
         server.ID(): LockInfo{
           Node: server,
           Resources: []string{"users"},
@@ -213,7 +214,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
           Node: &new_user,
           Resources: []string{""},
         },
-      }), func(context *WriteContext) error {
+      }), func(context *StateContext) error {
         server.Users[key_id] = &new_user
         return nil
       })
@@ -873,9 +874,10 @@ var gql_actions ThreadActions = ThreadActions{
     }(server)
 
 
-    err = UpdateStates(ctx, server, NewLockMap(
+    context := NewWriteContext(ctx)
+    err = UpdateStates(context, server, NewLockMap(
       NewLockInfo(server, []string{"http_server"}),
-    ), func(context *WriteContext) error {
+    ), func(context *StateContext) error {
       server.tcp_listener = listener
       server.http_server = http_server
       return nil
@@ -885,9 +887,10 @@ var gql_actions ThreadActions = ThreadActions{
       return "", err
     }
 
-    err = UseStates(ctx, server, NewLockMap(
+    context = NewReadContext(ctx)
+    err = UseStates(context, server, NewLockMap(
       NewLockInfo(server, []string{"signal"}),
-    ), func(context *ReadContext) error {
+    ), func(context *StateContext) error {
       return server.Signal(context, NewSignal("server_started"))
     })
 
@@ -897,14 +900,21 @@ var gql_actions ThreadActions = ThreadActions{
 
     return "wait", nil
   },
+  "finish": func(ctx *Context, thread Thread) (string, error) {
+    server := thread.(*GQLThread)
+    server.http_server.Shutdown(context.TODO())
+    server.http_done.Wait()
+    return "", ThreadFinish(ctx, thread)
+  },
 }
 
 var gql_handlers ThreadHandlers = ThreadHandlers{
   "child_linked": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: %+v", signal)
-    err := UpdateStates(ctx, thread, NewLockMap(
+    context := NewWriteContext(ctx)
+    err := UpdateStates(context, thread, NewLockMap(
       NewLockInfo(thread, []string{"children"}),
-    ), func(context *WriteContext) error {
+    ), func(context *StateContext) error {
       sig, ok := signal.(IDSignal)
       if ok == false {
         ctx.Log.Logf("gql", "GQL_THREAD_NODE_LINKED_BAD_CAST")
@@ -945,19 +955,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
 
     return "wait", nil
   },
-  "abort": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
-    ctx.Log.Logf("gql", "GQL_ABORT")
-    server := thread.(*GQLThread)
-    server.http_server.Shutdown(context.TODO())
-    server.http_done.Wait()
-    return ThreadAbort(ctx, thread, signal)
-  },
-  "cancel": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
-    ctx.Log.Logf("gql", "GQL_CANCEL")
-    server := thread.(*GQLThread)
-    server.http_server.Shutdown(context.TODO())
-    server.http_done.Wait()
-    return ThreadCancel(ctx, thread, signal)
-  },
+  "abort": ThreadAbort,
+  "cancel": ThreadCancel,
 }
 

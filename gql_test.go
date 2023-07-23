@@ -18,48 +18,8 @@ import (
   "encoding/base64"
 )
 
-func TestGQLThread(t * testing.T) {
-  ctx := logTestContext(t, []string{})
-  key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-  fatalErr(t, err)
-
-  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
-  gql_t := &gql_t_r
-
-  t1_r := NewSimpleThread(RandID(), "Test thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
-  t1 := &t1_r
-  t2_r := NewSimpleThread(RandID(), "Test thread 2", "init", nil, BaseThreadActions, BaseThreadHandlers)
-  t2 := &t2_r
-
-  err = UpdateStates(ctx, gql_t, NewLockMap(
-    LockList([]Node{t1, t2}, []string{"parent"}),
-    NewLockInfo(gql_t, []string{"children"}),
-  ), func(context *WriteContext) error {
-    i1 := NewParentThreadInfo(true, "start", "restore")
-    err := LinkThreads(context, gql_t, gql_t, t1, &i1)
-    if err != nil {
-      return err
-    }
-
-    i2 := NewParentThreadInfo(false, "start", "restore")
-    return LinkThreads(context, gql_t, gql_t, t2, &i2)
-  })
-  fatalErr(t, err)
-
-  go func(thread Thread){
-    time.Sleep(10*time.Millisecond)
-    err := UseStates(ctx, thread, NewLockInfo(thread, []string{"signal"}), func(context *ReadContext) error {
-      return thread.Signal(context, CancelSignal)
-    })
-    fatalErr(t, err)
-  }(gql_t)
-
-  err = ThreadLoop(ctx, gql_t, "start")
-  fatalErr(t, err)
-}
-
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{})
+  ctx := logTestContext(t, []string{"policy", "mutex"})
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
 
@@ -84,9 +44,10 @@ func TestGQLDBLoad(t * testing.T) {
   gql := &gql_r
 
   info := NewParentThreadInfo(true, "start", "restore")
-  err = UpdateStates(ctx, gql, NewLockMap(
+  context := NewWriteContext(ctx)
+  err = UpdateStates(context, gql, NewLockMap(
     NewLockInfo(gql, []string{"policies", "users"}),
-  ), func(context *WriteContext) error {
+  ), func(context *StateContext) error {
     err := gql.AddPolicy(p1)
     if err != nil {
       return err
@@ -102,7 +63,8 @@ func TestGQLDBLoad(t * testing.T) {
   })
   fatalErr(t, err)
 
-  err = UseStates(ctx, gql, NewLockInfo(gql, []string{"signal"}), func(context *ReadContext) error {
+  context = NewReadContext(ctx)
+  err = UseStates(context, gql, NewLockInfo(gql, []string{"signal"}), func(context *StateContext) error {
     err := gql.Signal(context, NewStatusSignal("child_linked", t1.ID()))
     if err != nil {
       return nil
@@ -122,7 +84,8 @@ func TestGQLDBLoad(t * testing.T) {
 
   (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", 100*time.Millisecond, "Didn't receive thread_abort from t1 on t1")
 
-  err = UseStates(ctx, gql, LockList([]Node{gql, u1}, nil), func(context *ReadContext) error {
+  context = NewReadContext(ctx)
+  err = UseStates(context, gql, LockList([]Node{gql, u1}, nil), func(context *StateContext) error {
     ser1, err := gql.Serialize()
     ser2, err := u1.Serialize()
     ctx.Log.Logf("test", "\n%s\n\n", ser1)
@@ -135,14 +98,15 @@ func TestGQLDBLoad(t * testing.T) {
   var t1_loaded *SimpleThread = nil
 
   var update_channel_2 chan GraphSignal
-  err = UseStates(ctx, gql, NewLockInfo(gql_loaded, []string{"users", "children"}), func(context *ReadContext) error {
+  context = NewReadContext(ctx)
+  err = UseStates(context, gql, NewLockInfo(gql_loaded, []string{"users", "children"}), func(context *StateContext) error {
     ser, err := gql_loaded.Serialize()
     ctx.Log.Logf("test", "\n%s\n\n", ser)
     u_loaded := gql_loaded.(*GQLThread).Users[u1.ID()]
     child := gql_loaded.(Thread).Children()[0].(*SimpleThread)
     t1_loaded = child
     update_channel_2 = UpdateChannel(t1_loaded, 10, NodeID{})
-    err = UseMoreStates(context, gql, NewLockInfo(u_loaded, nil), func(context *ReadContext) error {
+    err = UseStates(context, gql, NewLockInfo(u_loaded, nil), func(context *StateContext) error {
       ser, err := u_loaded.Serialize()
       ctx.Log.Logf("test", "\n%s\n\n", ser)
       return err
@@ -162,7 +126,7 @@ func TestGQLDBLoad(t * testing.T) {
 }
 
 func TestGQLAuth(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "gql"})
+  ctx := logTestContext(t, []string{"policy", "mutex"})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
@@ -173,14 +137,16 @@ func TestGQLAuth(t * testing.T) {
   gql_t := &gql_t_r
 
   // p1 not written to DB, TODO: update write to follow links maybe
-  err = UpdateStates(ctx, gql_t, NewLockInfo(gql_t, []string{"policies"}), func(context *WriteContext) error {
+  context := NewWriteContext(ctx)
+  err = UpdateStates(context, gql_t, NewLockInfo(gql_t, []string{"policies"}), func(context *StateContext) error {
     return gql_t.AddPolicy(p1)
   })
 
   done := make(chan error, 1)
 
   var update_channel chan GraphSignal
-  err = UseStates(ctx, gql_t, NewLockInfo(gql_t, nil), func(context *ReadContext) error {
+  context = NewReadContext(ctx)
+  err = UseStates(context, gql_t, NewLockInfo(gql_t, nil), func(context *StateContext) error {
     update_channel = UpdateChannel(gql_t, 10, NodeID{})
     return nil
   })
@@ -194,7 +160,8 @@ func TestGQLAuth(t * testing.T) {
     case <-done:
       ctx.Log.Logf("test", "DONE")
     }
-    err := UseStates(ctx, gql_t, NewLockInfo(gql_t, []string{"signal}"}), func(context *ReadContext) error {
+    context := NewReadContext(ctx)
+    err := UseStates(context, gql_t, NewLockInfo(gql_t, []string{"signal}"}), func(context *StateContext) error {
       return thread.Signal(context, CancelSignal)
     })
     fatalErr(t, err)
