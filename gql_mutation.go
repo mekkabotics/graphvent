@@ -32,12 +32,12 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
       err = UseStates(ctx.Context, ctx.User, NewLockMap(
         NewLockInfo(ctx.Server, []string{"children"}),
       ), func(context *ReadContext) (error){
-        node = FindChild(ctx.Context, ctx.User, ctx.Server, id, locked)
+        node = FindChild(context, ctx.User, ctx.Server, id)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        return UseMoreStates(ctx.Context, locked, ctx.User, NewLockInfo(node, []string{"signal"}), func(locked NodeLockMap) error {
-          return node.Signal(ctx.Context, AbortSignal, locked)
+        return UseMoreStates(context, ctx.User, NewLockMap(NewLockInfo(node, []string{"signal"})), func(context *ReadContext) error {
+          return node.Signal(context, AbortSignal)
         })
       })
       if err != nil {
@@ -91,7 +91,7 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       err = UseStates(ctx.Context, ctx.User, NewLockMap(
         NewLockInfo(ctx.Server, []string{"children"}),
       ), func(context *ReadContext) error {
-        node := FindChild(ctx.Context, ctx.User, ctx.Server, parent_id, locked)
+        node := FindChild(context, ctx.User, ctx.Server, parent_id)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
         }
@@ -101,9 +101,9 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
           return err
         }
 
-        return UseMoreStates(ctx.Context, locked, ctx.User, NewLockInfo(node, []string{"start_child", "signal"}), func(locked NodeLockMap) error {
+        return UseMoreStates(context, ctx.User, NewLockMap(NewLockInfo(node, []string{"start_child", "signal"})), func(context *ReadContext) error {
           signal = NewStartChildSignal(child_id, action)
-          return node.Signal(ctx.Context, signal, locked)
+          return node.Signal(context, signal)
         })
       })
       if err != nil {

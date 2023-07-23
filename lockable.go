@@ -217,21 +217,21 @@ func (lockable * SimpleLockable) CanUnlock(new_owner Lockable) error {
 
 // Assumed that lockable is already locked for signal
 func (lockable * SimpleLockable) Signal(context *ReadContext, signal GraphSignal) error {
-  err := lockable.GraphNode.Signal(ctx, signal, locked)
+  err := lockable.GraphNode.Signal(context, signal)
   if err != nil {
     return err
   }
 
   switch signal.Direction() {
   case Up:
-    err = UseMoreStates(ctx, locked, lockable, NewLockMap(
+    err = UseMoreStates(context, lockable, NewLockMap(
       NewLockInfo(lockable, []string{"dependencies", "owner"}),
-      RequestList(lockable.requirements, []string{"signal"}),
+      LockList(lockable.requirements, []string{"signal"}),
     ), func(context *ReadContext) error {
       owner_sent := false
       for _, dependency := range(lockable.dependencies) {
-        ctx.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", lockable.ID(), dependency.ID())
-        dependency.Signal(ctx, signal, locked)
+        context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", lockable.ID(), dependency.ID())
+        dependency.Signal(context, signal)
         if lockable.owner != nil {
           if dependency.ID() == lockable.owner.ID() {
             owner_sent = true
@@ -240,9 +240,9 @@ func (lockable * SimpleLockable) Signal(context *ReadContext, signal GraphSignal
       }
       if lockable.owner != nil && owner_sent == false {
         if lockable.owner.ID() != lockable.ID() {
-          ctx.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", lockable.ID(), lockable.owner.ID())
-          return UseMoreStates(context, lockable, NewLockRequest(lockable.owner, []string{"signal"}), func(context *ReadContext) error {
-            return lockable.owner.Signal(ctx, signal, locked)
+          context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", lockable.ID(), lockable.owner.ID())
+          return UseMoreStates(context, lockable, NewLockMap(NewLockInfo(lockable.owner, []string{"signal"})), func(context *ReadContext) error {
+            return lockable.owner.Signal(context, signal)
           })
         }
       }
@@ -250,11 +250,11 @@ func (lockable * SimpleLockable) Signal(context *ReadContext, signal GraphSignal
     })
   case Down:
     err = UseMoreStates(context, lockable, NewLockMap(
-      NewLockInfo(lockable, []string{"requirements"},
-      RequestList(lockable.requirements, []string{"signal"})),
+      NewLockInfo(lockable, []string{"requirements"}),
+      LockList(lockable.requirements, []string{"signal"}),
     ), func(context *ReadContext) error {
       for _, requirement := range(lockable.requirements) {
-        err := requirement.Signal(ctx, signal, locked)
+        err := requirement.Signal(context, signal)
         if err != nil {
           return err
         }
@@ -318,9 +318,9 @@ func LinkLockables(context *WriteContext, princ Node, lockable Lockable, require
     found[requirement.ID()] = true
   }
 
-  return UpdateMoreStates(context, princ, NewInfoMap(
+  return UpdateMoreStates(context, princ, NewLockMap(
     NewLockInfo(lockable, []string{"requirements"}),
-    RequestList(requirements, []string{"dependencies"}),
+    LockList(requirements, []string{"dependencies"}),
   ), func(context *WriteContext) error {
     // Check that all the requirements can be added
     // If the lockable is already locked, need to lock this resource as well before we can add it
@@ -356,7 +356,7 @@ func LinkLockables(context *WriteContext, princ Node, lockable Lockable, require
     for _, requirement := range(requirements) {
       requirement.AddDependency(lockable)
       lockable.AddRequirement(requirement)
-      ctx.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
+      context.Graph.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
     }
 
     // Return no error
@@ -371,7 +371,7 @@ func checkIfRequirement(context *WriteContext, r Lockable, cur Lockable) bool {
       return true
     }
     is_requirement := false
-    UpdateMoreStates(context, cur, NewLockMap(NewLockRequest(c, []string{"requirements"})), func(context *WriteContext) error {
+    UpdateMoreStates(context, cur, NewLockMap(NewLockInfo(c, []string{"requirements"})), func(context *WriteContext) error {
       is_requirement = checkIfRequirement(context, cur, c)
       return nil
     })
@@ -406,10 +406,13 @@ func LockLockables(context *WriteContext, to_lock []Lockable, new_owner Lockable
     return nil
   }
 
-  return UpdateMoreStates(ctx, locked, new_owner, RequestList(to_lock, []string{"lock"}), func(locked NodeLockMap) error {
+  return UpdateMoreStates(context, new_owner, NewLockMap(
+    LockList(to_lock, []string{"lock"}),
+    NewLockInfo(new_owner, []string{}),
+  ), func(context *WriteContext) error {
     // First loop is to check that the states can be locked, and locks all requirements
     for _, req := range(to_lock) {
-      context.Context.Log.Logf("lockable", "LOCKABLE_LOCKING: %s from %s", req.ID(), new_owner.ID())
+      context.Graph.Log.Logf("lockable", "LOCKABLE_LOCKING: %s from %s", req.ID(), new_owner.ID())
 
       // Check custom lock conditions
       err := req.CanLock(new_owner)
@@ -423,15 +426,15 @@ func LockLockables(context *WriteContext, to_lock []Lockable, new_owner Lockable
         if owner.ID() == new_owner.ID() {
           continue
         } else {
-          err := UpdateMoreStates(ctx, locked, new_owner, NewLockRequest(owner, []string{"take_lock"}), func(locked NodeLockMap)(error){
-            return LockLockables(ctx, req.Requirements(), req, locked)
+          err := UpdateMoreStates(context, new_owner, NewLockMap(NewLockInfo(owner, []string{"take_lock"})), func(context *WriteContext)(error){
+            return LockLockables(context, req.Requirements(), req)
           })
           if err != nil {
             return err
           }
         }
       } else {
-        err :=  LockLockables(ctx, req.Requirements(), req, locked)
+        err :=  LockLockables(context, req.Requirements(), req)
         if err != nil {
           return err
         }
@@ -443,17 +446,17 @@ func LockLockables(context *WriteContext, to_lock []Lockable, new_owner Lockable
       old_owner := req.Owner()
       // If the lockable was previously unowned, update the state
       if old_owner == nil {
-        context.Context.Log.Logf("lockable", "LOCKABLE_LOCK: %s locked %s", new_owner.ID(), req.ID())
+        context.Graph.Log.Logf("lockable", "LOCKABLE_LOCK: %s locked %s", new_owner.ID(), req.ID())
         req.SetOwner(new_owner)
         new_owner.RecordLock(req, old_owner)
       // Otherwise if the new owner already owns it, no need to update state
       } else if old_owner.ID() == new_owner.ID() {
-        context.Context.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), req.ID())
+        context.Graph.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), req.ID())
       // Otherwise update the state
       } else {
         req.SetOwner(new_owner)
         new_owner.RecordLock(req, old_owner)
-        context.Context.Log.Logf("lockable", "LOCKABLE_LOCK: %s took lock of %s from %s", new_owner.ID(), req.ID(), old_owner.ID())
+        context.Graph.Log.Logf("lockable", "LOCKABLE_LOCK: %s took lock of %s from %s", new_owner.ID(), req.ID(), old_owner.ID())
       }
     }
     return nil
@@ -481,10 +484,13 @@ func UnlockLockables(context *WriteContext, to_unlock []Lockable, old_owner Lock
     return nil
   }
 
-  return UpdateMoreStates(ctx, locked, old_owner, RequestList(to_unlock, []string{"lock"}), func(locked NodeLockMap) error {
+  return UpdateMoreStates(context, old_owner, NewLockMap(
+    LockList(to_unlock, []string{"lock"}),
+    NewLockInfo(old_owner, []string{}),
+  ), func(context *WriteContext) error {
     // First loop is to check that the states can be locked, and locks all requirements
     for _, req := range(to_unlock) {
-      context.Context.Log.Logf("lockable", "LOCKABLE_UNLOCKING: %s from %s", req.ID(), old_owner.ID())
+      context.Graph.Log.Logf("lockable", "LOCKABLE_UNLOCKING: %s from %s", req.ID(), old_owner.ID())
 
       // Check if the owner is correct
       if req.Owner() != nil {
@@ -501,7 +507,7 @@ func UnlockLockables(context *WriteContext, to_unlock []Lockable, old_owner Lock
         return err
       }
 
-      err = UnlockLockables(ctx, req.Requirements(), req, locked)
+      err = UnlockLockables(context, req.Requirements(), req)
       if err != nil {
         return err
       }
@@ -512,9 +518,9 @@ func UnlockLockables(context *WriteContext, to_unlock []Lockable, old_owner Lock
       new_owner := old_owner.RecordUnlock(req)
       req.SetOwner(new_owner)
       if new_owner == nil {
-        context.Context.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s unlocked %s", old_owner.ID(), req.ID())
+        context.Graph.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s unlocked %s", old_owner.ID(), req.ID())
       } else {
-        context.Context.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s passed lock of %s back to %s", old_owner.ID(), req.ID(), new_owner.ID())
+        context.Graph.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s passed lock of %s back to %s", old_owner.ID(), req.ID(), new_owner.ID())
       }
     }
 

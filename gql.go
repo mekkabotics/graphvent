@@ -204,12 +204,12 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
       new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared, []string{"gql"})
-      err := UpdateStates(ctx, server, NewLockMap(LockList{
-        LockInfo{
+      err := UpdateStates(ctx, server, NewLockMap(LockMap{
+        server.ID(): LockInfo{
           Node: server,
           Resources: []string{"users"},
         },
-        LockInfo{
+        new_user.ID(): LockInfo{
           Node: &new_user,
           Resources: []string{""},
         },

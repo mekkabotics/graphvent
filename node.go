@@ -54,24 +54,6 @@ func RandID() NodeID {
   return NodeID(uuid.New())
 }
 
-// A Node represents a data that can be locked and held by other Nodes
-type Node interface {
-  ID() NodeID
-  Type() NodeType
-  Serialize() ([]byte, error)
-
-  Allows(resouce, action string, principal Node) error
-  AddPolicy(Policy) error
-  RemovePolicy(Policy) error
-
-  Signal(context *ReadContext, signal GraphSignal) error
-
-
-  Requirements() []Node
-  Dependencies() []Node
-  Owner() Node
-}
-
 // A Node represents data that can be read by multiple goroutines and written to by one, with a unique ID attached, and a method to process updates(including propagating them to connected nodes)
 // RegisterChannel and UnregisterChannel are used to connect arbitrary listeners to the node
 type Node interface {
@@ -212,17 +194,17 @@ func (node * GraphNode) Type() NodeType {
 // Propagate the signal to registered listeners, if a listener isn't ready to receive the update
 // send it a notification that it was closed and then close it
 func (node * GraphNode) Signal(context *ReadContext, signal GraphSignal) error {
-  context.Context.Log.Logf("signal", "SIGNAL: %s - %s", node.ID(), signal.String())
+  context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID(), signal.String())
   node.listeners_lock.Lock()
   defer node.listeners_lock.Unlock()
   closed := []NodeID{}
 
   for id, listener := range node.listeners {
-    context.Context.Log.Logf("signal", "UPDATE_LISTENER %s: %p", node.ID(), listener)
+    context.Graph.Log.Logf("signal", "UPDATE_LISTENER %s: %p", node.ID(), listener)
     select {
     case listener <- signal:
     default:
-      context.Context.Log.Logf("signal", "CLOSED_LISTENER %s: %p", node.ID(), listener)
+      context.Graph.Log.Logf("signal", "CLOSED_LISTENER %s: %p", node.ID(), listener)
       go func(node Node, listener chan GraphSignal) {
         listener <- NewDirectSignal("listener_closed")
         close(listener)
@@ -312,10 +294,13 @@ func getNodeBytes(node Node) ([]byte, error) {
 
 // Write multiple nodes to the database in a single transaction
 func WriteNodes(context *WriteContext) error {
-  if locked == nil {
+  if context == nil {
+    return fmt.Errorf("Cannot write nil to DB")
+  }
+  if context.Locked == nil {
     return fmt.Errorf("Cannot write nil map to DB")
   }
-  context.Context.Log.Logf("db", "DB_WRITES: %d", len(context.Locked))
+  context.Graph.Log.Logf("db", "DB_WRITES: %d", len(context.Locked))
 
   serialized_bytes := make([][]byte, len(context.Locked))
   serialized_ids := make([][]byte, len(context.Locked))
@@ -323,7 +308,7 @@ func WriteNodes(context *WriteContext) error {
   for _, lock := range(context.Locked) {
     node := lock.Node
     node_bytes, err := getNodeBytes(node)
-    context.Context.Log.Logf("db", "DB_WRITE: %+v", node)
+    context.Graph.Log.Logf("db", "DB_WRITE: %+v", node)
     if err != nil {
       return err
     }
@@ -336,7 +321,7 @@ func WriteNodes(context *WriteContext) error {
     i++
   }
 
-  err := context.Context.DB.Update(func(txn *badger.Txn) error {
+  err := context.Graph.DB.Update(func(txn *badger.Txn) error {
     for i, id := range(serialized_ids) {
       err := txn.Set(id, serialized_bytes[i])
       if err != nil {
@@ -425,36 +410,34 @@ func LoadNodeRecurse(ctx * Context, id NodeID, nodes NodeMap) (Node, error) {
   return node, nil
 }
 
-func NewLockInfo(node Node, resources []string) LockInfo {
-  return LockInfo{
-    Node: node,
-    Resources: resources,
+func NewLockInfo(node Node, resources []string) LockMap {
+  return LockMap{
+    node.ID(): LockInfo{
+      Node: node,
+      Resources: resources,
+    },
   }
 }
 
-type LockInfoList interface {
-  List() []LockInfo
-}
-
-func NewLockMap(requests ...LockInfoList) LockMap {
+func NewLockMap(requests ...LockMap) LockMap {
   reqs := LockMap{}
   for _, req := range(requests) {
-    for _, info := range(req) {
-      reqs[req.Node.ID()] = info
+    for id, info := range(req) {
+      reqs[id] = info
     }
   }
   return reqs
 }
 
-func RequestList[K Node](list []K, resources []string) LockList {
-  requests := make(LockList{}, len(list))
-  for i, node := range(list) {
-    requests[i] = LockInfo{
+func LockList[K Node](list []K, resources []string) LockMap {
+  reqs := LockMap{}
+  for _, node := range(list) {
+    reqs[node.ID()] = LockInfo{
       Node: node,
       Resources: resources,
     }
   }
-  return requests
+  return reqs
 }
 
 
@@ -464,26 +447,8 @@ type LockInfo struct {
   Node Node
   Resources []string
 }
-func (info LockInfo) List() []LockInfo {
-  return []LockInfo{info}
-}
 
 type LockMap map[NodeID]LockInfo
-func (m LockMap) List() []LockInfo {
-  infos := make([]LockInfo, len(m))
-  i := 0
-  for _, info := range(m) {
-    infos[i] = info
-    i += 1
-  }
-
-  return infos
-}
-
-type LockList []LockInfo
-func (li LockList) List() []LockInfo {
-  return li
-}
 
 type ReadContext struct {
   Graph *Context
@@ -516,7 +481,7 @@ func del[K comparable](list []K, val K) []K {
 // Start a read context for node under ctx for the resources specified in init_nodes, then run nodes_fn
 func UseStates(ctx *Context, node Node, nodes LockMap, read_fn ReadFn) error {
   context := &ReadContext{
-    Context: ctx,
+    Graph: ctx,
     Locked: LockMap{},
   }
   return UseMoreStates(context, node, nodes, read_fn)
@@ -579,7 +544,7 @@ func UseMoreStates(context *ReadContext, node Node, new_nodes LockMap, read_fn R
       new_perms = del(new_perms, resource)
     }
     cur_perms.Resources = new_perms
-    context.Locked[request.Node.ID()].Resources = new_perms
+    context.Locked[request.Node.ID()] = cur_perms
   }
 
   for _, node := range(locked_nodes) {
@@ -593,10 +558,10 @@ func UseMoreStates(context *ReadContext, node Node, new_nodes LockMap, read_fn R
 // Initiate a write context for nodes and call nodes_fn with nodes locked for read
 func UpdateStates(ctx *Context, node Node, nodes LockMap, write_fn WriteFn) error {
   context := &WriteContext{
-    Context: ctx,
+    Graph: ctx,
     Locked: LockMap{},
   }
-  err := UpdateMoreStates(context, node, nodes, nodes_fn)
+  err := UpdateMoreStates(context, node, nodes, write_fn)
   if err == nil {
     err = WriteNodes(context)
   }
@@ -609,13 +574,13 @@ func UpdateStates(ctx *Context, node Node, nodes LockMap, write_fn WriteFn) erro
 }
 
 // Add nodes to an existing write context and call nodes_fn with nodes locked for read
-func UpdateMoreStates(ctx *Context, locked LockMap, node Node, new_nodes LockMap, write_fn WriteFn) error {
+func UpdateMoreStates(context *WriteContext, node Node, new_nodes LockMap, write_fn WriteFn) error {
   new_permissions := LockMap{}
   for _, request := range(new_nodes) {
     id := request.Node.ID()
     new_permissions[id] = LockInfo{Node: request.Node, Resources: []string{}}
     for _, resource := range(request.Resources) {
-      current_permissions, exists := locked[id]
+      current_permissions, exists := context.Locked[id]
       if exists == true {
         already_granted := false
         for _, r := range(current_permissions.Resources) {
@@ -641,18 +606,18 @@ func UpdateMoreStates(ctx *Context, locked LockMap, node Node, new_nodes LockMap
 
     req_perms, exists := new_permissions[id]
     if exists == true {
-      cur_perms, already_locked := locked[id]
+      cur_perms, already_locked := context.Locked[id]
       if already_locked == false {
         request.Node.Lock()
-        locked[id] = req_perms
+        context.Locked[id] = req_perms
       } else {
         cur_perms.Resources = append(cur_perms.Resources, req_perms.Resources...)
-        locked[id] = cur_perms
+        context.Locked[id] = cur_perms
       }
     }
   }
 
-  return write_fn(locked)
+  return write_fn(context)
 }
 
 // Create a new channel with a buffer the size of buffer, and register it to node with the id

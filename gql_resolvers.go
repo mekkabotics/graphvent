@@ -53,7 +53,7 @@ func GQLNodeID(p graphql.ResolveParams) (interface{}, error) {
     return nil, fmt.Errorf("Failed to cast source to Node")
   }
 
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"id"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"id"})), func(context *ReadContext) error {
     return nil
   })
   if err != nil {
@@ -76,7 +76,7 @@ func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
 
 
   listen := ""
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"listen"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"listen"})), func(context *ReadContext) error {
     listen = node.Listen
     return nil
   })
@@ -100,7 +100,7 @@ func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var parent Thread = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"parent"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"parent"})), func(context *ReadContext) error {
     parent = node.Parent()
     return nil
   })
@@ -124,7 +124,7 @@ func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var state string
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"state"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"state"})), func(context *ReadContext) error {
     state = node.State()
     return nil
   })
@@ -148,7 +148,7 @@ func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var children []Thread = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"children"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"children"})), func(context *ReadContext) error {
     children = node.Children()
     return nil
   })
@@ -172,7 +172,7 @@ func GQLLockableName(p graphql.ResolveParams) (interface{}, error) {
   }
 
   name := ""
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"name"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"name"})), func(context *ReadContext) error {
     name = node.Name()
     return nil
   })
@@ -196,7 +196,7 @@ func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var requirements []Lockable = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"requirements"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"requirements"})), func(context *ReadContext) error {
     requirements = node.Requirements()
     return nil
   })
@@ -220,7 +220,7 @@ func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var dependencies []Lockable = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"dependencies"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"dependencies"})), func(context *ReadContext) error {
     dependencies = node.Dependencies()
     return nil
   })
@@ -244,7 +244,7 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var owner Node = nil
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"owner"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"owner"})), func(context *ReadContext) error {
     owner = node.Owner()
     return nil
   })
@@ -268,7 +268,7 @@ func GQLThreadUsers(p graphql.ResolveParams) (interface{}, error) {
   }
 
   var users []*User
-  err = UseStates(ctx.Context, ctx.User, NewLockRequest(node, []string{"users"}), func(locked NodeLockMap) error {
+  err = UseStates(ctx.Context, ctx.User, NewLockMap(NewLockInfo(node, []string{"users"})), func(context *ReadContext) error {
     users = make([]*User, len(node.Users))
     i := 0
     for _, user := range(node.Users) {
