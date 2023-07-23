@@ -15,7 +15,6 @@ const (
 type GraphSignal interface {
   // How to propogate the signal
   Direction() SignalDirection
-  Source() NodeID
   Type() string
   String() string
 }
@@ -23,7 +22,6 @@ type GraphSignal interface {
 // BaseSignal is the most basic type of signal, it has no additional data
 type BaseSignal struct {
   FDirection SignalDirection `json:"direction"`
-  FSource NodeID `json:"source"`
   FType string `json:"type"`
 }
 
@@ -39,58 +37,57 @@ func (signal BaseSignal) Direction() SignalDirection {
   return signal.FDirection
 }
 
-func (signal BaseSignal) Source() NodeID {
-  return signal.FSource
-}
-
 func (signal BaseSignal) Type() string {
   return signal.FType
 }
 
-func NewBaseSignal(source Node, _type string, direction SignalDirection) BaseSignal {
-  var source_id NodeID = NodeID{}
-  if source != nil {
-    source_id = source.ID()
-  }
-
+func NewBaseSignal(_type string, direction SignalDirection) BaseSignal {
   signal := BaseSignal{
     FDirection: direction,
-    FSource: source_id,
     FType: _type,
   }
   return signal
 }
 
-func NewDownSignal(source Node, _type string) BaseSignal {
-  return NewBaseSignal(source, _type, Down)
+func NewDownSignal(_type string) BaseSignal {
+  return NewBaseSignal(_type, Down)
 }
 
-func NewSignal(source Node, _type string) BaseSignal {
-  return NewBaseSignal(source, _type, Up)
+func NewSignal(_type string) BaseSignal {
+  return NewBaseSignal(_type, Up)
 }
 
-func NewDirectSignal(source Node, _type string) BaseSignal {
-  return NewBaseSignal(source, _type, Direct)
+func NewDirectSignal(_type string) BaseSignal {
+  return NewBaseSignal(_type, Direct)
 }
 
-func AbortSignal(source Node) BaseSignal {
-  return NewBaseSignal(source, "abort", Down)
+var AbortSignal = NewBaseSignal("abort", Down)
+var CancelSignal = NewBaseSignal("cancel", Down)
+
+type IDSignal struct {
+  BaseSignal
+  ID NodeID `json:"id"`
 }
 
-func CancelSignal(source Node) BaseSignal {
-  return NewBaseSignal(source, "cancel", Down)
+func NewIDSignal(_type string, direction SignalDirection, id NodeID) IDSignal {
+  return IDSignal{
+    BaseSignal: NewBaseSignal(_type, direction),
+    ID: id,
+  }
+}
+
+func NewStatusSignal(_type string, source NodeID) IDSignal {
+  return NewIDSignal(_type, Up, source)
 }
 
 type StartChildSignal struct {
-  BaseSignal
-  ChildID NodeID `json:"child_id"`
+  IDSignal
   Action string `json:"action"`
 }
 
-func NewStartChildSignal(source Node, child_id NodeID, action string) StartChildSignal {
+func NewStartChildSignal(child_id NodeID, action string) StartChildSignal {
   return StartChildSignal{
-    BaseSignal: NewBaseSignal(source, "start_child", Direct),
-    ChildID: child_id,
+    IDSignal: NewIDSignal("start_child", Direct, child_id),
     Action: action,
   }
 }

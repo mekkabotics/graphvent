@@ -4,15 +4,12 @@ import (
   "github.com/graphql-go/graphql"
 )
 
-var GQLMutationSendUpdate = NewField(func()*graphql.Field {
-  gql_mutation_send_update := &graphql.Field{
+var GQLMutationAbort = NewField(func()*graphql.Field {
+  gql_mutation_abort := &graphql.Field{
     Type: GQLTypeSignal.Type,
     Args: graphql.FieldConfigArgument{
       "id": &graphql.ArgumentConfig{
         Type: graphql.String,
-      },
-      "signal": &graphql.ArgumentConfig{
-        Type: GQLTypeSignalInput.Type,
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -21,25 +18,9 @@ var GQLMutationSendUpdate = NewField(func()*graphql.Field {
         return nil, err
       }
 
-      err = ctx.Server.Allowed("signal", "self", ctx.User)
+      err = ctx.Server.Allowed("signal", "", ctx.User)
       if err != nil {
         return nil, err
-      }
-
-      signal_map, err := ExtractParam[map[string]interface{}](p, "signal")
-      if err != nil {
-        return nil, err
-      }
-
-      var signal GraphSignal = nil
-      if signal_map["Direction"] == "up" {
-        signal = NewSignal(ctx.Server, signal_map["Type"].(string))
-      } else if signal_map["Direction"] == "down" {
-        signal = NewDownSignal(ctx.Server, signal_map["Type"].(string))
-      } else if signal_map["Direction"] == "direct" {
-        signal = NewDirectSignal(ctx.Server, signal_map["Type"].(string))
-      } else {
-        return nil, fmt.Errorf("Bad direction: %d", signal_map["Direction"])
       }
 
       id, err := ExtractID(p, "id")
@@ -48,23 +29,26 @@ var GQLMutationSendUpdate = NewField(func()*graphql.Field {
       }
 
       var node Node = nil
-      err = UseStates(ctx.Context, []Node{ctx.Server}, func(nodes NodeMap) (error){
-        node = FindChild(ctx.Context, ctx.Server, id, nodes)
+      err = UseStates(ctx.Context, ctx.User, NewLockMap(
+        NewLockInfo(ctx.Server, []string{"children"}),
+      ), func(context *ReadContext) (error){
+        node = FindChild(ctx.Context, ctx.User, ctx.Server, id, locked)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        node.Signal(ctx.Context, signal, nodes)
-        return nil
+        return UseMoreStates(ctx.Context, locked, ctx.User, NewLockInfo(node, []string{"signal"}), func(locked NodeLockMap) error {
+          return node.Signal(ctx.Context, AbortSignal, locked)
+        })
       })
       if err != nil {
         return nil, err
       }
 
-      return signal, nil
+      return AbortSignal, nil
     },
   }
 
-  return gql_mutation_send_update
+  return gql_mutation_abort
 })
 
 var GQLMutationStartChild = NewField(func()*graphql.Field{
@@ -88,11 +72,6 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
         return nil, err
       }
 
-      err = ctx.Server.Allowed("start_child", "self", ctx.User)
-      if err != nil {
-        return nil, err
-      }
-
       parent_id, err := ExtractID(p, "parent_id")
       if err != nil {
         return nil, err
@@ -109,14 +88,22 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       }
 
       var signal GraphSignal
-      err = UseStates(ctx.Context, []Node{ctx.Server}, func(nodes NodeMap) (error){
-        node := FindChild(ctx.Context, ctx.Server, parent_id, nodes)
+      err = UseStates(ctx.Context, ctx.User, NewLockMap(
+        NewLockInfo(ctx.Server, []string{"children"}),
+      ), func(context *ReadContext) error {
+        node := FindChild(ctx.Context, ctx.User, ctx.Server, parent_id, locked)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
         }
-        return UseMoreStates(ctx.Context, []Node{node}, nodes, func(NodeMap) error {
-          signal = NewStartChildSignal(ctx.Server,  child_id, action)
-          return node.Signal(ctx.Context, signal, nodes)
+
+        err := node.Allowed("signal", "", ctx.User)
+        if err != nil {
+          return err
+        }
+
+        return UseMoreStates(ctx.Context, locked, ctx.User, NewLockInfo(node, []string{"start_child", "signal"}), func(locked NodeLockMap) error {
+          signal = NewStartChildSignal(child_id, action)
+          return node.Signal(ctx.Context, signal, locked)
         })
       })
       if err != nil {

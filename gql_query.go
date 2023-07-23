@@ -11,7 +11,7 @@ var GQLQuerySelf = &graphql.Field{
       return nil, err
     }
 
-    err = ctx.Server.Allowed("enumerate", "self", ctx.User)
+    err = ctx.Server.Allowed("read", "", ctx.User)
     if err != nil {
       return nil, err
     }
@@ -28,7 +28,7 @@ var GQLQueryUser = &graphql.Field{
       return nil, err
     }
 
-    err = ctx.User.Allowed("enumerate", "self", ctx.User)
+    err = ctx.User.Allowed("read", "", ctx.User)
     if err != nil {
       return nil, err
     }

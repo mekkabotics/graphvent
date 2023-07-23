@@ -204,7 +204,16 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
       new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared, []string{"gql"})
-      err := UpdateStates(ctx, []Node{server, &new_user}, func(nodes NodeMap) error {
+      err := UpdateStates(ctx, server, NewLockMap(LockList{
+        LockInfo{
+          Node: server,
+          Resources: []string{"users"},
+        },
+        LockInfo{
+          Node: &new_user,
+          Resources: []string{""},
+        },
+      }), func(context *WriteContext) error {
         server.Users[key_id] = &new_user
         return nil
       })
@@ -864,30 +873,59 @@ var gql_actions ThreadActions = ThreadActions{
     }(server)
 
 
-    UseStates(ctx, []Node{server}, func(nodes NodeMap)(error){
+    err = UpdateStates(ctx, server, NewLockMap(
+      NewLockInfo(server, []string{"http_server"}),
+    ), func(context *WriteContext) error {
       server.tcp_listener = listener
       server.http_server = http_server
-      return server.Signal(ctx, NewSignal(server, "server_started"), nodes)
+      return nil
     })
+
+    if err != nil {
+      return "", err
+    }
+
+    err = UseStates(ctx, server, NewLockMap(
+      NewLockInfo(server, []string{"signal"}),
+    ), func(context *ReadContext) error {
+      return server.Signal(context, NewSignal("server_started"))
+    })
+
+    if err != nil {
+      return "", err
+    }
 
     return "wait", nil
   },
 }
 
 var gql_handlers ThreadHandlers = ThreadHandlers{
-  "child_added": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
+  "child_linked": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
     ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: %+v", signal)
-    UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
-      should_run, exists := thread.ChildInfo(signal.Source()).(*ParentThreadInfo)
+    err := UpdateStates(ctx, thread, NewLockMap(
+      NewLockInfo(thread, []string{"children"}),
+    ), func(context *WriteContext) error {
+      sig, ok := signal.(IDSignal)
+      if ok == false {
+        ctx.Log.Logf("gql", "GQL_THREAD_NODE_LINKED_BAD_CAST")
+        return nil
+      }
+      should_run, exists := thread.ChildInfo(sig.ID).(*ParentThreadInfo)
       if exists == false {
-        ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: tried to start %s whis is not a child")
+        ctx.Log.Logf("gql", "GQL_THREAD_NODE_LINKED: %s is not a child of %s", sig.ID)
         return nil
       }
       if should_run.Start == true {
-        ChildGo(ctx, thread, thread.Child(signal.Source()), should_run.StartAction)
+        ChildGo(ctx, thread, thread.Child(sig.ID), should_run.StartAction)
       }
       return nil
     })
+
+    if err != nil {
+
+    } else {
+
+    }
     return "wait", nil
   },
   "start_child": func(ctx *Context, thread Thread, signal GraphSignal) (string, error) {
@@ -902,7 +940,7 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
     if err != nil {
       ctx.Log.Logf("gql", "GQL_START_CHILD_ERR: %s", err)
     } else {
-      ctx.Log.Logf("gql", "GQL_START_CHILD: %s", sig.ChildID.String())
+      ctx.Log.Logf("gql", "GQL_START_CHILD: %s", sig.ID.String())
     }
 
     return "wait", nil

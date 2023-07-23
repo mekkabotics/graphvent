@@ -8,11 +8,11 @@ import (
 type Policy interface {
   Node
   // Returns true if the principal is allowed to perform the action on the resource
-  Allows(action string, resource string, principal Node) bool
+  Allows(resource string, action string, principal Node) bool
 }
 
 type NodeActions map[string][]string
-func (actions NodeActions) Allows(action string, resource string) bool {
+func (actions NodeActions) Allows(resource string, action string) bool {
   for _, a := range(actions[""]) {
     if a == action || a == "*" {
       return true
@@ -108,13 +108,13 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
   return &policy, nil
 }
 
-func (policy *PerNodePolicy) Allows(action string, resource string, principal Node) bool {
+func (policy *PerNodePolicy) Allows(resource string, action string, principal Node) bool {
   node_actions, exists := policy.Actions[principal.ID()]
   if exists == false {
     return false
   }
 
-  if node_actions.Allows(action, resource) == true {
+  if node_actions.Allows(resource, action) == true {
     return true
   }
 
@@ -171,8 +171,8 @@ func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   return &policy, nil
 }
 
-func (policy *SimplePolicy) Allows(action string, resource string, principal Node) bool {
-  return policy.Actions.Allows(action, resource)
+func (policy *SimplePolicy) Allows(resource string, action string, principal Node) bool {
+  return policy.Actions.Allows(resource, action)
 }
 
 type PerTagPolicy struct {
@@ -235,7 +235,7 @@ func LoadPerTagPolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   return &policy, nil
 }
 
-func (policy *PerTagPolicy) Allows(action string, resource string, principal Node) bool {
+func (policy *PerTagPolicy) Allows(resource string, action string, principal Node) bool {
   user, ok := principal.(*User)
   if ok == false {
     return false
@@ -244,7 +244,7 @@ func (policy *PerTagPolicy) Allows(action string, resource string, principal Nod
   for _, tag := range(user.Tags) {
     tag_actions, exists := policy.Actions[tag]
     if exists == true {
-      if tag_actions.Allows(action, resource) == true {
+      if tag_actions.Allows(resource, action) == true {
         return true
       }
     }

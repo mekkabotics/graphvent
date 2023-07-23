@@ -10,32 +10,48 @@ import (
   "github.com/google/uuid"
 )
 
-// SimpleThread.Signal updates the parent and children, and sends the signal to an internal channel
-func (thread * SimpleThread) Signal(ctx * Context, signal GraphSignal, nodes NodeMap) error {
-  err := thread.SimpleLockable.Signal(ctx, signal, nodes)
+// Assumed that thread is already locked for signal
+func (thread *SimpleThread) Signal(context *ReadContext, signal GraphSignal) error {
+  err := thread.SimpleLockable.Signal(context, signal)
   if err != nil {
     return err
   }
-  if signal.Direction() == Up {
-    // Child->Parent, thread updates parent and connected requirement
-    if thread.parent != nil {
-      UseMoreStates(ctx, []Node{thread.parent}, nodes, func(nodes NodeMap) error {
-        thread.parent.Signal(ctx, signal, nodes)
+
+  switch signal.Direction() {
+  case Up:
+    err = UseMoreStates(ctx, locked, thread, NewLockMap(
+      NewLockRequest(thread, []string{"parent"}),
+    ), func(context *ReadContext) error {
+      if thread.parent != nil {
+        return UseMoreStates(ctx, locked, thread, NewLockRequest(thread.parent, []string{"signal"}), func(context *ReadContext) error {
+          return thread.parent.Signal(context, signal)
+        })
+      } else {
         return nil
-      })
-    }
-  } else if signal.Direction() == Down {
-    // Parent->Child, updates children and dependencies
-    UseMoreStates(ctx, NodeList(thread.children), nodes, func(nodes NodeMap) error {
+      }
+    })
+  case Down:
+    err = UseMoreStates(ctx, locked, thread, NewLockMap(
+      NewLockRequest(thread, []string{"children"}),
+      RequestList(thread.childre, []string{"signal"}),
+    ), func(context *ReadContext) error {
       for _, child := range(thread.children) {
-        child.Signal(ctx, signal, nodes)
+        err := child.Signal(context, signal)
+        if err != nil {
+          return err
+        }
       }
       return nil
     })
-  } else if signal.Direction() == Direct {
-  } else {
-    panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
+  case Direct:
+    err = nil
+  default:
+    return fmt.Errorf("Invalid signal direction %d", signal.Direction())
   }
+  if err != nil {
+    return err
+  }
+
   thread.signal <- signal
   return nil
 }
@@ -156,14 +172,16 @@ func (thread * SimpleThread) AddChild(child Thread, info ThreadInfo) error {
   return nil
 }
 
-func checkIfChild(ctx * Context, target Thread, cur Thread, nodes NodeMap) bool {
+func checkIfChild(context *WriteContext, target Thread, cur Thread) bool {
   for _, child := range(cur.Children()) {
     if child.ID() == target.ID() {
       return true
     }
     is_child := false
-    UpdateMoreStates(ctx, []Node{child}, nodes, func(nodes NodeMap) error {
-      is_child = checkIfChild(ctx, target, child, nodes)
+    UpdateMoreStates(ctx, locked, cur, NewLockMap(
+      NewLockRequest(child, []string{"children"}),
+    ), func(locked NodeLockMap) error {
+      is_child = checkIfChild(context, target, child)
       return nil
     })
     if is_child {
@@ -174,8 +192,7 @@ func checkIfChild(ctx * Context, target Thread, cur Thread, nodes NodeMap) bool 
   return false
 }
 
-// Requires thread and childs thread to be locked for write
-func LinkThreads(ctx * Context, thread Thread, child Thread, info ThreadInfo, nodes NodeMap) error {
+func LinkThreads(context *WriteContext, princ Node, thread Thread, child Thread, info ThreadInfo) error {
   if ctx == nil || thread == nil || child == nil {
     return fmt.Errorf("invalid input")
   }
@@ -184,29 +201,34 @@ func LinkThreads(ctx * Context, thread Thread, child Thread, info ThreadInfo, no
     return fmt.Errorf("Will not link %s as a child of itself", thread.ID())
   }
 
-  if child.Parent() != nil {
-    return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
-  }
+  return UpdateMoreStates(context, princ, NewNodeMap(
+    NewLockInfo(child, []string{"parent", "children"}),
+    NewLockInfo(thread, []string{"parent", "children"}),
+  ), func(context *WriteContext) {
+    if child.Parent() != nil {
+      return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
+    }
 
-  if checkIfChild(ctx, thread, child, nodes) == true {
-    return fmt.Errorf("EVENT_LINK_ERR: %s is a child of %s so cannot add as parent", thread.ID(), child.ID())
-  }
+    if checkIfChild(context, thread, child) == true {
+      return fmt.Errorf("EVENT_LINK_ERR: %s is a child of %s so cannot add as parent", thread.ID(), child.ID())
+    }
 
-  if checkIfChild(ctx, child, thread, nodes) == true {
-    return fmt.Errorf("EVENT_LINK_ERR: %s is already a parent of %s so will not add again", thread.ID(), child.ID())
-  }
+    if checkIfChild(context, child, thread) == true {
+      return fmt.Errorf("EVENT_LINK_ERR: %s is already a parent of %s so will not add again", thread.ID(), child.ID())
+    }
 
-  err := thread.AddChild(child, info)
-  if err != nil {
-    return fmt.Errorf("EVENT_LINK_ERR: error adding %s as child to %s: %e", child.ID(), thread.ID(), err)
-  }
-  child.SetParent(thread)
+    err := thread.AddChild(child, info)
+    if err != nil {
+      return fmt.Errorf("EVENT_LINK_ERR: error adding %s as child to %s: %e", child.ID(), thread.ID(), err)
+    }
+    child.SetParent(thread)
 
-  if err != nil {
-    return err
-  }
+    if err != nil {
+      return err
+    }
 
-  return nil
+    return nil
+  })
 }
 
 type ThreadAction func(* Context, Thread)(string, error)
@@ -432,8 +454,8 @@ func NewSimpleThread(id NodeID, name string, state_name string, info_type reflec
   }
 }
 
-// Requires that thread is already locked for read in UseStates
-func FindChild(ctx * Context, thread Thread, id NodeID, nodes NodeMap) Thread {
+// Requires the read permission of threads children
+func FindChild(context *ReadContext, princ Node, thread Thread, id NodeID) Thread {
   if thread == nil {
     panic("cannot recurse through nil")
   }
@@ -443,8 +465,8 @@ func FindChild(ctx * Context, thread Thread, id NodeID, nodes NodeMap) Thread {
 
   for _, child := range thread.Children() {
     var result Thread = nil
-    UseMoreStates(ctx, []Node{child}, nodes, func(nodes NodeMap) error {
-      result = FindChild(ctx, child, id, nodes)
+    UseMoreStates(context, princ, NewLockRequest(child, []string{"children"}), func(locked NodeLockMap) error {
+      result = FindChild(ctx, princ, child, id, locked)
       return nil
     })
     if result != nil {
@@ -499,12 +521,12 @@ func ThreadLoop(ctx * Context, thread Thread, first_action string) error {
     return err
   }
 
-  err = UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
+  err = UpdateStates(ctx, thread, NewLockRequest(thread, []string{"state"}), func(locked NodeLockMap) error {
     err := thread.SetState("finished")
     if err != nil {
       return err
     }
-    return UnlockLockables(ctx, []Lockable{thread}, thread, nodes)
+    return UnlockLockables(ctx, []Lockable{thread}, thread, locked)
   })
 
   if err != nil {
@@ -563,23 +585,25 @@ func (thread * SimpleThread) AllowedToTakeLock(new_owner Lockable, lockable Lock
 }
 
 func ThreadStartChild(ctx *Context, thread Thread, signal StartChildSignal) error {
-  return UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
-    child := thread.Child(signal.ChildID)
+  return UpdateStates(ctx, thread, NewLockRequest(thread, []string{"children"}), func(locked NodeLockMap) error {
+    child := thread.Child(signal.ID)
     if child == nil {
-      return fmt.Errorf("%s is not a child of %s", signal.ChildID, thread.ID())
+      return fmt.Errorf("%s is not a child of %s", signal.ID, thread.ID())
     }
+    return UpdateMoreStates(ctx, locked, thread, NewLockRequest(child, []string{"start"}), func(locked NodeLockMap) error {
 
-    info := thread.ChildInfo(signal.ChildID).(*ParentThreadInfo)
-    info.Start = true
-    ChildGo(ctx, thread, child, signal.Action)
+      info := thread.ChildInfo(signal.ID).(*ParentThreadInfo)
+      info.Start = true
+      ChildGo(ctx, thread, child, signal.Action)
 
-    return nil
+      return nil
+    })
   })
 }
 
 func ThreadRestore(ctx * Context, thread Thread) {
-  UpdateStates(ctx, []Node{thread}, func(nodes NodeMap)(error) {
-    return UpdateMoreStates(ctx, NodeList(thread.Children()), nodes, func(nodes NodeMap) error {
+  UpdateStates(ctx, thread, NewLockRequest(thread, []string{"children"}), func(locked NodeLockMap)(error) {
+    return UpdateMoreStates(ctx, locked, thread, RequestList(thread.Children(), []string{"start"}), func(locked NodeLockMap) error {
       for _, child := range(thread.Children()) {
         should_run := (thread.ChildInfo(child.ID())).(ParentInfo).Parent()
         ctx.Log.Logf("thread", "THREAD_RESTORE: %s -> %s: %+v", thread.ID(), child.ID(), should_run)
@@ -594,13 +618,13 @@ func ThreadRestore(ctx * Context, thread Thread) {
 }
 
 func ThreadStart(ctx * Context, thread Thread) error {
-  return UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
+  return UpdateStates(ctx, thread, NewLockRequest(thread, []string{"start", "lock"}), func(locked NodeLockMap) error {
     owner_id := NodeID{}
     if thread.Owner() != nil {
       owner_id = thread.Owner().ID()
     }
     if owner_id != thread.ID() {
-      err := LockLockables(ctx, []Lockable{thread}, thread, nodes)
+      err := LockLockables(ctx, []Lockable{thread}, thread, locked)
       if err != nil {
         return err
       }
@@ -628,11 +652,7 @@ func ThreadWait(ctx * Context, thread Thread) (string, error) {
   for {
     select {
       case signal := <- thread.SignalChannel():
-        if signal.Source() == thread.ID() {
-          ctx.Log.Logf("thread", "THREAD_SIGNAL_INTERNAL")
-        } else {
-          ctx.Log.Logf("thread", "THREAD_SIGNAL: %s %+v", thread.ID(), signal)
-        }
+        ctx.Log.Logf("thread", "THREAD_SIGNAL: %s %+v", thread.ID(), signal)
         signal_fn, exists := thread.Handler(signal.Type())
         if exists == true {
           ctx.Log.Logf("thread", "THREAD_HANDLER: %s - %s", thread.ID(), signal.Type())
@@ -642,7 +662,7 @@ func ThreadWait(ctx * Context, thread Thread) (string, error) {
         }
       case <- thread.Timeout():
         timeout_action := ""
-        err := UpdateStates(ctx, []Node{thread}, func(nodes NodeMap) error {
+        err := UpdateStates(ctx, thread, NewLockMap(NewLockInfo(thread, []string{"timeout"})), func(context *WriteContext) error {
           timeout_action = thread.TimeoutAction()
           thread.ClearTimeout()
           return nil
@@ -656,36 +676,25 @@ func ThreadWait(ctx * Context, thread Thread) (string, error) {
   }
 }
 
-type ThreadAbortedError NodeID
-
-func (e ThreadAbortedError) Is(target error) bool {
-  error_type := reflect.TypeOf(ThreadAbortedError(NodeID{}))
-  target_type := reflect.TypeOf(target)
-  return error_type == target_type
-}
-func (e ThreadAbortedError) Error() string {
-  return fmt.Sprintf("Aborted by %s", (uuid.UUID)(e).String())
-}
-func NewThreadAbortedError(aborter NodeID) ThreadAbortedError {
-  return ThreadAbortedError(aborter)
-}
+var ThreadAbortedError = errors.New("Thread aborted by signal")
 
 // Default thread abort is to return a ThreadAbortedError
 func ThreadAbort(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
-  UseStates(ctx, []Node{thread}, func(nodes NodeMap) error {
-    thread.Signal(ctx, NewSignal(thread, "thread_aborted"), nodes)
-    return nil
+  err := UseStates(ctx, thread, NewLockRequest(thread, []string{"signal"}), func(locked NodeLockMap) error {
+    return thread.Signal(ctx, NewStatusSignal("aborted", thread.ID()), locked)
   })
-  return "", NewThreadAbortedError(signal.Source())
+  if err != nil {
+    return "", err
+  }
+  return "", ThreadAbortedError
 }
 
 // Default thread cancel is to finish the thread
 func ThreadCancel(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
-  UseStates(ctx, []Node{thread}, func(nodes NodeMap) error {
-    thread.Signal(ctx, NewSignal(thread, "thread_cancelled"), nodes)
-    return nil
+  err := UseStates(ctx, thread, NewLockRequest(thread, []string{"signal"}), func(locked NodeLockMap) error {
+    return thread.Signal(ctx, NewSignal("cancelled"), locked)
   })
-  return "", nil
+  return "", err
 }
 
 func NewThreadActions() ThreadActions{

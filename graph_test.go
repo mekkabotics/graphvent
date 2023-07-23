@@ -12,7 +12,7 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, signal_type string, source Node, timeout time.Duration, str string) GraphSignal {
+func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, signal_type string, timeout time.Duration, str string) GraphSignal {
   timeout_channel := time.After(timeout)
   for true {
     select {
@@ -22,16 +22,7 @@ func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, si
         t.Fatal(str)
       }
       if signal.Type() == signal_type {
-        ctx.Log.Logf("test", "SIGNAL_TYPE_FOUND: %s - %s %+v\n", signal.Type(), signal.Source(), listener)
-        if source == nil {
-          if signal.Source() == ZeroID {
-            return signal
-          }
-        } else {
-          if signal.Source() == source.ID() {
-            return signal
-          }
-        }
+        return signal
       }
     case <-timeout_channel:
       pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)

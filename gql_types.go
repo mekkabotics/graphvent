@@ -162,7 +162,7 @@ var GQLTypeGraphNode = NewSingleton(func() *graphql.Object {
 
 var GQLTypeSignal = NewSingleton(func() *graphql.Object {
   gql_type_signal := graphql.NewObject(graphql.ObjectConfig{
-    Name: "SignalOut",
+    Name: "Signal",
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
       _, ok := p.Value.(GraphSignal)
       return ok
@@ -174,10 +174,6 @@ var GQLTypeSignal = NewSingleton(func() *graphql.Object {
     Type: graphql.String,
     Resolve: GQLSignalType,
   })
-  gql_type_signal.AddFieldConfig("Source", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLSignalSource,
-  })
   gql_type_signal.AddFieldConfig("Direction", &graphql.Field{
     Type: graphql.String,
     Resolve: GQLSignalDirection,
@@ -187,22 +183,5 @@ var GQLTypeSignal = NewSingleton(func() *graphql.Object {
     Resolve: GQLSignalString,
   })
   return gql_type_signal
-}, nil)
-
-var GQLTypeSignalInput = NewSingleton(func()*graphql.InputObject {
-  gql_type_signal_input := graphql.NewInputObject(graphql.InputObjectConfig{
-    Name: "SignalIn",
-    Fields: graphql.InputObjectConfigFieldMap{},
-  })
-  gql_type_signal_input.AddFieldConfig("Type", &graphql.InputObjectFieldConfig{
-    Type: graphql.String,
-    DefaultValue: "cancel",
-  })
-  gql_type_signal_input.AddFieldConfig("Direction", &graphql.InputObjectFieldConfig{
-    Type: graphql.String,
-    DefaultValue: "down",
-  })
-
-  return gql_type_signal_input
 }, nil)
 

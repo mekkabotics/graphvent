@@ -215,52 +215,58 @@ func (lockable * SimpleLockable) CanUnlock(new_owner Lockable) error {
   return nil
 }
 
-// Lockable.Signal sends the update to the owner, requirements, and dependencies before updating listeners
-func (lockable * SimpleLockable) Signal(ctx *Context, signal GraphSignal, nodes NodeMap) error {
-  err := lockable.GraphNode.Signal(ctx, signal, nodes)
+// Assumed that lockable is already locked for signal
+func (lockable * SimpleLockable) Signal(context *ReadContext, signal GraphSignal) error {
+  err := lockable.GraphNode.Signal(ctx, signal, locked)
   if err != nil {
     return err
   }
-  if signal.Direction() == Up {
-    // Child->Parent, lockable updates dependency lockables
-    owner_sent := false
-    UseMoreStates(ctx, NodeList(lockable.dependencies), nodes, func(nodes NodeMap) error {
-      for _, dependency := range(lockable.dependencies){
+
+  switch signal.Direction() {
+  case Up:
+    err = UseMoreStates(ctx, locked, lockable, NewLockMap(
+      NewLockInfo(lockable, []string{"dependencies", "owner"}),
+      RequestList(lockable.requirements, []string{"signal"}),
+    ), func(context *ReadContext) error {
+      owner_sent := false
+      for _, dependency := range(lockable.dependencies) {
         ctx.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", lockable.ID(), dependency.ID())
-        dependency.Signal(ctx, signal, nodes)
+        dependency.Signal(ctx, signal, locked)
         if lockable.owner != nil {
           if dependency.ID() == lockable.owner.ID() {
             owner_sent = true
           }
         }
       }
+      if lockable.owner != nil && owner_sent == false {
+        if lockable.owner.ID() != lockable.ID() {
+          ctx.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", lockable.ID(), lockable.owner.ID())
+          return UseMoreStates(context, lockable, NewLockRequest(lockable.owner, []string{"signal"}), func(context *ReadContext) error {
+            return lockable.owner.Signal(ctx, signal, locked)
+          })
+        }
+      }
       return nil
     })
-    if lockable.owner != nil && owner_sent == false {
-      if lockable.owner.ID() != lockable.ID() {
-        ctx.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", lockable.ID(), lockable.owner.ID())
-        UseMoreStates(ctx, []Node{lockable.owner}, nodes, func(nodes NodeMap) error {
-          return lockable.owner.Signal(ctx, signal, nodes)
-        })
-      }
-    }
-  } else if signal.Direction() == Down {
-    // Parent->Child, lockable updates lock holder
-    UseMoreStates(ctx, NodeList(lockable.requirements), nodes, func(nodes NodeMap) error {
+  case Down:
+    err = UseMoreStates(context, lockable, NewLockMap(
+      NewLockInfo(lockable, []string{"requirements"},
+      RequestList(lockable.requirements, []string{"signal"})),
+    ), func(context *ReadContext) error {
       for _, requirement := range(lockable.requirements) {
-        err := requirement.Signal(ctx, signal, nodes)
+        err := requirement.Signal(ctx, signal, locked)
         if err != nil {
           return err
         }
       }
       return nil
     })
-
-  } else if signal.Direction() == Direct {
-  } else {
-    panic(fmt.Sprintf("Invalid signal direction: %d", signal.Direction()))
+  case Direct:
+    err = nil
+  default:
+    return fmt.Errorf("invalid signal direction %d", signal.Direction())
   }
-  return nil
+  return err
 }
 
 // Removes requirement as a requirement from lockable
@@ -286,7 +292,7 @@ func UnlinkLockables(ctx * Context, lockable Lockable, requirement Lockable) err
 
 // Link requirements as requirements to lockable
 // Requires lockable and requirements to be locked for write, nodes passed because requirement check recursively locks
-func LinkLockables(ctx * Context, lockable Lockable, requirements []Lockable, nodes NodeMap) error {
+func LinkLockables(context *WriteContext, princ Node, lockable Lockable, requirements []Lockable) error {
   if lockable == nil {
     return fmt.Errorf("LOCKABLE_LINK_ERR: Will not link Lockables to nil as requirements")
   }
@@ -312,56 +318,61 @@ func LinkLockables(ctx * Context, lockable Lockable, requirements []Lockable, no
     found[requirement.ID()] = true
   }
 
-  // Check that all the requirements can be added
-  // If the lockable is already locked, need to lock this resource as well before we can add it
-  for _, requirement := range(requirements) {
-    for _, req := range(requirements) {
-      if req.ID() == requirement.ID() {
-        continue
+  return UpdateMoreStates(context, princ, NewInfoMap(
+    NewLockInfo(lockable, []string{"requirements"}),
+    RequestList(requirements, []string{"dependencies"}),
+  ), func(context *WriteContext) error {
+    // Check that all the requirements can be added
+    // If the lockable is already locked, need to lock this resource as well before we can add it
+    for _, requirement := range(requirements) {
+      for _, req := range(requirements) {
+        if req.ID() == requirement.ID() {
+          continue
+        }
+        if checkIfRequirement(context, req, requirement) == true {
+          return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependenyc of %s so cannot add the same dependency", req.ID(), requirement.ID())
+        }
       }
-      if checkIfRequirement(ctx, req, requirement, nodes) == true {
-        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependenyc of %s so cannot add the same dependency", req.ID(), requirement.ID())
+      if checkIfRequirement(context, lockable, requirement) == true {
+        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
+      }
+
+      if checkIfRequirement(context, requirement, lockable) == true {
+        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
+      }
+      if lockable.Owner() == nil {
+        // If the new owner isn't locked, we can add the requirement
+      } else if requirement.Owner() == nil {
+        // if the new requirement isn't already locked but the owner is, the requirement needs to be locked first
+        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is locked, %s must be locked to add", lockable.ID(), requirement.ID())
+      } else {
+        // If the new requirement is already locked and the owner is already locked, their owners need to match
+        if requirement.Owner().ID() != lockable.Owner().ID() {
+          return fmt.Errorf("LOCKABLE_LINK_ERR: %s is not locked by the same owner as %s, can't link as requirement", requirement.ID(), lockable.ID())
+        }
       }
     }
-    if checkIfRequirement(ctx, lockable, requirement, nodes) == true {
-      return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as requirement", requirement.ID(), lockable.ID())
+    // Update the states of the requirements
+    for _, requirement := range(requirements) {
+      requirement.AddDependency(lockable)
+      lockable.AddRequirement(requirement)
+      ctx.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
     }
 
-    if checkIfRequirement(ctx, requirement, lockable, nodes) == true {
-      return fmt.Errorf("LOCKABLE_LINK_ERR: %s is a dependency of %s so cannot link as dependency again", lockable.ID(), requirement.ID())
-    }
-    if lockable.Owner() == nil {
-      // If the new owner isn't locked, we can add the requirement
-    } else if requirement.Owner() == nil {
-      // if the new requirement isn't already locked but the owner is, the requirement needs to be locked first
-      return fmt.Errorf("LOCKABLE_LINK_ERR: %s is locked, %s must be locked to add", lockable.ID(), requirement.ID())
-    } else {
-      // If the new requirement is already locked and the owner is already locked, their owners need to match
-      if requirement.Owner().ID() != lockable.Owner().ID() {
-        return fmt.Errorf("LOCKABLE_LINK_ERR: %s is not locked by the same owner as %s, can't link as requirement", requirement.ID(), lockable.ID())
-      }
-    }
-  }
-  // Update the states of the requirements
-  for _, requirement := range(requirements) {
-    requirement.AddDependency(lockable)
-    lockable.AddRequirement(requirement)
-    ctx.Log.Logf("lockable", "LOCKABLE_LINK: linked %s to %s as a requirement", requirement.ID(), lockable.ID())
-  }
-
-  // Return no error
-  return nil
+    // Return no error
+    return nil
+  })
 }
 
 // Must be called withing update context
-func checkIfRequirement(ctx * Context, r Lockable, cur Lockable, nodes NodeMap) bool {
+func checkIfRequirement(context *WriteContext, r Lockable, cur Lockable) bool {
   for _, c := range(cur.Requirements()) {
     if c.ID() == r.ID() {
       return true
     }
     is_requirement := false
-    UpdateMoreStates(ctx, []Node{c}, nodes, func(nodes NodeMap) (error) {
-      is_requirement = checkIfRequirement(ctx, cur, c, nodes)
+    UpdateMoreStates(context, cur, NewLockMap(NewLockRequest(c, []string{"requirements"})), func(context *WriteContext) error {
+      is_requirement = checkIfRequirement(context, cur, c)
       return nil
     })
 
@@ -374,19 +385,18 @@ func checkIfRequirement(ctx * Context, r Lockable, cur Lockable, nodes NodeMap) 
 }
 
 // Lock nodes in the to_lock slice with new_owner, does not modify any states if returning an error
-// Requires that all the nodes in to_lock and new_owner are locked for write
-func LockLockables(ctx * Context, to_lock []Lockable, new_owner Lockable, nodes NodeMap) error {
+// Assumes that new_owner will be written to after returning, even though it doesn't get locked during the call
+func LockLockables(context *WriteContext, to_lock []Lockable, new_owner Lockable) error {
   if to_lock == nil {
     return fmt.Errorf("LOCKABLE_LOCK_ERR: no list provided")
   }
 
-  node_list := make([]Node, len(to_lock))
-  for i, l := range(to_lock) {
+  for _, l := range(to_lock) {
     if l == nil {
       return fmt.Errorf("LOCKABLE_LOCK_ERR: Can not lock nil")
     }
-    node_list[i] = l
   }
+
   if new_owner == nil {
     return fmt.Errorf("LOCKABLE_LOCK_ERR: nil cannot hold locks")
   }
@@ -396,132 +406,120 @@ func LockLockables(ctx * Context, to_lock []Lockable, new_owner Lockable, nodes 
     return nil
   }
 
-  // First loop is to check that the states can be locked, and locks all requirements
-  for _, req := range(to_lock) {
-    ctx.Log.Logf("lockable", "LOCKABLE_LOCKING: %s from %s", req.ID(), new_owner.ID())
+  return UpdateMoreStates(ctx, locked, new_owner, RequestList(to_lock, []string{"lock"}), func(locked NodeLockMap) error {
+    // First loop is to check that the states can be locked, and locks all requirements
+    for _, req := range(to_lock) {
+      context.Context.Log.Logf("lockable", "LOCKABLE_LOCKING: %s from %s", req.ID(), new_owner.ID())
 
-    // Check custom lock conditions
-    err := req.CanLock(new_owner)
-    if err != nil {
-      return err
-    }
-
-    // If req is alreay locked, check that we can pass the lock
-    if req.Owner() != nil {
-      owner := req.Owner()
-      if owner.ID() == new_owner.ID() {
-        // If we already own the lock, nothing to do
-        continue
-      } else if owner.ID() == req.ID() {
-        if req.AllowedToTakeLock(new_owner, req) == false {
-          return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", new_owner.ID(), req.ID(), owner.ID())
-        }
-        err := LockLockables(ctx, req.Requirements(), req, nodes)
-        if err != nil {
-          return err
-        }
-      } else {
-        err := UpdateMoreStates(ctx, []Node{owner}, nodes, func(nodes NodeMap)(error){
-          if owner.AllowedToTakeLock(new_owner, req) == false {
-            return fmt.Errorf("LOCKABLE_LOCK_ERR: %s is not allowed to take %s's lock from %s", new_owner.ID(), req.ID(), owner.ID())
-          }
-          err := LockLockables(ctx, req.Requirements(), req, nodes)
-          return err
-        })
-        if err != nil {
-          return err
-        }
-      }
-    } else {
-      err := LockLockables(ctx, req.Requirements(), req, nodes)
+      // Check custom lock conditions
+      err := req.CanLock(new_owner)
       if err != nil {
         return err
       }
-    }
-  }
 
-  // At this point state modification will be started, so no errors can be returned
-  for _, req := range(to_lock) {
-    old_owner := req.Owner()
-    // If the lockable was previously unowned, update the state
-    if old_owner == nil {
-      ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s locked %s", new_owner.ID(), req.ID())
-      req.SetOwner(new_owner)
-      new_owner.RecordLock(req, old_owner)
-    // Otherwise if the new owner already owns it, no need to update state
-    } else if old_owner.ID() == new_owner.ID() {
-      ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), req.ID())
-    // Otherwise update the state
-    } else {
-      req.SetOwner(new_owner)
-      new_owner.RecordLock(req, old_owner)
-      ctx.Log.Logf("lockable", "LOCKABLE_LOCK: %s took lock of %s from %s", new_owner.ID(), req.ID(), old_owner.ID())
+      // If req is alreay locked, check that we can pass the lock
+      if req.Owner() != nil {
+        owner := req.Owner()
+        if owner.ID() == new_owner.ID() {
+          continue
+        } else {
+          err := UpdateMoreStates(ctx, locked, new_owner, NewLockRequest(owner, []string{"take_lock"}), func(locked NodeLockMap)(error){
+            return LockLockables(ctx, req.Requirements(), req, locked)
+          })
+          if err != nil {
+            return err
+          }
+        }
+      } else {
+        err :=  LockLockables(ctx, req.Requirements(), req, locked)
+        if err != nil {
+          return err
+        }
+      }
     }
-  }
-  return nil
+
+    // At this point state modification will be started, so no errors can be returned
+    for _, req := range(to_lock) {
+      old_owner := req.Owner()
+      // If the lockable was previously unowned, update the state
+      if old_owner == nil {
+        context.Context.Log.Logf("lockable", "LOCKABLE_LOCK: %s locked %s", new_owner.ID(), req.ID())
+        req.SetOwner(new_owner)
+        new_owner.RecordLock(req, old_owner)
+      // Otherwise if the new owner already owns it, no need to update state
+      } else if old_owner.ID() == new_owner.ID() {
+        context.Context.Log.Logf("lockable", "LOCKABLE_LOCK: %s already owns %s", new_owner.ID(), req.ID())
+      // Otherwise update the state
+      } else {
+        req.SetOwner(new_owner)
+        new_owner.RecordLock(req, old_owner)
+        context.Context.Log.Logf("lockable", "LOCKABLE_LOCK: %s took lock of %s from %s", new_owner.ID(), req.ID(), old_owner.ID())
+      }
+    }
+    return nil
+  })
+
 }
 
-// Unlock nodes in the to_unlock slice with old_owner, does not modify any states if returning an error
-// Requires that all the nodes in to_unlock and old_owner are locked for write
-func UnlockLockables(ctx * Context, to_unlock []Lockable, old_owner Lockable, nodes NodeMap) error {
+func UnlockLockables(context *WriteContext, to_unlock []Lockable, old_owner Lockable) error {
   if to_unlock == nil {
     return fmt.Errorf("LOCKABLE_UNLOCK_ERR: no list provided")
   }
+
   for _, l := range(to_unlock) {
     if l == nil {
-      return fmt.Errorf("LOCKABLE_UNLOCK_ERR: Can not lock nil")
+      return fmt.Errorf("LOCKABLE_UNLOCK_ERR: Can not unlock nil")
     }
   }
+
   if old_owner == nil {
     return fmt.Errorf("LOCKABLE_UNLOCK_ERR: nil cannot hold locks")
   }
 
-  // Called with no requirements to lock, success
+  // Called with no requirements to unlock, success
   if len(to_unlock) == 0 {
     return nil
   }
 
-  node_list := make([]Node, len(to_unlock))
-  for i, l := range(to_unlock) {
-    node_list[i] = l
-  }
+  return UpdateMoreStates(ctx, locked, old_owner, RequestList(to_unlock, []string{"lock"}), func(locked NodeLockMap) error {
+    // First loop is to check that the states can be locked, and locks all requirements
+    for _, req := range(to_unlock) {
+      context.Context.Log.Logf("lockable", "LOCKABLE_UNLOCKING: %s from %s", req.ID(), old_owner.ID())
 
-  // First loop is to check that the states can be locked, and locks all requirements
-  for _, req := range(to_unlock) {
-    ctx.Log.Logf("lockable", "LOCKABLE_UNLOCKING: %s from %s", req.ID(), old_owner.ID())
-
-    // Check if the owner is correct
-    if req.Owner() != nil {
-      if req.Owner().ID() != old_owner.ID() {
-        return fmt.Errorf("LOCKABLE_UNLOCK_ERR: %s is not locked by %s", req.ID(), old_owner.ID())
+      // Check if the owner is correct
+      if req.Owner() != nil {
+        if req.Owner().ID() != old_owner.ID() {
+          return fmt.Errorf("LOCKABLE_UNLOCK_ERR: %s is not locked by %s", req.ID(), old_owner.ID())
+        }
+      } else {
+        return fmt.Errorf("LOCKABLE_UNLOCK_ERR: %s is not locked", req.ID())
       }
-    } else {
-      return fmt.Errorf("LOCKABLE_UNLOCK_ERR: %s is not locked", req.ID())
+
+      // Check custom unlock conditions
+      err := req.CanUnlock(old_owner)
+      if err != nil {
+        return err
+      }
+
+      err = UnlockLockables(ctx, req.Requirements(), req, locked)
+      if err != nil {
+        return err
+      }
     }
 
-    // Check custom unlock conditions
-    err := req.CanUnlock(old_owner)
-    if err != nil {
-      return err
+    // At this point state modification will be started, so no errors can be returned
+    for _, req := range(to_unlock) {
+      new_owner := old_owner.RecordUnlock(req)
+      req.SetOwner(new_owner)
+      if new_owner == nil {
+        context.Context.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s unlocked %s", old_owner.ID(), req.ID())
+      } else {
+        context.Context.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s passed lock of %s back to %s", old_owner.ID(), req.ID(), new_owner.ID())
+      }
     }
 
-    err = UnlockLockables(ctx, req.Requirements(), req, nodes)
-    if err != nil {
-      return err
-    }
-  }
-
-  // At this point state modification will be started, so no errors can be returned
-  for _, req := range(to_unlock) {
-    new_owner := old_owner.RecordUnlock(req)
-    req.SetOwner(new_owner)
-    if new_owner == nil {
-      ctx.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s unlocked %s", old_owner.ID(), req.ID())
-    } else {
-      ctx.Log.Logf("lockable", "LOCKABLE_UNLOCK: %s passed lock of %s back to %s", old_owner.ID(), req.ID(), new_owner.ID())
-    }
-  }
-  return nil
+    return nil
+  })
 }
 
 // Load function for SimpleLockable
