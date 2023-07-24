@@ -13,6 +13,7 @@ func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
   return resolve_context, nil
 }
 
+// TODO: Make composabe by checkinf if K is a slice, then recursing in the same way that ExtractList does
 func ExtractParam[K interface{}](p graphql.ResolveParams, name string) (K, error) {
   var zero K
   arg_if, ok := p.Args[name]
@@ -26,6 +27,26 @@ func ExtractParam[K interface{}](p graphql.ResolveParams, name string) (K, error
   }
 
   return arg, nil
+}
+
+func ExtractList[K interface{}](p graphql.ResolveParams, name string) ([]K, error) {
+  var zero K
+
+  arg_list, err := ExtractParam[[]interface{}](p, name)
+  if err != nil {
+    return nil, err
+  }
+
+  ret := make([]K, len(arg_list))
+  for i, val := range(arg_list) {
+    val_conv, ok := arg_list[i].(K)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast arg %s[%d](%+v) to %+v", name, i, val, reflect.TypeOf(zero))
+    }
+    ret[i] = val_conv
+  }
+
+  return ret, nil
 }
 
 func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
