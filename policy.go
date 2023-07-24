@@ -8,7 +8,7 @@ import (
 type Policy interface {
   Node
   // Returns true if the principal is allowed to perform the action on the resource
-  Allows(resource string, action string, principal Node) bool
+  Allows(node Node, resource string, action string, principal Node) bool
 }
 
 type NodeActions map[string][]string
@@ -108,7 +108,7 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
   return &policy, nil
 }
 
-func (policy *PerNodePolicy) Allows(resource string, action string, principal Node) bool {
+func (policy *PerNodePolicy) Allows(node Node, resource string, action string, principal Node) bool {
   node_actions, exists := policy.Actions[principal.ID()]
   if exists == false {
     return false
@@ -171,7 +171,7 @@ func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   return &policy, nil
 }
 
-func (policy *SimplePolicy) Allows(resource string, action string, principal Node) bool {
+func (policy *SimplePolicy) Allows(node Node, resource string, action string, principal Node) bool {
   return policy.Actions.Allows(resource, action)
 }
 
@@ -235,7 +235,7 @@ func LoadPerTagPolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   return &policy, nil
 }
 
-func (policy *PerTagPolicy) Allows(resource string, action string, principal Node) bool {
+func (policy *PerTagPolicy) Allows(node Node, resource string, action string, principal Node) bool {
   user, ok := principal.(*User)
   if ok == false {
     return false
@@ -252,3 +252,32 @@ func (policy *PerTagPolicy) Allows(resource string, action string, principal Nod
   return false
 }
 
+type DependencyPolicy struct {
+  SimplePolicy
+}
+
+
+func (policy *DependencyPolicy) Type() NodeType {
+  return NodeType("parent_policy")
+}
+
+func NewDependencyPolicy(id NodeID, actions NodeActions) DependencyPolicy {
+  return DependencyPolicy{
+    SimplePolicy: NewSimplePolicy(id, actions),
+  }
+}
+
+func (policy *DependencyPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+  lockable, ok := node.(Lockable)
+  if ok == false {
+    return false
+  }
+
+  for _, req := range(lockable.Requirements()) {
+    if req.ID() == principal.ID() {
+      return policy.Actions.Allows(resource, action)
+    }
+  }
+
+  return false
+}

@@ -109,7 +109,7 @@ func (node *GraphNode) Allowed(context *StateContext, resource string, action st
     return nil
   }
   for _, policy := range(node.policies) {
-    if policy.Allows(resource, action, princ) == true {
+    if policy.Allows(node, resource, action, princ) == true {
       context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.%s.%s", princ.ID(), node.ID(), resource, action)
       return nil
     }
