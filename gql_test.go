@@ -143,7 +143,7 @@ func TestGQLDBLoad(t * testing.T) {
 }
 
 func TestGQLAuth(t * testing.T) {
-  ctx := logTestContext(t, []string{"policy"})
+  ctx := logTestContext(t, []string{"test", "gql", "policy"})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 

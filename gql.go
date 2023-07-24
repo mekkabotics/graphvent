@@ -212,7 +212,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
         },
         new_user.ID(): LockInfo{
           Node: &new_user,
-          Resources: []string{""},
+          Resources: nil,
         },
       }), func(context *StateContext) error {
         server.Users[key_id] = &new_user
