@@ -5,6 +5,7 @@ import (
   "time"
   "net"
   "net/http"
+  "errors"
   "io"
   "fmt"
   "encoding/json"
@@ -94,13 +95,15 @@ func TestGQLDBLoad(t * testing.T) {
   err = gql.Signal(context, gql, NewStatusSignal("child_linked", t1.ID()))
   fatalErr(t, err)
   context = NewReadContext(ctx)
-  err = gql.Signal(context, gql, StopSignal)
+  err = gql.Signal(context, gql, AbortSignal)
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
-  fatalErr(t, err)
+  if errors.Is(err, ThreadAbortedError) == false {
+    fatalErr(t, err)
+  }
 
-  (*GraphTester)(t).WaitForStatus(ctx, update_channel, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel")
+  (*GraphTester)(t).WaitForStatus(ctx, update_channel, "aborted", 100*time.Millisecond, "Didn't receive aborted on update_channel")
 
   context = NewReadContext(ctx)
   err = UseStates(context, gql, LockList([]Node{gql, u1}, nil), func(context *StateContext) error {

@@ -568,6 +568,59 @@ func (thread * SimpleThread) AllowedToTakeLock(new_owner Lockable, lockable Lock
   return false
 }
 
+func ThreadParentChildLinked(ctx *Context, thread Thread, signal GraphSignal) (string, error) {
+  ctx.Log.Logf("thread", "THREAD_CHILD_LINKED: %+v", signal)
+  context := NewWriteContext(ctx)
+  err := UpdateStates(context, thread, NewLockMap(
+    NewLockInfo(thread, []string{"children"}),
+  ), func(context *StateContext) error {
+    sig, ok := signal.(IDSignal)
+    if ok == false {
+      ctx.Log.Logf("thread", "THREAD_NODE_LINKED_BAD_CAST")
+      return nil
+    }
+    info_if := thread.ChildInfo(sig.ID)
+    if info_if == nil {
+      ctx.Log.Logf("thread", "THREAD_NODE_LINKED: %s is not a child of %s", sig.ID)
+      return nil
+    }
+    info_r, correct := info_if.(ParentInfo)
+    if correct == false {
+      ctx.Log.Logf("thread", "THREAD_NODE_LINKED_BAD_INFO_CAST")
+    }
+    info := info_r.Parent()
+    if info.Start == true {
+      ChildGo(ctx, thread, thread.Child(sig.ID), info.StartAction)
+    }
+    return nil
+  })
+
+  if err != nil {
+
+  } else {
+
+  }
+  return "wait", nil
+}
+
+func ThreadParentStartChild(ctx *Context, thread Thread, signal GraphSignal) (string, error) {
+  ctx.Log.Logf("thread", "THREAD_START_CHILD")
+  sig, ok := signal.(StartChildSignal)
+  if ok == false {
+    ctx.Log.Logf("thread", "THREAD_START_CHILD_BAD_SIGNAL: %+v", signal)
+    return "wait", nil
+  }
+
+  err := ThreadStartChild(ctx, thread, sig)
+  if err != nil {
+    ctx.Log.Logf("thread", "THREAD_START_CHILD_ERR: %s", err)
+  } else {
+    ctx.Log.Logf("thread", "THREAD_START_CHILD: %s", sig.ID.String())
+  }
+
+  return "wait", nil
+}
+
 // Helper function to start a child from a thread during a signal handler
 // Starts a write context, so cannot be called from either a write or read context
 func ThreadStartChild(ctx *Context, thread Thread, signal StartChildSignal) error {
@@ -590,16 +643,19 @@ func ThreadStartChild(ctx *Context, thread Thread, signal StartChildSignal) erro
 
 // Helper function to restore threads that should be running from a parents restore action
 // Starts a write context, so cannot be called from either a write or read context
-func ThreadRestore(ctx * Context, thread Thread) error {
+func ThreadRestore(ctx * Context, thread Thread, start bool) error {
   context := NewWriteContext(ctx)
   return UpdateStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
     return UpdateStates(context, thread, LockList(thread.Children(), []string{"start"}), func(context *StateContext) error {
       for _, child := range(thread.Children()) {
-        should_run := (thread.ChildInfo(child.ID())).(ParentInfo).Parent()
-        ctx.Log.Logf("thread", "THREAD_RESTORE: %s -> %s: %+v", thread.ID(), child.ID(), should_run)
-        if should_run.Start == true && child.State() != "finished" {
+        info := (thread.ChildInfo(child.ID())).(ParentInfo).Parent()
+        if info.Start == true && child.State() != "finished" {
           ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID(), child.ID())
-          ChildGo(ctx, thread, child, should_run.RestoreAction)
+          if start == true {
+            ChildGo(ctx, thread, child, info.StartAction)
+          } else {
+            ChildGo(ctx, thread, child, info.RestoreAction)
+          }
         }
       }
       return nil

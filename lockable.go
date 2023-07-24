@@ -291,7 +291,6 @@ func UnlinkLockables(context *StateContext, princ Node, lockable Lockable, requi
 
 // Link requirements as requirements to lockable
 // Continues the wrtie context with princ, getting requirements for lockable and dependencies for requirements
-// Assumes that an active write context exists with princ locked so that princ's state can be used in checks
 func LinkLockables(context *StateContext, princ Node, lockable Lockable, requirements []Lockable) error {
   if lockable == nil {
     return fmt.Errorf("LOCKABLE_LINK_ERR: Will not link Lockables to nil as requirements")
@@ -408,7 +407,7 @@ func LockLockables(context *StateContext, to_lock []Lockable, new_owner Lockable
 
   return UpdateStates(context, new_owner, NewLockMap(
     LockList(to_lock, []string{"lock"}),
-    NewLockInfo(new_owner, []string{}),
+    NewLockInfo(new_owner, nil),
   ), func(context *StateContext) error {
     // First loop is to check that the states can be locked, and locks all requirements
     for _, req := range(to_lock) {

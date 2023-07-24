@@ -807,9 +807,9 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
 var gql_actions ThreadActions = ThreadActions{
   "wait": ThreadWait,
   "restore": func(ctx * Context, thread Thread) (string, error) {
-    // Start all the threads that should be "started"
     ctx.Log.Logf("gql", "GQL_THREAD_RESTORE: %s", thread.ID())
-    err := ThreadRestore(ctx, thread)
+    // Restore all the threads that have "Start" as true and arent in the "finished" state
+    err := ThreadRestore(ctx, thread, false)
     if err != nil {
       return "", err
     }
@@ -821,22 +821,11 @@ var gql_actions ThreadActions = ThreadActions{
     if err != nil {
       return "", err
     }
-
-    // Start all the threads that have "Start" as true
-    context := NewWriteContext(ctx)
-    err = UpdateStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
-      return UpdateStates(context, thread, LockList(thread.Children(), []string{"start"}), func(context *StateContext) error {
-        for _, child := range(thread.Children()) {
-          info := thread.ChildInfo(child.ID()).(ParentInfo).Parent()
-          if info.Start == true {
-            ctx.Log.Logf("thread", "THREAD_START_CHILD: %s -> %s", thread.ID(), child.ID())
-            ChildGo(ctx, thread, child, info.StartAction)
-          }
-        }
-        return nil
-      })
-    })
-
+    // Start all the threads that have "Start" as true and arent in the "finished" state
+    err = ThreadRestore(ctx, thread, true)
+    if err != nil {
+      return "", err
+    }
     return "start_server", nil
   },
   "start_server": func(ctx * Context, thread Thread) (string, error) {
@@ -922,52 +911,8 @@ var gql_actions ThreadActions = ThreadActions{
 }
 
 var gql_handlers ThreadHandlers = ThreadHandlers{
-  "child_linked": func(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
-    ctx.Log.Logf("gql", "GQL_THREAD_CHILD_ADDED: %+v", signal)
-    context := NewWriteContext(ctx)
-    err := UpdateStates(context, thread, NewLockMap(
-      NewLockInfo(thread, []string{"children"}),
-    ), func(context *StateContext) error {
-      sig, ok := signal.(IDSignal)
-      if ok == false {
-        ctx.Log.Logf("gql", "GQL_THREAD_NODE_LINKED_BAD_CAST")
-        return nil
-      }
-      should_run, exists := thread.ChildInfo(sig.ID).(*ParentThreadInfo)
-      if exists == false {
-        ctx.Log.Logf("gql", "GQL_THREAD_NODE_LINKED: %s is not a child of %s", sig.ID)
-        return nil
-      }
-      if should_run.Start == true {
-        ChildGo(ctx, thread, thread.Child(sig.ID), should_run.StartAction)
-      }
-      return nil
-    })
-
-    if err != nil {
-
-    } else {
-
-    }
-    return "wait", nil
-  },
-  "start_child": func(ctx *Context, thread Thread, signal GraphSignal) (string, error) {
-    ctx.Log.Logf("gql", "GQL_START_CHILD")
-    sig, ok := signal.(StartChildSignal)
-    if ok == false {
-      ctx.Log.Logf("gql", "GQL_START_CHILD_BAD_SIGNAL: %+v", signal)
-      return "wait", nil
-    }
-
-    err := ThreadStartChild(ctx, thread, sig)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_START_CHILD_ERR: %s", err)
-    } else {
-      ctx.Log.Logf("gql", "GQL_START_CHILD: %s", sig.ID.String())
-    }
-
-    return "wait", nil
-  },
+  "child_linked": ThreadParentChildLinked,
+  "start_child": ThreadParentStartChild,
   "abort": ThreadAbort,
   "stop": ThreadStop,
 }
