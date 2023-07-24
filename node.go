@@ -14,6 +14,10 @@ import (
 
 // IDs are how nodes are uniquely identified, and can be serialized for the database
 type NodeID uuid.UUID
+func (id NodeID) MarshalJSON() ([]byte, error) {
+  str := id.String()
+  return json.Marshal(&str)
+}
 
 var ZeroUUID = uuid.UUID{}
 var ZeroID = NodeID(ZeroUUID)
@@ -62,12 +66,17 @@ type Node interface {
   UnlockState(write bool)
   Process(context *StateContext, signal GraphSignal) error
   Policies() []Policy
+  NodeHandle() *SimpleNode
 }
 
 type SimpleNode struct {
   id NodeID
   state_mutex sync.RWMutex
   policies map[NodeID]Policy
+}
+
+func (node *SimpleNode) NodeHandle() *SimpleNode {
+  return node
 }
 
 func NewSimpleNode(id NodeID) SimpleNode {
@@ -82,7 +91,7 @@ type SimpleNodeJSON struct {
 }
 
 func (node *SimpleNode) Process(context *StateContext, signal GraphSignal) error {
-  context.Graph.Log.Logf("signal", "SIMPLE_NODE_SIGNAL: %s - %+v", node.id, signal)
+  context.Graph.Log.Logf("signal", "SIMPLE_NODE_SIGNAL: %s - %s", node.id, signal)
   return nil
 }
 
@@ -214,11 +223,11 @@ func Signal(context *StateContext, node Node, princ Node, signal GraphSignal) er
   return node.Process(context, signal)
 }
 
-func AttachPolicies(ctx *Context, node *SimpleNode, policies ...Policy) error {
+func AttachPolicies(ctx *Context, node Node, policies ...Policy) error {
   context := NewWriteContext(ctx)
   return UpdateStates(context, node, NewLockInfo(node, []string{"policies"}), func(context *StateContext) error {
     for _, policy := range(policies) {
-      node.policies[policy.ID()] = policy
+      node.NodeHandle().policies[policy.ID()] = policy
     }
     return nil
   })
@@ -252,23 +261,6 @@ func NewDBHeader(node_type NodeType) DBHeader {
   }
 }
 
-// Internal function to serialize a node and wrap it with the DB Header
-func getNodeBytes(node Node) ([]byte, error) {
-  if node == nil {
-    return nil, fmt.Errorf("DB_SERIALIZE_ERROR: cannot serialize nil node")
-  }
-  ser, err := node.Serialize()
-  if err != nil {
-    return nil, fmt.Errorf("DB_SERIALIZE_ERROR: %s", err)
-  }
-
-  header := NewDBHeader(node.Type())
-
-  db_data := append(header.Serialize(), ser...)
-
-  return db_data, nil
-}
-
 // Write multiple nodes to the database in a single transaction
 func WriteNodes(context *StateContext) error {
   err := ValidateStateContext(context, "write", true)
@@ -282,15 +274,26 @@ func WriteNodes(context *StateContext) error {
   serialized_ids := make([][]byte, len(context.Locked))
   i := 0
   for _, node := range(context.Locked) {
-    node_bytes, err := getNodeBytes(node)
-    context.Graph.Log.Logf("db", "DB_WRITE: %+v", node)
+    if node == nil {
+      return fmt.Errorf("DB_SERIALIZE_ERROR: cannot serialize nil node")
+    }
+    ser, err := node.Serialize()
+    if err != nil {
+      return fmt.Errorf("DB_SERIALIZE_ERROR: %s", err)
+    }
+
+    header := NewDBHeader(node.Type())
+
+    db_data := append(header.Serialize(), ser...)
+
+    context.Graph.Log.Logf("db", "DB_WRITING_TYPE: %s - %+v %+v: %+v", node.ID(), node.Type(), header, node)
     if err != nil {
       return err
     }
 
     id_ser := node.ID().Serialize()
 
-    serialized_bytes[i] = node_bytes
+    serialized_bytes[i] = db_data
     serialized_ids[i] = id_ser
 
     i++
@@ -342,7 +345,7 @@ func readNodeBytes(ctx * Context, id NodeID) (uint64, []byte, error) {
   node_bytes := make([]byte, len(bytes) - NODE_DB_HEADER_LEN)
   copy(node_bytes, bytes[NODE_DB_HEADER_LEN:])
 
-  ctx.Log.Logf("db", "DB_READ: %s - %s", id, string(bytes))
+  ctx.Log.Logf("db", "DB_READ: %s %+v - %s", id, header, string(bytes))
 
   return header.TypeHash, node_bytes, nil
 }
@@ -365,6 +368,7 @@ func LoadNodeRecurse(ctx * Context, id NodeID, nodes NodeMap) (Node, error) {
     }
 
     node_type, exists := ctx.Types[type_hash]
+    ctx.Log.Logf("db", "DB_LOADING_TYPE: %s - %+v", id, node_type)
     if exists == false {
       return nil, fmt.Errorf("0x%x is not a known node type: %+s", type_hash, bytes)
     }

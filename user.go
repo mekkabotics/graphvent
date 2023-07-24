@@ -46,6 +46,7 @@ func (user *User) Serialize() ([]byte, error) {
 }
 
 func LoadUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
+  ctx.Log.Logf("test", "LOADING_USER: %s", id)
   var j UserJSON
   err := json.Unmarshal(data, &j)
   if err != nil {

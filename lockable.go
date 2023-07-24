@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "fmt"
+  "reflect"
   "encoding/json"
 )
 
@@ -15,6 +16,7 @@ func (node *Listener) Type() NodeType {
 }
 
 func (node *Listener) Process(context *StateContext, signal GraphSignal) error {
+  context.Graph.Log.Logf("signal", "LISTENER_PROCESS: %s", node.ID())
   select {
   case node.Chan <- signal:
   default:
@@ -149,11 +151,9 @@ func (lockable *Lockable) RecordLock(l LockableNode, last_owner LockableNode) {
 
 // Assumed that lockable is already locked for signal
 func (lockable *Lockable) Process(context *StateContext, signal GraphSignal) error {
-  err := lockable.SimpleNode.Process(context, signal)
-  if err != nil {
-    return err
-  }
+  context.Graph.Log.Logf("signal", "LOCKABLE_PROCESS: %s", lockable.ID())
 
+  var err error
   switch signal.Direction() {
   case Up:
     err = UseStates(context, lockable,
@@ -191,7 +191,10 @@ func (lockable *Lockable) Process(context *StateContext, signal GraphSignal) err
   default:
     return fmt.Errorf("invalid signal direction %d", signal.Direction())
   }
-  return err
+  if err != nil {
+    return err
+  }
+  return lockable.SimpleNode.Process(context, signal)
 }
 
 // Removes requirement as a requirement from lockable
@@ -251,7 +254,7 @@ func LinkLockables(context *StateContext, princ Node, lockable_node LockableNode
   }
 
   return UpdateStates(context, princ, NewLockMap(
-    NewLockInfo(lockable, []string{"requirements"}),
+    NewLockInfo(lockable_node, []string{"requirements"}),
     LockList(requirements, []string{"dependencies"}),
   ), func(context *StateContext) error {
     // Check that all the requirements can be added
@@ -520,6 +523,7 @@ func RestoreLockable(ctx * Context, lockable *Lockable, j LockableJSON, nodes No
     if ok == false {
       return fmt.Errorf("%+v is not a Lockable as expected", dep_node)
     }
+    ctx.Log.Logf("db", "LOCKABLE_LOAD_DEPENDENCY: %s - %s - %+v", lockable.ID(), dep_id, reflect.TypeOf(dep))
     lockable.Dependencies[dep_id] = dep
   }
 

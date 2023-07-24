@@ -10,11 +10,9 @@ import (
 
 // Assumed that thread is already locked for signal
 func (thread *Thread) Process(context *StateContext, signal GraphSignal) error {
-  err := thread.Lockable.Process(context, signal)
-  if err != nil {
-    return err
-  }
+  context.Graph.Log.Logf("signal", "THREAD_PROCESS: %s", thread.ID())
 
+  var err error
   switch signal.Direction() {
   case Up:
     err = UseStates(context, thread, NewLockInfo(thread, []string{"parent"}), func(context *StateContext) error {
@@ -44,7 +42,7 @@ func (thread *Thread) Process(context *StateContext, signal GraphSignal) error {
   }
 
   thread.Chan <- signal
-  return nil
+  return thread.Lockable.Process(context, signal)
 }
 
 // Requires thread and childs thread to be locked for write
@@ -197,7 +195,7 @@ func (thread *Thread) ThreadHandle() *Thread {
 }
 
 func (thread *Thread) Type() NodeType {
-  return NodeType("simple_thread")
+  return NodeType("thread")
 }
 
 func (thread *Thread) Serialize() ([]byte, error) {
@@ -319,7 +317,30 @@ func RestoreThread(ctx *Context, thread *Thread, j ThreadJSON, nodes NodeMap) er
 }
 
 var deserializers = map[InfoType]func(interface{})(interface{}, error) {
+  "parent": func(raw interface{})(interface{}, error) {
+    m, ok := raw.(map[string]interface{})
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast parent info to map")
+    }
+    start, ok := m["start"].(bool)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to get start from parent info")
+    }
+    start_action, ok := m["start_action"].(string)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to get start_action from parent info")
+    }
+    restore_action, ok := m["restore_action"].(string)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to get restore_action from parent info")
+    }
 
+    return &ParentThreadInfo{
+      Start: start,
+      StartAction: start_action,
+      RestoreAction: restore_action,
+    }, nil
+  },
 }
 
 func DeserializeChildInfo(ctx *Context, infos_raw map[string]interface{}) (map[InfoType]interface{}, error) {
@@ -401,7 +422,7 @@ func ChildGo(ctx * Context, thread *Thread, child ThreadNode, first_action strin
     defer thread.ChildWaits.Done()
     err := ThreadLoop(ctx, child, first_action)
     if err != nil {
-      ctx.Log.Logf("thread", "THREAD_CHILD_RUN_ERR: %s %e", child.ID(), err)
+      ctx.Log.Logf("thread", "THREAD_CHILD_RUN_ERR: %s %s", child.ID(), err)
     } else {
       ctx.Log.Logf("thread", "THREAD_CHILD_RUN_DONE: %s", child.ID())
     }

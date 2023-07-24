@@ -755,15 +755,16 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
 
   thread.Users = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
-    id, err := ParseID(id_str)
+    ctx.Log.Logf("db", "THREAD_LOAD_USER: %s", id_str)
+    user_id, err := ParseID(id_str)
     if err != nil {
       return nil, err
     }
-    user, err := LoadNodeRecurse(ctx, id, nodes)
+    user, err := LoadNodeRecurse(ctx, user_id, nodes)
     if err != nil {
       return nil, err
     }
-    thread.Users[id] = user.(*User)
+    thread.Users[user_id] = user.(*User)
   }
 
   err = RestoreThread(ctx, &thread.Thread, j.ThreadJSON, nodes)

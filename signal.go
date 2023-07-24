@@ -25,8 +25,8 @@ type BaseSignal struct {
   FType string `json:"type"`
 }
 
-func (state BaseSignal) String() string {
-  ser, err := json.Marshal(state)
+func (signal BaseSignal) String() string {
+  ser, err := json.Marshal(signal)
   if err != nil {
     return "STATE_SER_ERR"
   }
@@ -69,6 +69,14 @@ type IDSignal struct {
   ID NodeID `json:"id"`
 }
 
+func (signal IDSignal) String() string {
+  ser, err := json.Marshal(signal)
+  if err != nil {
+    return "STATE_SER_ERR"
+  }
+  return string(ser)
+}
+
 func NewIDSignal(_type string, direction SignalDirection, id NodeID) IDSignal {
   return IDSignal{
     BaseSignal: NewBaseSignal(_type, direction),
@@ -78,7 +86,15 @@ func NewIDSignal(_type string, direction SignalDirection, id NodeID) IDSignal {
 
 type StatusSignal struct {
   IDSignal
-  Status string
+  Status string `json:"status"`
+}
+
+func (signal StatusSignal) String() string {
+  ser, err := json.Marshal(signal)
+  if err != nil {
+    return "STATE_SER_ERR"
+  }
+  return string(ser)
 }
 
 func NewStatusSignal(status string, source NodeID) StatusSignal {

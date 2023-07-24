@@ -19,8 +19,8 @@ import (
 )
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal", "policy", "thread"})
-  l1 := NewListener(RandID(), "Test Lockable 1")
+  ctx := logTestContext(t, []string{"test", "signal", "policy", "thread", "db"})
+  l1 := NewListener(RandID(), "Test Listener 1")
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID().String())
 
   t1 := NewThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
@@ -58,13 +58,13 @@ func TestGQLDBLoad(t * testing.T) {
 
   ctx.Log.Logf("test", "P1_ID: %s", p1.ID().String())
   ctx.Log.Logf("test", "P2_ID: %s", p2.ID().String())
-  err = AttachPolicies(ctx, &gql.SimpleNode, &p1, &p2)
+  err = AttachPolicies(ctx, &gql, &p1, &p2)
   fatalErr(t, err)
-  err = AttachPolicies(ctx, &l1.SimpleNode, &p1, &p2)
+  err = AttachPolicies(ctx, &l1, &p1, &p2)
   fatalErr(t, err)
-  err = AttachPolicies(ctx, &t1.SimpleNode, &p1, &p2)
+  err = AttachPolicies(ctx, &t1, &p1, &p2)
   fatalErr(t, err)
-  err = AttachPolicies(ctx, &u1.SimpleNode, &p1, &p2)
+  err = AttachPolicies(ctx, &u1, &p1, &p2)
   fatalErr(t, err)
 
   info := NewParentThreadInfo(true, "start", "restore")
@@ -72,7 +72,7 @@ func TestGQLDBLoad(t * testing.T) {
   err = UpdateStates(context, &gql, NewLockMap(
     NewLockInfo(&gql, []string{"users"}),
   ), func(context *StateContext) error {
-    gql.Users[KeyID(&u1_key.PublicKey)] = &u1
+    gql.Users[u1.ID()] = &u1
 
     err := LinkThreads(context, &gql, &gql, ChildInfo{&t1, map[InfoType]interface{}{
       "parent": &info,
@@ -80,7 +80,7 @@ func TestGQLDBLoad(t * testing.T) {
     if err != nil {
       return err
     }
-    return LinkLockables(context, &gql, &gql, []LockableNode{&l1})
+    return LinkLockables(context, &gql, &l1, []LockableNode{&gql})
   })
   fatalErr(t, err)
 
@@ -144,10 +144,10 @@ func TestGQLAuth(t * testing.T) {
   gql_t := &gql_t_r
 
   l1 := NewListener(RandID(), "GQL Thread")
-  err = AttachPolicies(ctx, &l1.SimpleNode, p1)
+  err = AttachPolicies(ctx, &l1, p1)
   fatalErr(t, err)
 
-  err = AttachPolicies(ctx, &gql_t.SimpleNode, p1)
+  err = AttachPolicies(ctx, gql_t, p1)
   done := make(chan error, 1)
 
   context := NewWriteContext(ctx)
