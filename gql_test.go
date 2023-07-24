@@ -3,8 +3,8 @@ package graphvent
 import (
   "testing"
   "time"
-  "net"
   "net/http"
+  "net"
   "errors"
   "io"
   "fmt"
@@ -19,7 +19,7 @@ import (
 )
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal", "policy", "thread", "db"})
+  ctx := logTestContext(t, []string{"test"})
   l1 := NewListener(RandID(), "Test Listener 1")
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID().String())
 
@@ -137,23 +137,27 @@ func TestGQLAuth(t * testing.T) {
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  p1_r := NewPerTagPolicy(RandID(), map[string]NodeActions{"gql": NewNodeActions(nil, []string{"read"})})
-  p1 := &p1_r
-
-  gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
-  gql_t := &gql_t_r
+  p1 := NewPerTagPolicy(RandID(), map[string]NodeActions{"gql": NewNodeActions(nil, []string{"read"})})
+  p2 := NewSimplePolicy(RandID(), NewNodeActions(NodeActions{
+    "signal": []string{"status"},
+  }, nil))
 
   l1 := NewListener(RandID(), "GQL Thread")
-  err = AttachPolicies(ctx, &l1, p1)
+  err = AttachPolicies(ctx, &l1, &p1, &p2)
   fatalErr(t, err)
 
-  err = AttachPolicies(ctx, gql_t, p1)
-  done := make(chan error, 1)
+  p3 := NewPerNodePolicy(RandID(), map[NodeID]NodeActions{
+    l1.ID(): NewNodeActions(nil, []string{"*"}),
+  })
+
+  gql := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
+  err = AttachPolicies(ctx, &gql, &p1, &p2, &p3)
 
   context := NewWriteContext(ctx)
-  err = LinkLockables(context, gql_t, gql_t, []LockableNode{&l1})
+  err = LinkLockables(context, &l1, &l1, []LockableNode{&gql})
   fatalErr(t, err)
 
+  done := make(chan error, 1)
 
   go func(done chan error, thread ThreadNode) {
     timeout := time.After(2*time.Second)
@@ -166,11 +170,11 @@ func TestGQLAuth(t * testing.T) {
     context := NewReadContext(ctx)
     err := Signal(context, thread, thread, StopSignal)
     fatalErr(t, err)
-  }(done, gql_t)
+  }(done, &gql)
 
   go func(thread ThreadNode){
     (*GraphTester)(t).WaitForStatus(ctx, l1.Chan, "server_started", 100*time.Millisecond, "Server didn't start")
-    port := gql_t.tcp_listener.Addr().(*net.TCPAddr).Port
+    port := gql.tcp_listener.Addr().(*net.TCPAddr).Port
     ctx.Log.Logf("test", "GQL_PORT: %d", port)
 
     customTransport := &http.Transport{
@@ -246,8 +250,8 @@ func TestGQLAuth(t * testing.T) {
     ctx.Log.Logf("test", "TEST_RESP: %s", body)
 
     done <- nil
-  }(gql_t)
+  }(&gql)
 
-  err = ThreadLoop(ctx, gql_t, "start")
+  err = ThreadLoop(ctx, &gql, "start")
   fatalErr(t, err)
 }
