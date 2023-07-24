@@ -216,8 +216,8 @@ func (lockable * SimpleLockable) CanUnlock(new_owner Lockable) error {
 }
 
 // Assumed that lockable is already locked for signal
-func (lockable * SimpleLockable) Signal(context *StateContext, princ Node, signal GraphSignal) error {
-  err := lockable.GraphNode.Signal(context, princ, signal)
+func (lockable * SimpleLockable) Process(context *StateContext, princ Node, signal GraphSignal) error {
+  err := lockable.GraphNode.Process(context, princ, signal)
   if err != nil {
     return err
   }
@@ -229,7 +229,7 @@ func (lockable * SimpleLockable) Signal(context *StateContext, princ Node, signa
       owner_sent := false
       for _, dependency := range(lockable.dependencies) {
         context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", lockable.ID(), dependency.ID())
-        dependency.Signal(context, lockable, signal)
+        Signal(context, dependency, lockable, signal)
         if lockable.owner != nil {
           if dependency.ID() == lockable.owner.ID() {
             owner_sent = true
@@ -239,7 +239,7 @@ func (lockable * SimpleLockable) Signal(context *StateContext, princ Node, signa
       if lockable.owner != nil && owner_sent == false {
         if lockable.owner.ID() != lockable.ID() {
           context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", lockable.ID(), lockable.owner.ID())
-          return lockable.owner.Signal(context, lockable, signal)
+          return Signal(context, lockable.owner, lockable, signal)
         }
       }
       return nil
@@ -247,7 +247,7 @@ func (lockable * SimpleLockable) Signal(context *StateContext, princ Node, signa
   case Down:
     err = UseStates(context, lockable, NewLockInfo(lockable, []string{"requirements"}), func(context *StateContext) error {
       for _, requirement := range(lockable.requirements) {
-        err := requirement.Signal(context, lockable, signal)
+        err := Signal(context, requirement, lockable, signal)
         if err != nil {
           return err
         }

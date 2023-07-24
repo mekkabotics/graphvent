@@ -92,10 +92,10 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   context = NewReadContext(ctx)
-  err = gql.Signal(context, gql, NewStatusSignal("child_linked", t1.ID()))
+  err = Signal(context, gql, gql, NewStatusSignal("child_linked", t1.ID()))
   fatalErr(t, err)
   context = NewReadContext(ctx)
-  err = gql.Signal(context, gql, AbortSignal)
+  err = Signal(context, gql, gql, AbortSignal)
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
@@ -132,7 +132,7 @@ func TestGQLDBLoad(t * testing.T) {
       ctx.Log.Logf("test", "\n%s\n\n", ser)
       return err
     })
-    gql_loaded.Signal(context, gql_loaded, StopSignal)
+    Signal(context, gql_loaded, gql_loaded, StopSignal)
     return err
   })
 
@@ -178,7 +178,7 @@ func TestGQLAuth(t * testing.T) {
       ctx.Log.Logf("test", "DONE")
     }
     context := NewReadContext(ctx)
-    err := thread.Signal(context, thread, StopSignal)
+    err := Signal(context, thread, thread, StopSignal)
     fatalErr(t, err)
   }(done, gql_t)
 

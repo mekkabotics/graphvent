@@ -273,8 +273,8 @@ func (policy *DependencyPolicy) Allows(node Node, resource string, action string
     return false
   }
 
-  for _, req := range(lockable.Dependencies()) {
-    if req.ID() == principal.ID() {
+  for _, dep := range(lockable.Dependencies()) {
+    if dep.ID() == principal.ID() {
       return policy.Actions.Allows(resource, action)
     }
   }

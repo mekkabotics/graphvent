@@ -69,12 +69,12 @@ type Node interface {
   ID() NodeID
   Type() NodeType
 
-  Allowed(context *StateContext, action string, resource string, principal Node) error
+  Policies() map[NodeID]Policy
   AddPolicy(Policy) error
   RemovePolicy(Policy) error
 
   // Send a GraphSignal to the node, requires that the node is locked for read so that it can propagate
-  Signal(context *StateContext, princ Node, signal GraphSignal) error
+  Process(context *StateContext, princ Node, signal GraphSignal) error
   // Register a channel to receive updates sent to the node
   RegisterChannel(id NodeID, listener chan GraphSignal)
   // Unregister a channel from receiving updates sent to the node
@@ -95,12 +95,16 @@ type GraphNodeJSON struct {
   Policies []string `json:"policies"`
 }
 
+func (node * GraphNode) Policies() map[NodeID]Policy {
+  return node.policies
+}
+
 func (node * GraphNode) Serialize() ([]byte, error) {
   node_json := NewGraphNodeJSON(node)
   return json.MarshalIndent(&node_json, "", "  ")
 }
 
-func (node *GraphNode) Allowed(context *StateContext, resource string, action string, princ Node) error {
+func Allowed(context *StateContext, policies map[NodeID]Policy, node Node, resource string, action string, princ Node) error {
   if princ == nil {
     context.Graph.Log.Logf("policy", "POLICY_CHECK_ERR: %s %s.%s.%s", princ.ID(), node.ID(), resource, action)
     return fmt.Errorf("nil is not allowed to perform any actions")
@@ -108,7 +112,7 @@ func (node *GraphNode) Allowed(context *StateContext, resource string, action st
   if node.ID() == princ.ID() {
     return nil
   }
-  for _, policy := range(node.policies) {
+  for _, policy := range(policies) {
     if policy.Allows(node, resource, action, princ) == true {
       context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.%s.%s", princ.ID(), node.ID(), resource, action)
       return nil
@@ -196,17 +200,21 @@ func (node * GraphNode) Type() NodeType {
 
 // Propagate the signal to registered listeners, if a listener isn't ready to receive the update
 // send it a notification that it was closed and then close it
-func (node * GraphNode) Signal(context *StateContext, princ Node, signal GraphSignal) error {
+func Signal(context *StateContext, node Node, princ Node, signal GraphSignal) error {
   context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID(), signal.String())
 
-  err := UseStates(context, princ, NewLockInfo(princ, nil), func(context *StateContext) error {
-    return node.Allowed(context, "signal", signal.Type(), princ)
+  err := UseStates(context, princ, NewLockInfo(node, []string{"policies"}), func(context *StateContext) error {
+    return Allowed(context, node.Policies(), node, "signal", signal.Type(), princ)
   })
 
   if err != nil {
     return nil
   }
 
+  return node.Process(context, princ, signal)
+}
+
+func (node * GraphNode) Process(context *StateContext, princ Node, signal GraphSignal) error {
   node.listeners_lock.Lock()
   defer node.listeners_lock.Unlock()
   closed := []NodeID{}
@@ -598,7 +606,7 @@ func UseStates(context *StateContext, princ Node, new_nodes LockMap, state_fn St
       }
 
       if already_granted == false {
-        err := node.Allowed(context, resource, "read", princ)
+        err := Allowed(context, node.Policies(), node, resource, "read", princ)
         if err != nil {
           for _, n := range(new_locks) {
             context.Graph.Log.Logf("mutex", "RUNLOCKING_ON_ERROR %s", id.String())
@@ -694,7 +702,7 @@ func UpdateStates(context *StateContext, princ Node, new_nodes LockMap, state_fn
       }
 
       if already_granted == false {
-        err := node.Allowed(context, resource, "write", princ)
+        err := Allowed(context, node.Policies(), node, resource, "write", princ)
         if err != nil {
           for _, n := range(new_locks) {
             context.Graph.Log.Logf("mutex", "UNLOCKING_ON_ERROR %s", id.String())

@@ -895,7 +895,7 @@ var gql_actions ThreadActions = ThreadActions{
     }
 
     context = NewReadContext(ctx)
-    err = server.Signal(context, server, NewStatusSignal("server_started", server.ID()))
+    err = Signal(context, server, server, NewStatusSignal("server_started", server.ID()))
     if err != nil {
       return "", err
     }

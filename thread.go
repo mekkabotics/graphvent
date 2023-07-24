@@ -10,8 +10,8 @@ import (
 )
 
 // Assumed that thread is already locked for signal
-func (thread *SimpleThread) Signal(context *StateContext, princ Node, signal GraphSignal) error {
-  err := thread.SimpleLockable.Signal(context, princ, signal)
+func (thread *SimpleThread) Process(context *StateContext, princ Node, signal GraphSignal) error {
+  err := thread.SimpleLockable.Process(context, princ, signal)
   if err != nil {
     return err
   }
@@ -20,7 +20,7 @@ func (thread *SimpleThread) Signal(context *StateContext, princ Node, signal Gra
   case Up:
     err = UseStates(context, thread, NewLockInfo(thread, []string{"parent"}), func(context *StateContext) error {
       if thread.parent != nil {
-        return thread.parent.Signal(context, thread, signal)
+        return Signal(context, thread.parent, thread, signal)
       } else {
         return nil
       }
@@ -28,7 +28,7 @@ func (thread *SimpleThread) Signal(context *StateContext, princ Node, signal Gra
   case Down:
     err = UseStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
       for _, child := range(thread.children) {
-        err := child.Signal(context, thread, signal)
+        err := Signal(context, child, thread, signal)
         if err != nil {
           return err
         }
@@ -741,7 +741,7 @@ var ThreadAbortedError = errors.New("Thread aborted by signal")
 // Default thread action function for "abort", sends a signal and returns a ThreadAbortedError
 func ThreadAbort(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
   context := NewReadContext(ctx)
-  err := thread.Signal(context, thread, NewStatusSignal("aborted", thread.ID()))
+  err := Signal(context, thread, thread, NewStatusSignal("aborted", thread.ID()))
   if err != nil {
     return "", err
   }
@@ -751,7 +751,7 @@ func ThreadAbort(ctx * Context, thread Thread, signal GraphSignal) (string, erro
 // Default thread action for "stop", sends a signal and returns no error
 func ThreadStop(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
   context := NewReadContext(ctx)
-  err := thread.Signal(context, thread, NewStatusSignal("stopped", thread.ID()))
+  err := Signal(context, thread, thread, NewStatusSignal("stopped", thread.ID()))
   return "finish", err
 }
 
