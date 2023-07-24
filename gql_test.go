@@ -3,7 +3,6 @@ package graphvent
 import (
   "testing"
   "time"
-  "errors"
   "net"
   "net/http"
   "io"
@@ -19,13 +18,17 @@ import (
 )
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"policy", "mutex"})
+  ctx := logTestContext(t, []string{"test", "signal", "thread"})
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
+  ctx.Log.Logf("test", "L1_ID: %s", l1.ID().String())
 
   t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
   t1 := &t1_r
-  update_channel := UpdateChannel(t1, 10, NodeID{})
+  ctx.Log.Logf("test", "T1_ID: %s", t1.ID().String())
+  listen_id := RandID()
+  ctx.Log.Logf("test", "LISTENER_ID: %s", listen_id.String())
+  update_channel := UpdateChannel(t1, 10, listen_id)
 
   u1_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
@@ -34,28 +37,52 @@ func TestGQLDBLoad(t * testing.T) {
 
   u1_r := NewUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared, []string{"gql"})
   u1 := &u1_r
-
-  p1_r := NewSimplePolicy(RandID(), NewNodeActions(nil, []string{"enumerate"}))
-  p1 := &p1_r
+  ctx.Log.Logf("test", "U1_ID: %s", u1.ID().String())
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
   gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql := &gql_r
+  ctx.Log.Logf("test", "GQL_ID: %s", gql.ID().String())
+
+  // Policy to allow gql to perform all action on all resources
+  p1_r := NewPerNodePolicy(RandID(), map[NodeID]NodeActions{
+    gql.ID(): NewNodeActions(nil, []string{"*"}),
+  })
+  p1 := &p1_r
+  p2_r := NewSimplePolicy(RandID(), NewNodeActions(NodeActions{
+    "signal": []string{"read"},
+  }, nil))
+  p2 := &p2_r
+
+  context := NewWriteContext(ctx)
+  err = UpdateStates(context, gql, LockMap{
+    p1.ID(): LockInfo{p1, nil},
+    p2.ID(): LockInfo{p2, nil},
+  }, func(context *StateContext) error {
+    return nil
+  })
+  fatalErr(t, err)
+
+  ctx.Log.Logf("test", "P1_ID: %s", p1.ID().String())
+  ctx.Log.Logf("test", "P2_ID: %s", p2.ID().String())
+  err = AttachPolicies(ctx, gql, p1, p2)
+  fatalErr(t, err)
+  err = AttachPolicies(ctx, l1, p1, p2)
+  fatalErr(t, err)
+  err = AttachPolicies(ctx, t1, p1, p2)
+  fatalErr(t, err)
+  err = AttachPolicies(ctx, u1, p1, p2)
+  fatalErr(t, err)
 
   info := NewParentThreadInfo(true, "start", "restore")
-  context := NewWriteContext(ctx)
+  context = NewWriteContext(ctx)
   err = UpdateStates(context, gql, NewLockMap(
-    NewLockInfo(gql, []string{"policies", "users"}),
+    NewLockInfo(gql, []string{"users"}),
   ), func(context *StateContext) error {
-    err := gql.AddPolicy(p1)
-    if err != nil {
-      return err
-    }
-
     gql.Users[KeyID(&u1_key.PublicKey)] = u1
 
-    err = LinkThreads(context, gql, gql, t1, &info)
+    err := LinkThreads(context, gql, gql, t1, &info)
     if err != nil {
       return err
     }
@@ -69,20 +96,14 @@ func TestGQLDBLoad(t * testing.T) {
     if err != nil {
       return nil
     }
-    return gql.Signal(context, CancelSignal)
+    return gql.Signal(context, StopSignal)
   })
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
-  if errors.Is(err, ThreadAbortedError) {
-    ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
-  } else if err != nil{
-    fatalErr(t, err)
-  } else {
-    ctx.Log.Logf("test", "Main thread cancelled by signal")
-  }
+  fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForValue(ctx, update_channel, "thread_aborted", 100*time.Millisecond, "Didn't receive thread_abort from t1 on t1")
+  (*GraphTester)(t).WaitForValue(ctx, update_channel, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel")
 
   context = NewReadContext(ctx)
   err = UseStates(context, gql, LockList([]Node{gql, u1}, nil), func(context *StateContext) error {
@@ -105,28 +126,24 @@ func TestGQLDBLoad(t * testing.T) {
     u_loaded := gql_loaded.(*GQLThread).Users[u1.ID()]
     child := gql_loaded.(Thread).Children()[0].(*SimpleThread)
     t1_loaded = child
-    update_channel_2 = UpdateChannel(t1_loaded, 10, NodeID{})
+    update_channel_2 = UpdateChannel(t1_loaded, 10, RandID())
     err = UseStates(context, gql, NewLockInfo(u_loaded, nil), func(context *StateContext) error {
       ser, err := u_loaded.Serialize()
       ctx.Log.Logf("test", "\n%s\n\n", ser)
       return err
     })
-    gql_loaded.Signal(context, AbortSignal)
+    gql_loaded.Signal(context, StopSignal)
     return err
   })
 
-  err = ThreadLoop(ctx, gql_loaded.(Thread), "restore")
-  if errors.Is(err, ThreadAbortedError) {
-    ctx.Log.Logf("test", "Main thread aborted by signal: %s", err)
-  } else {
-    fatalErr(t, err)
-  }
-  (*GraphTester)(t).WaitForValue(ctx, update_channel_2, "thread_aborted", 100*time.Millisecond, "Didn't received thread_aborted on t1_loaded from t1_loaded")
+  err = ThreadLoop(ctx, gql_loaded.(Thread), "start")
+  fatalErr(t, err)
+  (*GraphTester)(t).WaitForValue(ctx, update_channel_2, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
 
 }
 
 func TestGQLAuth(t * testing.T) {
-  ctx := logTestContext(t, []string{"policy", "mutex"})
+  ctx := logTestContext(t, []string{"policy"})
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
@@ -162,7 +179,7 @@ func TestGQLAuth(t * testing.T) {
     }
     context := NewReadContext(ctx)
     err := UseStates(context, gql_t, NewLockInfo(gql_t, []string{"signal}"}), func(context *StateContext) error {
-      return thread.Signal(context, CancelSignal)
+      return thread.Signal(context, StopSignal)
     })
     fatalErr(t, err)
   }(done, gql_t)

@@ -809,7 +809,10 @@ var gql_actions ThreadActions = ThreadActions{
   "restore": func(ctx * Context, thread Thread) (string, error) {
     // Start all the threads that should be "started"
     ctx.Log.Logf("gql", "GQL_THREAD_RESTORE: %s", thread.ID())
-    ThreadRestore(ctx, thread)
+    err := ThreadRestore(ctx, thread)
+    if err != nil {
+      return "", err
+    }
     return "start_server", nil
   },
   "start": func(ctx * Context, thread Thread) (string, error) {
@@ -818,6 +821,21 @@ var gql_actions ThreadActions = ThreadActions{
     if err != nil {
       return "", err
     }
+
+    // Start all the threads that have "Start" as true
+    context := NewWriteContext(ctx)
+    err = UpdateStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
+      return UpdateStates(context, thread, LockList(thread.Children(), []string{"start"}), func(context *StateContext) error {
+        for _, child := range(thread.Children()) {
+          info := thread.ChildInfo(child.ID()).(ParentInfo).Parent()
+          if info.Start == true {
+            ctx.Log.Logf("thread", "THREAD_START_CHILD: %s -> %s", thread.ID(), child.ID())
+            ChildGo(ctx, thread, child, info.StartAction)
+          }
+        }
+        return nil
+      })
+    })
 
     return "start_server", nil
   },
@@ -956,6 +974,6 @@ var gql_handlers ThreadHandlers = ThreadHandlers{
     return "wait", nil
   },
   "abort": ThreadAbort,
-  "cancel": ThreadCancel,
+  "stop": ThreadStop,
 }
 

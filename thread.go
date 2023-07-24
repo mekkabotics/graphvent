@@ -595,21 +595,20 @@ func ThreadStartChild(ctx *Context, thread Thread, signal StartChildSignal) erro
 
 // Helper function to restore threads that should be running from a parents restore action
 // Starts a write context, so cannot be called from either a write or read context
-func ThreadRestore(ctx * Context, thread Thread) {
+func ThreadRestore(ctx * Context, thread Thread) error {
   context := NewWriteContext(ctx)
-  UpdateStates(context, thread, NewLockMap(
-    NewLockInfo(thread, []string{"children"}),
-    LockList(thread.Children(), []string{"start"}),
-  ), func(context *StateContext)(error) {
-    for _, child := range(thread.Children()) {
-      should_run := (thread.ChildInfo(child.ID())).(ParentInfo).Parent()
-      ctx.Log.Logf("thread", "THREAD_RESTORE: %s -> %s: %+v", thread.ID(), child.ID(), should_run)
-      if should_run.Start == true && child.State() != "finished" {
-        ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID(), child.ID())
-        ChildGo(ctx, thread, child, should_run.RestoreAction)
+  return UpdateStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
+    return UpdateStates(context, thread, LockList(thread.Children(), []string{"start"}), func(context *StateContext) error {
+      for _, child := range(thread.Children()) {
+        should_run := (thread.ChildInfo(child.ID())).(ParentInfo).Parent()
+        ctx.Log.Logf("thread", "THREAD_RESTORE: %s -> %s: %+v", thread.ID(), child.ID(), should_run)
+        if should_run.Start == true && child.State() != "finished" {
+          ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID(), child.ID())
+          ChildGo(ctx, thread, child, should_run.RestoreAction)
+        }
       }
-    }
-    return nil
+      return nil
+    })
   })
 }
 
@@ -697,14 +696,14 @@ func ThreadAbort(ctx * Context, thread Thread, signal GraphSignal) (string, erro
   if err != nil {
     return "", err
   }
-  return "finish", ThreadAbortedError
+  return "", ThreadAbortedError
 }
 
-// Default thread action for "cancel", sends a signal and returns no error
-func ThreadCancel(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
+// Default thread action for "stop", sends a signal and returns no error
+func ThreadStop(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
   context := NewReadContext(ctx)
   err := UseStates(context, thread, NewLockInfo(thread, []string{"signal"}), func(context *StateContext) error {
-    return thread.Signal(context, NewSignal("cancelled"))
+    return thread.Signal(context, NewSignal("stopped"))
   })
   return "finish", err
 }
@@ -740,5 +739,5 @@ var BaseThreadActions = ThreadActions{
 // Default thread signal handlers
 var BaseThreadHandlers = ThreadHandlers{
   "abort": ThreadAbort,
-  "cancel": ThreadCancel,
+  "stop": ThreadStop,
 }

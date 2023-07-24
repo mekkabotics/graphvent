@@ -62,7 +62,7 @@ func NewDirectSignal(_type string) BaseSignal {
 }
 
 var AbortSignal = NewBaseSignal("abort", Down)
-var CancelSignal = NewBaseSignal("cancel", Down)
+var StopSignal = NewBaseSignal("stop", Down)
 
 type IDSignal struct {
   BaseSignal
