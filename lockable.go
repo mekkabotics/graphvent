@@ -425,7 +425,9 @@ func LockLockables(context *StateContext, to_lock []Lockable, new_owner Lockable
         if owner.ID() == new_owner.ID() {
           continue
         } else {
-          err := UpdateStates(context, new_owner, NewLockMap(NewLockInfo(owner, []string{"take_lock"})), func(context *StateContext)(error){
+          err := UpdateStates(context, new_owner, NewLockMap(
+            NewLockInfo(owner, []string{"take_lock"})
+          ), func(context *StateContext)(error){
             return LockLockables(context, req.Requirements(), req)
           })
           if err != nil {
@@ -485,7 +487,7 @@ func UnlockLockables(context *StateContext, to_unlock []Lockable, old_owner Lock
 
   return UpdateStates(context, old_owner, NewLockMap(
     LockList(to_unlock, []string{"lock"}),
-    NewLockInfo(old_owner, []string{}),
+    NewLockInfo(old_owner, nil),
   ), func(context *StateContext) error {
     // First loop is to check that the states can be locked, and locks all requirements
     for _, req := range(to_unlock) {
