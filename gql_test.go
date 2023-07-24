@@ -51,7 +51,7 @@ func TestGQLDBLoad(t * testing.T) {
   })
   p1 := &p1_r
   p2_r := NewSimplePolicy(RandID(), NewNodeActions(NodeActions{
-    "signal": []string{"read"},
+    "signal": []string{"status"},
   }, nil))
   p2 := &p2_r
 
