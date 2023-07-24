@@ -216,22 +216,20 @@ func (lockable * SimpleLockable) CanUnlock(new_owner Lockable) error {
 }
 
 // Assumed that lockable is already locked for signal
-func (lockable * SimpleLockable) Signal(context *StateContext, signal GraphSignal) error {
-  err := lockable.GraphNode.Signal(context, signal)
+func (lockable * SimpleLockable) Signal(context *StateContext, princ Node, signal GraphSignal) error {
+  err := lockable.GraphNode.Signal(context, princ, signal)
   if err != nil {
     return err
   }
 
   switch signal.Direction() {
   case Up:
-    err = UseStates(context, lockable, NewLockMap(
-      NewLockInfo(lockable, []string{"dependencies", "owner"}),
-      LockList(lockable.requirements, []string{"signal"}),
-    ), func(context *StateContext) error {
+    err = UseStates(context, lockable,
+      NewLockInfo(lockable, []string{"dependencies", "owner"}), func(context *StateContext) error {
       owner_sent := false
       for _, dependency := range(lockable.dependencies) {
         context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", lockable.ID(), dependency.ID())
-        dependency.Signal(context, signal)
+        dependency.Signal(context, lockable, signal)
         if lockable.owner != nil {
           if dependency.ID() == lockable.owner.ID() {
             owner_sent = true
@@ -241,20 +239,15 @@ func (lockable * SimpleLockable) Signal(context *StateContext, signal GraphSigna
       if lockable.owner != nil && owner_sent == false {
         if lockable.owner.ID() != lockable.ID() {
           context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", lockable.ID(), lockable.owner.ID())
-          return UseStates(context, lockable, NewLockMap(NewLockInfo(lockable.owner, []string{"signal"})), func(context *StateContext) error {
-            return lockable.owner.Signal(context, signal)
-          })
+          return lockable.owner.Signal(context, lockable, signal)
         }
       }
       return nil
     })
   case Down:
-    err = UseStates(context, lockable, NewLockMap(
-      NewLockInfo(lockable, []string{"requirements"}),
-      LockList(lockable.requirements, []string{"signal"}),
-    ), func(context *StateContext) error {
+    err = UseStates(context, lockable, NewLockInfo(lockable, []string{"requirements"}), func(context *StateContext) error {
       for _, requirement := range(lockable.requirements) {
-        err := requirement.Signal(context, signal)
+        err := requirement.Signal(context, lockable, signal)
         if err != nil {
           return err
         }

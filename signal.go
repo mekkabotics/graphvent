@@ -76,8 +76,16 @@ func NewIDSignal(_type string, direction SignalDirection, id NodeID) IDSignal {
   }
 }
 
-func NewStatusSignal(_type string, source NodeID) IDSignal {
-  return NewIDSignal(_type, Up, source)
+type StatusSignal struct {
+  IDSignal
+  Status string
+}
+
+func NewStatusSignal(status string, source NodeID) StatusSignal {
+  return StatusSignal{
+    IDSignal: NewIDSignal("status", Up, source),
+    Status: status,
+  }
 }
 
 type StartChildSignal struct {

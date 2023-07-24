@@ -13,7 +13,7 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, signal_type string, timeout time.Duration, str string) GraphSignal {
+func (t * GraphTester) WaitForStatus(ctx * Context, listener chan GraphSignal, status string, timeout time.Duration, str string) GraphSignal {
   timeout_channel := time.After(timeout)
   for true {
     select {
@@ -22,8 +22,16 @@ func (t * GraphTester) WaitForValue(ctx * Context, listener chan GraphSignal, si
         ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
         t.Fatal(str)
       }
-      if signal.Type() == signal_type {
-        return signal
+      if signal.Type() == "status" {
+        sig, ok := signal.(StatusSignal)
+        if ok == true {
+          if sig.Status == status {
+            return signal
+          }
+          ctx.Log.Logf("test", "Different status received: %s", sig.Status)
+        } else {
+          ctx.Log.Logf("test", "Failed to cast status to StatusSignal: %+v", signal)
+        }
       }
     case <-timeout_channel:
       pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)

@@ -18,7 +18,7 @@ import (
 )
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal", "thread"})
+  ctx := logTestContext(t, []string{"test", "signal", "policy", "thread"})
   l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
   l1 := &l1_r
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID().String())
@@ -91,19 +91,16 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   context = NewReadContext(ctx)
-  err = UseStates(context, gql, NewLockInfo(gql, []string{"signal"}), func(context *StateContext) error {
-    err := gql.Signal(context, NewStatusSignal("child_linked", t1.ID()))
-    if err != nil {
-      return nil
-    }
-    return gql.Signal(context, StopSignal)
-  })
+  err = gql.Signal(context, gql, NewStatusSignal("child_linked", t1.ID()))
+  fatalErr(t, err)
+  context = NewReadContext(ctx)
+  err = gql.Signal(context, gql, StopSignal)
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
   fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForValue(ctx, update_channel, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel")
+  (*GraphTester)(t).WaitForStatus(ctx, update_channel, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel")
 
   context = NewReadContext(ctx)
   err = UseStates(context, gql, LockList([]Node{gql, u1}, nil), func(context *StateContext) error {
@@ -132,13 +129,13 @@ func TestGQLDBLoad(t * testing.T) {
       ctx.Log.Logf("test", "\n%s\n\n", ser)
       return err
     })
-    gql_loaded.Signal(context, StopSignal)
+    gql_loaded.Signal(context, gql_loaded, StopSignal)
     return err
   })
 
   err = ThreadLoop(ctx, gql_loaded.(Thread), "start")
   fatalErr(t, err)
-  (*GraphTester)(t).WaitForValue(ctx, update_channel_2, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
+  (*GraphTester)(t).WaitForStatus(ctx, update_channel_2, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
 
 }
 
@@ -178,14 +175,12 @@ func TestGQLAuth(t * testing.T) {
       ctx.Log.Logf("test", "DONE")
     }
     context := NewReadContext(ctx)
-    err := UseStates(context, gql_t, NewLockInfo(gql_t, []string{"signal}"}), func(context *StateContext) error {
-      return thread.Signal(context, StopSignal)
-    })
+    err := thread.Signal(context, thread, StopSignal)
     fatalErr(t, err)
   }(done, gql_t)
 
   go func(thread Thread){
-    (*GraphTester)(t).WaitForValue(ctx, update_channel, "server_started", 100*time.Millisecond, "Server didn't start")
+    (*GraphTester)(t).WaitForStatus(ctx, update_channel, "server_started", 100*time.Millisecond, "Server didn't start")
     port := gql_t.tcp_listener.Addr().(*net.TCPAddr).Port
     ctx.Log.Logf("test", "GQL_PORT: %d", port)
 

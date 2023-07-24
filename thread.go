@@ -10,8 +10,8 @@ import (
 )
 
 // Assumed that thread is already locked for signal
-func (thread *SimpleThread) Signal(context *StateContext, signal GraphSignal) error {
-  err := thread.SimpleLockable.Signal(context, signal)
+func (thread *SimpleThread) Signal(context *StateContext, princ Node, signal GraphSignal) error {
+  err := thread.SimpleLockable.Signal(context, princ, signal)
   if err != nil {
     return err
   }
@@ -20,20 +20,15 @@ func (thread *SimpleThread) Signal(context *StateContext, signal GraphSignal) er
   case Up:
     err = UseStates(context, thread, NewLockInfo(thread, []string{"parent"}), func(context *StateContext) error {
       if thread.parent != nil {
-        return UseStates(context, thread, NewLockInfo(thread.parent, []string{"signal"}), func(context *StateContext) error {
-          return thread.parent.Signal(context, signal)
-        })
+        return thread.parent.Signal(context, thread, signal)
       } else {
         return nil
       }
     })
   case Down:
-    err = UseStates(context, thread, NewLockMap(
-      NewLockInfo(thread, []string{"children"}),
-      LockList(thread.children, []string{"signal"}),
-    ), func(context *StateContext) error {
+    err = UseStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
       for _, child := range(thread.children) {
-        err := child.Signal(context, signal)
+        err := child.Signal(context, thread, signal)
         if err != nil {
           return err
         }
@@ -690,9 +685,7 @@ var ThreadAbortedError = errors.New("Thread aborted by signal")
 // Default thread action function for "abort", sends a signal and returns a ThreadAbortedError
 func ThreadAbort(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
   context := NewReadContext(ctx)
-  err := UseStates(context, thread, NewLockInfo(thread, []string{"signal"}), func(context *StateContext) error {
-    return thread.Signal(context, NewStatusSignal("aborted", thread.ID()))
-  })
+  err := thread.Signal(context, thread, NewStatusSignal("aborted", thread.ID()))
   if err != nil {
     return "", err
   }
@@ -702,9 +695,7 @@ func ThreadAbort(ctx * Context, thread Thread, signal GraphSignal) (string, erro
 // Default thread action for "stop", sends a signal and returns no error
 func ThreadStop(ctx * Context, thread Thread, signal GraphSignal) (string, error) {
   context := NewReadContext(ctx)
-  err := UseStates(context, thread, NewLockInfo(thread, []string{"signal"}), func(context *StateContext) error {
-    return thread.Signal(context, NewSignal("stopped"))
-  })
+  err := thread.Signal(context, thread, NewStatusSignal("stopped", thread.ID()))
   return "finish", err
 }
 

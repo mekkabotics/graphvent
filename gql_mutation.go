@@ -18,11 +18,6 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
         return nil, err
       }
 
-      err = ctx.Server.Allowed("signal", "", ctx.User)
-      if err != nil {
-        return nil, err
-      }
-
       id, err := ExtractID(p, "id")
       if err != nil {
         return nil, err
@@ -37,9 +32,7 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        return UseStates(context, ctx.User, NewLockInfo(node, []string{"signal"}), func(context *StateContext) error {
-          return node.Signal(context, AbortSignal)
-        })
+        return node.Signal(context, ctx.User, AbortSignal)
       })
       if err != nil {
         return nil, err
@@ -98,15 +91,8 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
           return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
         }
 
-        err := node.Allowed("signal", "", ctx.User)
-        if err != nil {
-          return err
-        }
-
-        return UseStates(context, ctx.User, NewLockMap(NewLockInfo(node, []string{"start_child", "signal"})), func(context *StateContext) error {
-          signal = NewStartChildSignal(child_id, action)
-          return node.Signal(context, signal)
-        })
+        signal = NewStartChildSignal(child_id, action)
+        return node.Signal(context, ctx.User, signal)
       })
       if err != nil {
         return nil, err

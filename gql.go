@@ -906,12 +906,7 @@ var gql_actions ThreadActions = ThreadActions{
     }
 
     context = NewReadContext(ctx)
-    err = UseStates(context, server, NewLockMap(
-      NewLockInfo(server, []string{"signal"}),
-    ), func(context *StateContext) error {
-      return server.Signal(context, NewSignal("server_started"))
-    })
-
+    err = server.Signal(context, server, NewStatusSignal("server_started", server.ID()))
     if err != nil {
       return "", err
     }
