@@ -425,9 +425,7 @@ func LockLockables(context *StateContext, to_lock []Lockable, new_owner Lockable
         if owner.ID() == new_owner.ID() {
           continue
         } else {
-          err := UpdateStates(context, new_owner, NewLockMap(
-            NewLockInfo(owner, []string{"take_lock"})
-          ), func(context *StateContext)(error){
+          err := UpdateStates(context, new_owner, NewLockInfo(owner, []string{"take_lock"}), func(context *StateContext)(error){
             return LockLockables(context, req.Requirements(), req)
           })
           if err != nil {
