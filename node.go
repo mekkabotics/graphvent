@@ -44,7 +44,7 @@ func KeyID(pub *ecdsa.PublicKey) NodeID {
 // Types are how nodes are associated with structs at runtime(and from the DB)
 type NodeType string
 func (node_type NodeType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(node_type))
+  hash := sha512.Sum512([]byte(fmt.Sprintf("NODE: %s", node_type)))
 
   return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
@@ -54,57 +54,132 @@ func RandID() NodeID {
   return NodeID(uuid.New())
 }
 
-// A Node represents data that can be read by multiple goroutines and written to by one, with a unique ID attached, and a method to process updates(including propagating them to connected nodes)
-// RegisterChannel and UnregisterChannel are used to connect arbitrary listeners to the node
 type Node interface {
-  // State Locking interface
-  sync.Locker
-  RLock()
-  RUnlock()
-
-  // Serialize the Node for the database
-  Serialize() ([]byte, error)
-
-  // Nodes have an ID, type, and ACL policies
   ID() NodeID
   Type() NodeType
-
-  Policies() map[NodeID]Policy
-  AddPolicy(Policy) error
-  RemovePolicy(Policy) error
-
-  // Send a GraphSignal to the node, requires that the node is locked for read so that it can propagate
-  Process(context *StateContext, princ Node, signal GraphSignal) error
-  // Register a channel to receive updates sent to the node
-  RegisterChannel(id NodeID, listener chan GraphSignal)
-  // Unregister a channel from receiving updates sent to the node
-  UnregisterChannel(id NodeID)
+  Serialize() ([]byte, error)
+  LockState(write bool)
+  UnlockState(write bool)
+  Process(context *StateContext, signal GraphSignal) error
+  Policies() []Policy
 }
 
-// A GraphNode is an implementation of a Node that can be embedded into more complex structures
-type GraphNode struct {
-  sync.RWMutex
-  listeners_lock sync.Mutex
-
+type SimpleNode struct {
   id NodeID
-  listeners map[NodeID]chan GraphSignal
+  state_mutex sync.RWMutex
   policies map[NodeID]Policy
 }
 
-type GraphNodeJSON struct {
+func NewSimpleNode(id NodeID) SimpleNode {
+  return SimpleNode{
+    id: id,
+    policies: map[NodeID]Policy{},
+  }
+}
+
+type SimpleNodeJSON struct {
   Policies []string `json:"policies"`
 }
 
-func (node * GraphNode) Policies() map[NodeID]Policy {
-  return node.policies
+func (node *SimpleNode) Process(context *StateContext, signal GraphSignal) error {
+  context.Graph.Log.Logf("signal", "SIMPLE_NODE_SIGNAL: %s - %+v", node.id, signal)
+  return nil
 }
 
-func (node * GraphNode) Serialize() ([]byte, error) {
-  node_json := NewGraphNodeJSON(node)
-  return json.MarshalIndent(&node_json, "", "  ")
+func (node *SimpleNode) ID() NodeID {
+  return node.id
 }
 
-func Allowed(context *StateContext, policies map[NodeID]Policy, node Node, resource string, action string, princ Node) error {
+func (node *SimpleNode) Type() NodeType {
+  return NodeType("simple_node")
+}
+
+func (node *SimpleNode) Serialize() ([]byte, error) {
+  j := NewSimpleNodeJSON(node)
+  return json.MarshalIndent(&j, "", "  ")
+}
+
+func (node *SimpleNode) LockState(write bool) {
+  if write == true {
+    node.state_mutex.Lock()
+  } else {
+    node.state_mutex.RLock()
+  }
+}
+
+func (node *SimpleNode) UnlockState(write bool) {
+  if write == true {
+    node.state_mutex.Unlock()
+  } else {
+    node.state_mutex.RUnlock()
+  }
+}
+
+func NewSimpleNodeJSON(node *SimpleNode) SimpleNodeJSON {
+  policy_ids := make([]string, len(node.policies))
+  i := 0
+  for id, _ := range(node.policies) {
+    policy_ids[i] = id.String()
+    i += 1
+  }
+
+  return SimpleNodeJSON{
+    Policies: policy_ids,
+  }
+}
+
+func RestoreSimpleNode(ctx *Context, node *SimpleNode, j SimpleNodeJSON, nodes NodeMap) error {
+  for _, policy_str := range(j.Policies) {
+    policy_id, err := ParseID(policy_str)
+    if err != nil {
+      return err
+    }
+
+    policy_ptr, err := LoadNodeRecurse(ctx, policy_id, nodes)
+    if err != nil {
+      return err
+    }
+
+    policy, ok := policy_ptr.(Policy)
+    if ok == false {
+      return fmt.Errorf("%s is not a Policy", policy_id)
+    }
+    node.policies[policy_id] = policy
+  }
+
+  return nil
+}
+
+func LoadSimpleNode(ctx *Context, id NodeID, data []byte, nodes NodeMap)(Node, error) {
+  var j SimpleNodeJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  node := NewSimpleNode(id)
+  nodes[id] = &node
+
+  err = RestoreSimpleNode(ctx, &node, j, nodes)
+  if err != nil {
+    return nil, err
+  }
+
+  return &node, nil
+}
+
+func (node *SimpleNode) Policies() []Policy {
+  ret := make([]Policy, len(node.policies))
+  i := 0
+  for _, policy := range(node.policies) {
+    ret[i] = policy
+    i += 1
+  }
+
+  return ret
+}
+
+func Allowed(context *StateContext, policies []Policy, node Node, resource string, action string, princ Node) error {
   if princ == nil {
     context.Graph.Log.Logf("policy", "POLICY_CHECK_ERR: %s %s.%s.%s", princ.ID(), node.ID(), resource, action)
     return fmt.Errorf("nil is not allowed to perform any actions")
@@ -122,81 +197,6 @@ func Allowed(context *StateContext, policies map[NodeID]Policy, node Node, resou
   return fmt.Errorf("%s is not allowed to perform %s.%s on %s", princ.ID(), resource, action, node.ID())
 }
 
-func (node *GraphNode) AddPolicy(policy Policy) error {
-  if policy == nil {
-    return fmt.Errorf("Cannot add nil as a policy")
-  }
-
-  _, exists := node.policies[policy.ID()]
-  if exists == true {
-    return fmt.Errorf("%s is already a policy for %s", policy.ID().String(), node.ID().String())
-  }
-
-  node.policies[policy.ID()] = policy
-  return nil
-}
-
-func (node *GraphNode) RemovePolicy(policy Policy) error {
-  if policy == nil {
-    return fmt.Errorf("Cannot add nil as a policy")
-  }
-
-  _, exists := node.policies[policy.ID()]
-  if exists == false {
-    return fmt.Errorf("%s is not a policy for %s", policy.ID().String(), node.ID().String())
-  }
-
-  delete(node.policies, policy.ID())
-  return nil
-}
-
-func NewGraphNodeJSON(node *GraphNode) GraphNodeJSON {
-  policies := make([]string, len(node.policies))
-  i := 0
-  for _, policy := range(node.policies) {
-    policies[i] = policy.ID().String()
-    i += 1
-  }
-  return GraphNodeJSON{
-    Policies: policies,
-  }
-}
-
-func RestoreGraphNode(ctx *Context, node Node, j GraphNodeJSON, nodes NodeMap) error {
-  for _, policy_str := range(j.Policies) {
-    policy_id, err := ParseID(policy_str)
-    if err != nil {
-      return err
-    }
-    policy_ptr, err := LoadNodeRecurse(ctx, policy_id, nodes)
-    if err != nil {
-      return err
-    }
-
-    policy, ok := policy_ptr.(Policy)
-    if ok == false {
-      return fmt.Errorf("%s is not a Policy", policy_id)
-    }
-    node.AddPolicy(policy)
-  }
-  return nil
-}
-
-func LoadGraphNode(ctx * Context, id NodeID, data []byte, nodes NodeMap)(Node, error) {
-  if len(data) > 0 {
-    return nil, fmt.Errorf("Attempted to load a graph_node with data %+v, should have been 0 length", string(data))
-  }
-  node := NewGraphNode(id)
-  return &node, nil
-}
-
-func (node * GraphNode) ID() NodeID {
-  return node.id
-}
-
-func (node * GraphNode) Type() NodeType {
-  return NodeType("graph_node")
-}
 
 // Propagate the signal to registered listeners, if a listener isn't ready to receive the update
 // send it a notification that it was closed and then close it
@@ -211,73 +211,17 @@ func Signal(context *StateContext, node Node, princ Node, signal GraphSignal) er
     return nil
   }
 
-  return node.Process(context, princ, signal)
+  return node.Process(context, signal)
 }
 
-func (node * GraphNode) Process(context *StateContext, princ Node, signal GraphSignal) error {
-  node.listeners_lock.Lock()
-  defer node.listeners_lock.Unlock()
-  closed := []NodeID{}
-
-  for id, listener := range node.listeners {
-    context.Graph.Log.Logf("signal", "UPDATE_LISTENER %s: %s", node.ID(), id)
-    select {
-    case listener <- signal:
-    default:
-      context.Graph.Log.Logf("signal", "CLOSED_LISTENER %s: %s", node.ID(), id)
-      go func(node Node, listener chan GraphSignal) {
-        listener <- NewDirectSignal("listener_closed")
-        close(listener)
-      }(node, listener)
-      closed = append(closed, id)
-    }
-  }
-
-  for _, id := range(closed) {
-    delete(node.listeners, id)
-  }
-  return nil
-}
-
-func (node * GraphNode) RegisterChannel(id NodeID, listener chan GraphSignal) {
-  node.listeners_lock.Lock()
-  _, exists := node.listeners[id]
-  if exists == false {
-    node.listeners[id] = listener
-  }
-  node.listeners_lock.Unlock()
-}
-
-func (node * GraphNode) UnregisterChannel(id NodeID) {
-  node.listeners_lock.Lock()
-  _, exists := node.listeners[id]
-  if exists == false {
-    panic("Attempting to unregister non-registered listener")
-  } else {
-    delete(node.listeners, id)
-  }
-  node.listeners_lock.Unlock()
-}
-
-func AttachPolicies(ctx *Context, node Node, policies ...Policy) error {
+func AttachPolicies(ctx *Context, node *SimpleNode, policies ...Policy) error {
   context := NewWriteContext(ctx)
   return UpdateStates(context, node, NewLockInfo(node, []string{"policies"}), func(context *StateContext) error {
     for _, policy := range(policies) {
-      err := node.AddPolicy(policy)
-      if err != nil {
-        return err
-      }
+      node.policies[policy.ID()] = policy
     }
     return nil
   })
-}
-
-func NewGraphNode(id NodeID) GraphNode {
-  return GraphNode{
-    id: id,
-    listeners: map[NodeID]chan GraphSignal{},
-    policies: map[NodeID]Policy{},
-  }
 }
 
 // Magic first four bytes of serialized DB content, stored big endian
@@ -458,6 +402,17 @@ func NewLockMap(requests ...LockMap) LockMap {
   return reqs
 }
 
+func LockListM[K Node](m map[NodeID]K, resources[]string) LockMap {
+  reqs := LockMap{}
+  for _, node := range(m) {
+    reqs[node.ID()] = LockInfo{
+      Node: node,
+      Resources: resources,
+    }
+  }
+  return reqs
+}
+
 func LockList[K Node](list []K, resources []string) LockMap {
   reqs := LockMap{}
   for _, node := range(list) {
@@ -565,7 +520,7 @@ func UseStates(context *StateContext, princ Node, new_nodes LockMap, state_fn St
   if princ_locked == false {
     new_locks = append(new_locks, princ)
     context.Graph.Log.Logf("mutex", "RLOCKING_PRINC %s", princ.ID().String())
-    princ.RLock()
+    princ.LockState(false)
   }
 
   princ_permissions, princ_exists := context.Permissions[princ.ID()]
@@ -588,7 +543,7 @@ func UseStates(context *StateContext, princ Node, new_nodes LockMap, state_fn St
       if locked == false {
         new_locks = append(new_locks, node)
         context.Graph.Log.Logf("mutex", "RLOCKING %s", id.String())
-        node.RLock()
+        node.LockState(false)
       }
     }
 
@@ -610,7 +565,7 @@ func UseStates(context *StateContext, princ Node, new_nodes LockMap, state_fn St
         if err != nil {
           for _, n := range(new_locks) {
             context.Graph.Log.Logf("mutex", "RUNLOCKING_ON_ERROR %s", id.String())
-            n.RUnlock()
+            n.UnlockState(false)
           }
           return err
         }
@@ -632,7 +587,7 @@ func UseStates(context *StateContext, princ Node, new_nodes LockMap, state_fn St
   for _, node := range(new_locks) {
     context.Graph.Log.Logf("mutex", "RUNLOCKING %s", node.ID().String())
     delete(context.Locked, node.ID())
-    node.RUnlock()
+    node.UnlockState(false)
   }
 
   return err
@@ -661,7 +616,7 @@ func UpdateStates(context *StateContext, princ Node, new_nodes LockMap, state_fn
   if princ_locked == false {
     new_locks = append(new_locks, princ)
     context.Graph.Log.Logf("mutex", "LOCKING_PRINC %s", princ.ID().String())
-    princ.Lock()
+    princ.LockState(true)
   }
 
   princ_permissions, princ_exists := context.Permissions[princ.ID()]
@@ -684,7 +639,7 @@ func UpdateStates(context *StateContext, princ Node, new_nodes LockMap, state_fn
       if locked == false {
         new_locks = append(new_locks, node)
         context.Graph.Log.Logf("mutex", "LOCKING %s", id.String())
-        node.Lock()
+        node.LockState(true)
       }
     }
 
@@ -706,7 +661,7 @@ func UpdateStates(context *StateContext, princ Node, new_nodes LockMap, state_fn
         if err != nil {
           for _, n := range(new_locks) {
             context.Graph.Log.Logf("mutex", "UNLOCKING_ON_ERROR %s", id.String())
-            n.Unlock()
+            n.UnlockState(true)
           }
           return err
         }
@@ -730,19 +685,10 @@ func UpdateStates(context *StateContext, princ Node, new_nodes LockMap, state_fn
     }
     for id, node := range(context.Locked) {
       context.Graph.Log.Logf("mutex", "UNLOCKING %s", id.String())
-      node.Unlock()
+      node.UnlockState(true)
     }
   }
 
   return err
 }
 
-// Create a new channel with a buffer the size of buffer, and register it to node with the id
-func UpdateChannel(node Node, buffer int, id NodeID) chan GraphSignal {
-  if node == nil {
-    panic("Cannot get an update channel to nil")
-  }
-  new_listener := make(chan GraphSignal, buffer)
-  node.RegisterChannel(id, new_listener)
-  return new_listener
-}

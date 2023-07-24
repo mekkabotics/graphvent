@@ -629,7 +629,7 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
 }
 
 type GQLThread struct {
-  SimpleThread
+  Thread
   tcp_listener net.Listener
   http_server *http.Server
   http_done *sync.WaitGroup
@@ -639,6 +639,37 @@ type GQLThread struct {
   Users map[NodeID]*User
   Key *ecdsa.PrivateKey
   ECDH ecdh.Curve
+  SubscribeLock sync.Mutex
+  SubscribeListeners []chan GraphSignal
+}
+
+func (thread *GQLThread) NewSubscriptionChannel(buffer int) chan GraphSignal {
+  thread.SubscribeLock.Lock()
+  defer thread.SubscribeLock.Unlock()
+
+  new_listener := make(chan GraphSignal, buffer)
+  thread.SubscribeListeners = append(thread.SubscribeListeners, new_listener)
+
+  return new_listener
+}
+
+func (thread *GQLThread) Process(context *StateContext, signal GraphSignal) error {
+  active_listeners := []chan GraphSignal{}
+  thread.SubscribeLock.Lock()
+  for _, listener := range(thread.SubscribeListeners) {
+    select {
+      case listener <- signal:
+        active_listeners = append(active_listeners, listener)
+      default:
+        go func(listener chan GraphSignal) {
+          listener <- NewDirectSignal("Channel Closed")
+          close(listener)
+        }(listener)
+    }
+  }
+  thread.SubscribeListeners = active_listeners
+  thread.SubscribeLock.Unlock()
+  return thread.Thread.Process(context, signal)
 }
 
 func (thread * GQLThread) Type() NodeType {
@@ -650,17 +681,8 @@ func (thread * GQLThread) Serialize() ([]byte, error) {
   return json.MarshalIndent(&thread_json, "", "  ")
 }
 
-func (thread * GQLThread) DeserializeInfo(ctx *Context, data []byte) (ThreadInfo, error) {
-  var info ParentThreadInfo
-  err := json.Unmarshal(data, &info)
-  if err != nil {
-    return nil, err
-  }
-  return &info, nil
-}
-
 type GQLThreadJSON struct {
-  SimpleThreadJSON
+  ThreadJSON
   Listen string `json:"listen"`
   Users []string `json:"users"`
   Key []byte `json:"key"`
@@ -686,7 +708,7 @@ var ecdh_curve_ids = map[ecdh.Curve]uint8{
 }
 
 func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
-  thread_json := NewSimpleThreadJSON(&thread.SimpleThread)
+  thread_json := NewThreadJSON(&thread.Thread)
 
   ser_key, err := x509.MarshalECPrivateKey(thread.Key)
   if err != nil {
@@ -701,7 +723,7 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
   }
 
   return GQLThreadJSON{
-    SimpleThreadJSON: thread_json,
+    ThreadJSON: thread_json,
     Listen: thread.Listen,
     Users: users,
     Key: ser_key,
@@ -744,7 +766,7 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
     thread.Users[id] = user.(*User)
   }
 
-  err = RestoreSimpleThread(ctx, &thread, j.SimpleThreadJSON, nodes)
+  err = RestoreThread(ctx, &thread.Thread, j.ThreadJSON, nodes)
   if err != nil {
     return nil, err
   }
@@ -793,8 +815,9 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
     tls_key = ssl_key_pem
   }
   return GQLThread{
-    SimpleThread: NewSimpleThread(id, name, state_name, reflect.TypeOf((*ParentThreadInfo)(nil)), gql_actions, gql_handlers),
+    Thread: NewThread(id, name, state_name, []InfoType{"parent"}, gql_actions, gql_handlers),
     Listen: listen,
+    SubscribeListeners: []chan GraphSignal{},
     Users: map[NodeID]*User{},
     http_done: &sync.WaitGroup{},
     Key: key,
@@ -806,40 +829,23 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
 
 var gql_actions ThreadActions = ThreadActions{
   "wait": ThreadWait,
-  "restore": func(ctx * Context, thread Thread) (string, error) {
-    ctx.Log.Logf("gql", "GQL_THREAD_RESTORE: %s", thread.ID())
-    // Restore all the threads that have "Start" as true and arent in the "finished" state
-    err := ThreadRestore(ctx, thread, false)
-    if err != nil {
-      return "", err
-    }
-    return "start_server", nil
+  "restore": func(ctx *Context, node ThreadNode) (string, error) {
+    return "start_server", ThreadRestore(ctx, node, false)
   },
-  "start": func(ctx * Context, thread Thread) (string, error) {
-    ctx.Log.Logf("gql", "GQL_START")
-    err := ThreadStart(ctx, thread)
+  "start": func(ctx * Context, node ThreadNode) (string, error) {
+    _, err := ThreadStart(ctx, node)
     if err != nil {
       return "", err
     }
-    // Start all the threads that have "Start" as true and arent in the "finished" state
-    err = ThreadRestore(ctx, thread, true)
-    if err != nil {
-      return "", err
-    }
-    return "start_server", nil
+    return "start_server", ThreadRestore(ctx, node, true)
   },
-  "start_server": func(ctx * Context, thread Thread) (string, error) {
-    server, ok := thread.(*GQLThread)
-    if ok == false {
-      return "", fmt.Errorf("GQL_THREAD_START: %s is not GQLThread, %+v", thread.ID(), thread.State())
-    }
+  "start_server": func(ctx * Context, node ThreadNode) (string, error) {
+    gql_thread := node.(*GQLThread)
 
-    ctx.Log.Logf("gql", "GQL_START_SERVER")
-    // Serve the GQL http and ws handlers
     mux := http.NewServeMux()
-    mux.HandleFunc("/auth", AuthHandler(ctx, server))
-    mux.HandleFunc("/gql", GQLHandler(ctx, server))
-    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, server))
+    mux.HandleFunc("/auth", AuthHandler(ctx, gql_thread))
+    mux.HandleFunc("/gql", GQLHandler(ctx, gql_thread))
+    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, gql_thread))
 
     // Server a graphiql interface(TODO make configurable whether to start this)
     mux.HandleFunc("/graphiql", GraphiQLHandler())
@@ -849,7 +855,7 @@ var gql_actions ThreadActions = ThreadActions{
     mux.Handle("/site/", http.StripPrefix("/site", fs))
 
     http_server := &http.Server{
-      Addr: server.Listen,
+      Addr: gql_thread.Listen,
       Handler: mux,
     }
 
@@ -858,7 +864,7 @@ var gql_actions ThreadActions = ThreadActions{
       return "", fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
     }
 
-    cert, err := tls.X509KeyPair(server.tls_cert, server.tls_key)
+    cert, err := tls.X509KeyPair(gql_thread.tls_cert, gql_thread.tls_key)
     if err != nil {
       return "", err
     }
@@ -870,23 +876,23 @@ var gql_actions ThreadActions = ThreadActions{
 
     listener := tls.NewListener(l, &config)
 
-    server.http_done.Add(1)
-    go func(server *GQLThread) {
-      defer server.http_done.Done()
+    gql_thread.http_done.Add(1)
+    go func(gql_thread *GQLThread) {
+      defer gql_thread.http_done.Done()
 
       err := http_server.Serve(listener)
       if err != http.ErrServerClosed {
           panic(fmt.Sprintf("Failed to start gql server: %s", err))
       }
-    }(server)
+    }(gql_thread)
 
 
     context := NewWriteContext(ctx)
-    err = UpdateStates(context, server, NewLockMap(
-      NewLockInfo(server, []string{"http_server"}),
+    err = UpdateStates(context, gql_thread, NewLockMap(
+      NewLockInfo(gql_thread, []string{"http_server"}),
     ), func(context *StateContext) error {
-      server.tcp_listener = listener
-      server.http_server = http_server
+      gql_thread.tcp_listener = listener
+      gql_thread.http_server = http_server
       return nil
     })
 
@@ -895,24 +901,24 @@ var gql_actions ThreadActions = ThreadActions{
     }
 
     context = NewReadContext(ctx)
-    err = Signal(context, server, server, NewStatusSignal("server_started", server.ID()))
+    err = Signal(context, gql_thread, gql_thread, NewStatusSignal("server_started", gql_thread.ID()))
     if err != nil {
       return "", err
     }
 
     return "wait", nil
   },
-  "finish": func(ctx *Context, thread Thread) (string, error) {
-    server := thread.(*GQLThread)
-    server.http_server.Shutdown(context.TODO())
-    server.http_done.Wait()
-    return "", ThreadFinish(ctx, thread)
+  "finish": func(ctx *Context, node ThreadNode) (string, error) {
+    gql_thread := node.(*GQLThread)
+    gql_thread.http_server.Shutdown(context.TODO())
+    gql_thread.http_done.Wait()
+    return ThreadFinish(ctx, node)
   },
 }
 
 var gql_handlers ThreadHandlers = ThreadHandlers{
-  "child_linked": ThreadParentChildLinked,
-  "start_child": ThreadParentStartChild,
+  "child_linked": ThreadChildLinked,
+  "start_child": ThreadStartChild,
   "abort": ThreadAbort,
   "stop": ThreadStop,
 }

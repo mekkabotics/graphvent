@@ -20,46 +20,37 @@ import (
 
 func TestGQLDBLoad(t * testing.T) {
   ctx := logTestContext(t, []string{"test", "signal", "policy", "thread"})
-  l1_r := NewSimpleLockable(RandID(), "Test Lockable 1")
-  l1 := &l1_r
+  l1 := NewListener(RandID(), "Test Lockable 1")
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID().String())
 
-  t1_r := NewSimpleThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
-  t1 := &t1_r
+  t1 := NewThread(RandID(), "Test Thread 1", "init", nil, BaseThreadActions, BaseThreadHandlers)
   ctx.Log.Logf("test", "T1_ID: %s", t1.ID().String())
   listen_id := RandID()
   ctx.Log.Logf("test", "LISTENER_ID: %s", listen_id.String())
-  update_channel := UpdateChannel(t1, 10, listen_id)
 
   u1_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  u1_shared := []byte{0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x23, 0x45, 0x67}
-
-  u1_r := NewUser("Test User", time.Now(), &u1_key.PublicKey, u1_shared, []string{"gql"})
-  u1 := &u1_r
+  u1 := NewUser("Test User", time.Now(), &u1_key.PublicKey, []byte{}, []string{"gql"})
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID().String())
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
-  gql_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
-  gql := &gql_r
+  gql := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID().String())
 
   // Policy to allow gql to perform all action on all resources
-  p1_r := NewPerNodePolicy(RandID(), map[NodeID]NodeActions{
+  p1 := NewPerNodePolicy(RandID(), map[NodeID]NodeActions{
     gql.ID(): NewNodeActions(nil, []string{"*"}),
   })
-  p1 := &p1_r
-  p2_r := NewSimplePolicy(RandID(), NewNodeActions(NodeActions{
+  p2 := NewSimplePolicy(RandID(), NewNodeActions(NodeActions{
     "signal": []string{"status"},
   }, nil))
-  p2 := &p2_r
 
   context := NewWriteContext(ctx)
-  err = UpdateStates(context, gql, LockMap{
-    p1.ID(): LockInfo{p1, nil},
-    p2.ID(): LockInfo{p2, nil},
+  err = UpdateStates(context, &gql, LockMap{
+    p1.ID(): LockInfo{&p1, nil},
+    p2.ID(): LockInfo{&p2, nil},
   }, func(context *StateContext) error {
     return nil
   })
@@ -67,46 +58,48 @@ func TestGQLDBLoad(t * testing.T) {
 
   ctx.Log.Logf("test", "P1_ID: %s", p1.ID().String())
   ctx.Log.Logf("test", "P2_ID: %s", p2.ID().String())
-  err = AttachPolicies(ctx, gql, p1, p2)
+  err = AttachPolicies(ctx, &gql.SimpleNode, &p1, &p2)
   fatalErr(t, err)
-  err = AttachPolicies(ctx, l1, p1, p2)
+  err = AttachPolicies(ctx, &l1.SimpleNode, &p1, &p2)
   fatalErr(t, err)
-  err = AttachPolicies(ctx, t1, p1, p2)
+  err = AttachPolicies(ctx, &t1.SimpleNode, &p1, &p2)
   fatalErr(t, err)
-  err = AttachPolicies(ctx, u1, p1, p2)
+  err = AttachPolicies(ctx, &u1.SimpleNode, &p1, &p2)
   fatalErr(t, err)
 
   info := NewParentThreadInfo(true, "start", "restore")
   context = NewWriteContext(ctx)
-  err = UpdateStates(context, gql, NewLockMap(
-    NewLockInfo(gql, []string{"users"}),
+  err = UpdateStates(context, &gql, NewLockMap(
+    NewLockInfo(&gql, []string{"users"}),
   ), func(context *StateContext) error {
-    gql.Users[KeyID(&u1_key.PublicKey)] = u1
+    gql.Users[KeyID(&u1_key.PublicKey)] = &u1
 
-    err := LinkThreads(context, gql, gql, t1, &info)
+    err := LinkThreads(context, &gql, &gql, ChildInfo{&t1, map[InfoType]interface{}{
+      "parent": &info,
+    }})
     if err != nil {
       return err
     }
-    return LinkLockables(context, gql, gql, []Lockable{l1})
+    return LinkLockables(context, &gql, &gql, []LockableNode{&l1})
   })
   fatalErr(t, err)
 
   context = NewReadContext(ctx)
-  err = Signal(context, gql, gql, NewStatusSignal("child_linked", t1.ID()))
+  err = Signal(context, &gql, &gql, NewStatusSignal("child_linked", t1.ID()))
   fatalErr(t, err)
   context = NewReadContext(ctx)
-  err = Signal(context, gql, gql, AbortSignal)
+  err = Signal(context, &gql, &gql, AbortSignal)
   fatalErr(t, err)
 
-  err = ThreadLoop(ctx, gql, "start")
+  err = ThreadLoop(ctx, &gql, "start")
   if errors.Is(err, ThreadAbortedError) == false {
     fatalErr(t, err)
   }
 
-  (*GraphTester)(t).WaitForStatus(ctx, update_channel, "aborted", 100*time.Millisecond, "Didn't receive aborted on update_channel")
+  (*GraphTester)(t).WaitForStatus(ctx, l1.Chan, "aborted", 100*time.Millisecond, "Didn't receive aborted on listener")
 
   context = NewReadContext(ctx)
-  err = UseStates(context, gql, LockList([]Node{gql, u1}, nil), func(context *StateContext) error {
+  err = UseStates(context, &gql, LockList([]Node{&gql, &u1}, nil), func(context *StateContext) error {
     ser1, err := gql.Serialize()
     ser2, err := u1.Serialize()
     ctx.Log.Logf("test", "\n%s\n\n", ser1)
@@ -116,18 +109,15 @@ func TestGQLDBLoad(t * testing.T) {
 
   gql_loaded, err := LoadNode(ctx, gql.ID())
   fatalErr(t, err)
-  var t1_loaded *SimpleThread = nil
-
-  var update_channel_2 chan GraphSignal
+  var l1_loaded *Listener = nil
   context = NewReadContext(ctx)
-  err = UseStates(context, gql, NewLockInfo(gql_loaded, []string{"users", "children"}), func(context *StateContext) error {
+  err = UseStates(context, gql_loaded, NewLockInfo(gql_loaded, []string{"users", "children", "requirements"}), func(context *StateContext) error {
     ser, err := gql_loaded.Serialize()
     ctx.Log.Logf("test", "\n%s\n\n", ser)
+    dependency := gql_loaded.(*GQLThread).Thread.Dependencies[l1.ID()].(*Listener)
+    l1_loaded = dependency
     u_loaded := gql_loaded.(*GQLThread).Users[u1.ID()]
-    child := gql_loaded.(Thread).Children()[0].(*SimpleThread)
-    t1_loaded = child
-    update_channel_2 = UpdateChannel(t1_loaded, 10, RandID())
-    err = UseStates(context, gql, NewLockInfo(u_loaded, nil), func(context *StateContext) error {
+    err = UseStates(context, gql_loaded, NewLockInfo(u_loaded, nil), func(context *StateContext) error {
       ser, err := u_loaded.Serialize()
       ctx.Log.Logf("test", "\n%s\n\n", ser)
       return err
@@ -136,9 +126,9 @@ func TestGQLDBLoad(t * testing.T) {
     return err
   })
 
-  err = ThreadLoop(ctx, gql_loaded.(Thread), "start")
+  err = ThreadLoop(ctx, gql_loaded.(ThreadNode), "start")
   fatalErr(t, err)
-  (*GraphTester)(t).WaitForStatus(ctx, update_channel_2, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
+  (*GraphTester)(t).WaitForStatus(ctx, l1_loaded.Chan, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
 
 }
 
@@ -153,23 +143,19 @@ func TestGQLAuth(t * testing.T) {
   gql_t_r := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
   gql_t := &gql_t_r
 
-  // p1 not written to DB, TODO: update write to follow links maybe
-  context := NewWriteContext(ctx)
-  err = UpdateStates(context, gql_t, NewLockInfo(gql_t, []string{"policies"}), func(context *StateContext) error {
-    return gql_t.AddPolicy(p1)
-  })
-
-  done := make(chan error, 1)
-
-  var update_channel chan GraphSignal
-  context = NewReadContext(ctx)
-  err = UseStates(context, gql_t, NewLockInfo(gql_t, nil), func(context *StateContext) error {
-    update_channel = UpdateChannel(gql_t, 10, NodeID{})
-    return nil
-  })
+  l1 := NewListener(RandID(), "GQL Thread")
+  err = AttachPolicies(ctx, &l1.SimpleNode, p1)
   fatalErr(t, err)
 
-  go func(done chan error, thread Thread) {
+  err = AttachPolicies(ctx, &gql_t.SimpleNode, p1)
+  done := make(chan error, 1)
+
+  context := NewWriteContext(ctx)
+  err = LinkLockables(context, gql_t, gql_t, []LockableNode{&l1})
+  fatalErr(t, err)
+
+
+  go func(done chan error, thread ThreadNode) {
     timeout := time.After(2*time.Second)
     select {
     case <-timeout:
@@ -182,8 +168,8 @@ func TestGQLAuth(t * testing.T) {
     fatalErr(t, err)
   }(done, gql_t)
 
-  go func(thread Thread){
-    (*GraphTester)(t).WaitForStatus(ctx, update_channel, "server_started", 100*time.Millisecond, "Server didn't start")
+  go func(thread ThreadNode){
+    (*GraphTester)(t).WaitForStatus(ctx, l1.Chan, "server_started", 100*time.Millisecond, "Server didn't start")
     port := gql_t.tcp_listener.Addr().(*net.TCPAddr).Port
     ctx.Log.Logf("test", "GQL_PORT: %d", port)
 

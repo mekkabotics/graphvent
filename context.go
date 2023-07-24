@@ -86,8 +86,8 @@ func (ctx * Context) RegisterNodeType(def NodeDef) error {
   ctx.Types[type_hash] = def
 
   node_type := reflect.TypeOf((*Node)(nil)).Elem()
-  lockable_type := reflect.TypeOf((*Lockable)(nil)).Elem()
-  thread_type := reflect.TypeOf((*Thread)(nil)).Elem()
+  lockable_type := reflect.TypeOf((*LockableNode)(nil)).Elem()
+  thread_type := reflect.TypeOf((*ThreadNode)(nil)).Elem()
 
   if def.Reflect.Implements(node_type) {
     ctx.GQL.ValidNodes[def.Reflect] = def.GQLType
@@ -154,7 +154,7 @@ func NewGQLContext() GQLContext {
     Query: query,
     Mutation: mutation,
     Subscription: subscription,
-    BaseNodeType: GQLTypeGraphNode.Type,
+    BaseNodeType: GQLTypeSimpleNode.Type,
     BaseLockableType: GQLTypeSimpleLockable.Type,
     BaseThreadType: GQLTypeSimpleThread.Type,
   }
@@ -171,15 +171,19 @@ func NewContext(db * badger.DB, log Logger) * Context {
     Types: map[uint64]NodeDef{},
   }
 
-  err := ctx.RegisterNodeType(NewNodeDef((*GraphNode)(nil), LoadGraphNode, GQLTypeGraphNode.Type))
+  err := ctx.RegisterNodeType(NewNodeDef((*SimpleNode)(nil), LoadSimpleNode, GQLTypeSimpleNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*SimpleLockable)(nil), LoadSimpleLockable, GQLTypeSimpleLockable.Type))
+  err = ctx.RegisterNodeType(NewNodeDef((*Lockable)(nil), LoadLockable, GQLTypeSimpleLockable.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*SimpleThread)(nil), LoadSimpleThread, GQLTypeSimpleThread.Type))
+  err = ctx.RegisterNodeType(NewNodeDef((*Listener)(nil), LoadListener, GQLTypeSimpleLockable.Type))
+  if err != nil {
+    panic(err)
+  }
+  err = ctx.RegisterNodeType(NewNodeDef((*Thread)(nil), LoadThread, GQLTypeSimpleThread.Type))
   if err != nil {
     panic(err)
   }
@@ -191,19 +195,19 @@ func NewContext(db * badger.DB, log Logger) * Context {
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*PerNodePolicy)(nil), LoadPerNodePolicy, GQLTypeGraphNode.Type))
+  err = ctx.RegisterNodeType(NewNodeDef((*PerNodePolicy)(nil), LoadPerNodePolicy, GQLTypeSimpleNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*SimplePolicy)(nil), LoadSimplePolicy, GQLTypeGraphNode.Type))
+  err = ctx.RegisterNodeType(NewNodeDef((*SimplePolicy)(nil), LoadSimplePolicy, GQLTypeSimpleNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*PerTagPolicy)(nil), LoadPerTagPolicy, GQLTypeGraphNode.Type))
+  err = ctx.RegisterNodeType(NewNodeDef((*PerTagPolicy)(nil), LoadPerTagPolicy, GQLTypeSimpleNode.Type))
   if err != nil {
     panic(err)
   }
-  err = ctx.RegisterNodeType(NewNodeDef((*DependencyPolicy)(nil), LoadSimplePolicy, GQLTypeGraphNode.Type))
+  err = ctx.RegisterNodeType(NewNodeDef((*DependencyPolicy)(nil), LoadSimplePolicy, GQLTypeSimpleNode.Type))
   if err != nil {
     panic(err)
   }

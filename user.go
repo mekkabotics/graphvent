@@ -9,7 +9,7 @@ import (
 )
 
 type User struct {
-  SimpleLockable
+  Lockable
 
   Granted time.Time
   Pubkey *ecdsa.PublicKey
@@ -18,7 +18,7 @@ type User struct {
 }
 
 type UserJSON struct {
-  SimpleLockableJSON
+  LockableJSON
   Granted time.Time `json:"granted"`
   Pubkey []byte `json:"pubkey"`
   Shared []byte `json:"shared"`
@@ -30,14 +30,14 @@ func (user *User) Type() NodeType {
 }
 
 func (user *User) Serialize() ([]byte, error) {
-  lockable_json := NewSimpleLockableJSON(&user.SimpleLockable)
+  lockable_json := NewLockableJSON(&user.Lockable)
   pubkey, err := x509.MarshalPKIXPublicKey(user.Pubkey)
   if err != nil {
     return nil, err
   }
 
   return json.MarshalIndent(&UserJSON{
-    SimpleLockableJSON: lockable_json,
+    LockableJSON: lockable_json,
     Granted: user.Granted,
     Shared: user.Shared,
     Pubkey: pubkey,
@@ -68,7 +68,7 @@ func LoadUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error)
   user := NewUser(j.Name, j.Granted, pubkey, j.Shared, j.Tags)
   nodes[id] = &user
 
-  err = RestoreSimpleLockable(ctx, &user, j.SimpleLockableJSON, nodes)
+  err = RestoreLockable(ctx, &user.Lockable, j.LockableJSON, nodes)
   if err != nil {
     return nil, err
   }
@@ -79,7 +79,7 @@ func LoadUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error)
 func NewUser(name string, granted time.Time, pubkey *ecdsa.PublicKey, shared []byte, tags []string) User {
   id := KeyID(pubkey)
   return User{
-    SimpleLockable: NewSimpleLockable(id, name),
+    Lockable: NewLockable(id, name),
     Granted: granted,
     Pubkey: pubkey,
     Shared: shared,

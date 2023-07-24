@@ -28,7 +28,7 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
       err = UseStates(context, ctx.User, NewLockMap(
         NewLockInfo(ctx.Server, []string{"children"}),
       ), func(context *StateContext) (error){
-        node = FindChild(context, ctx.User, ctx.Server, id)
+        node = FindChild(context, ctx.User, &ctx.Server.Thread, id)
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
@@ -86,13 +86,13 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       err = UseStates(context, ctx.User, NewLockMap(
         NewLockInfo(ctx.Server, []string{"children"}),
       ), func(context *StateContext) error {
-        node := FindChild(context, ctx.User, ctx.Server, parent_id)
-        if node == nil {
-          return fmt.Errorf("Failed to find ID: %s as child of server thread", parent_id)
+        parent := FindChild(context, ctx.User, &ctx.Server.Thread, parent_id)
+        if parent == nil {
+          return fmt.Errorf("%s is not a child of %s", parent_id, ctx.Server.ID())
         }
 
         signal = NewStartChildSignal(child_id, action)
-        return Signal(context, node, ctx.User, signal)
+        return Signal(context, ctx.User, parent, signal)
       })
       if err != nil {
         return nil, err

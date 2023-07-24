@@ -24,7 +24,7 @@ func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *G
   c := make(chan interface{})
   go func(c chan interface{}, server *GQLThread) {
     ctx.Context.Log.Logf("gqlws", "GQL_SUBSCRIBE_THREAD_START")
-    sig_c := UpdateChannel(server, 1, RandID())
+    sig_c := server.NewSubscriptionChannel(1)
     if send_nil == true {
       sig_c <- nil
     }

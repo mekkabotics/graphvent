@@ -44,12 +44,12 @@ func NewNodeActions(resource_actions NodeActions, wildcard_actions []string) Nod
 }
 
 type PerNodePolicy struct {
-  GraphNode
+  SimpleNode
   Actions map[NodeID]NodeActions
 }
 
 type PerNodePolicyJSON struct {
-  GraphNodeJSON
+  SimpleNodeJSON
   Actions map[string]map[string][]string `json:"actions"`
 }
 
@@ -64,7 +64,7 @@ func (policy *PerNodePolicy) Serialize() ([]byte, error) {
   }
 
   return json.MarshalIndent(&PerNodePolicyJSON{
-    GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
+    SimpleNodeJSON: NewSimpleNodeJSON(&policy.SimpleNode),
     Actions: actions,
   }, "", "  ")
 }
@@ -75,7 +75,7 @@ func NewPerNodePolicy(id NodeID, actions map[NodeID]NodeActions) PerNodePolicy {
   }
 
   return PerNodePolicy{
-    GraphNode: NewGraphNode(id),
+    SimpleNode: NewSimpleNode(id),
     Actions: actions,
   }
 }
@@ -100,7 +100,7 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
   policy := NewPerNodePolicy(id, actions)
   nodes[id] = &policy
 
-  err = RestoreGraphNode(ctx, &policy.GraphNode, j.GraphNodeJSON, nodes)
+  err = RestoreSimpleNode(ctx, &policy.SimpleNode, j.SimpleNodeJSON, nodes)
   if err != nil {
     return nil, err
   }
@@ -122,12 +122,12 @@ func (policy *PerNodePolicy) Allows(node Node, resource string, action string, p
 }
 
 type SimplePolicy struct {
-  GraphNode
+  SimpleNode
   Actions NodeActions
 }
 
 type SimplePolicyJSON struct {
-  GraphNodeJSON
+  SimpleNodeJSON
   Actions map[string][]string `json:"actions"`
 }
 
@@ -137,7 +137,7 @@ func (policy *SimplePolicy) Type() NodeType {
 
 func (policy *SimplePolicy) Serialize() ([]byte, error) {
   return json.MarshalIndent(&SimplePolicyJSON{
-    GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
+    SimpleNodeJSON: NewSimpleNodeJSON(&policy.SimpleNode),
     Actions: policy.Actions,
   }, "", "  ")
 }
@@ -148,7 +148,7 @@ func NewSimplePolicy(id NodeID, actions NodeActions) SimplePolicy {
   }
 
   return SimplePolicy{
-    GraphNode: NewGraphNode(id),
+    SimpleNode: NewSimpleNode(id),
     Actions: actions,
   }
 }
@@ -163,7 +163,7 @@ func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   policy := NewSimplePolicy(id, j.Actions)
   nodes[id] = &policy
 
-  err = RestoreGraphNode(ctx, &policy.GraphNode, j.GraphNodeJSON, nodes)
+  err = RestoreSimpleNode(ctx, &policy.SimpleNode, j.SimpleNodeJSON, nodes)
   if err != nil {
     return nil, err
   }
@@ -176,12 +176,12 @@ func (policy *SimplePolicy) Allows(node Node, resource string, action string, pr
 }
 
 type PerTagPolicy struct {
-  GraphNode
+  SimpleNode
   Actions map[string]NodeActions
 }
 
 type PerTagPolicyJSON struct {
-  GraphNodeJSON
+  SimpleNodeJSON
   Actions map[string]map[string][]string `json:"json"`
 }
 
@@ -196,7 +196,7 @@ func (policy *PerTagPolicy) Serialize() ([]byte, error) {
   }
 
   return json.MarshalIndent(&PerTagPolicyJSON{
-    GraphNodeJSON: NewGraphNodeJSON(&policy.GraphNode),
+    SimpleNodeJSON: NewSimpleNodeJSON(&policy.SimpleNode),
     Actions: actions,
   }, "", "  ")
 }
@@ -207,7 +207,7 @@ func NewPerTagPolicy(id NodeID, actions map[string]NodeActions) PerTagPolicy {
   }
 
   return PerTagPolicy{
-    GraphNode: NewGraphNode(id),
+    SimpleNode: NewSimpleNode(id),
     Actions: actions,
   }
 }
@@ -227,7 +227,7 @@ func LoadPerTagPolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node
   policy := NewPerTagPolicy(id, actions)
   nodes[id] = &policy
 
-  err = RestoreGraphNode(ctx, &policy.GraphNode, j.GraphNodeJSON, nodes)
+  err = RestoreSimpleNode(ctx, &policy.SimpleNode, j.SimpleNodeJSON, nodes)
   if err != nil {
     return nil, err
   }
@@ -268,12 +268,12 @@ func NewDependencyPolicy(id NodeID, actions NodeActions) DependencyPolicy {
 }
 
 func (policy *DependencyPolicy) Allows(node Node, resource string, action string, principal Node) bool {
-  lockable, ok := node.(Lockable)
+  lockable, ok := node.(LockableNode)
   if ok == false {
     return false
   }
 
-  for _, dep := range(lockable.Dependencies()) {
+  for _, dep := range(lockable.LockableHandle().Dependencies) {
     if dep.ID() == principal.ID() {
       return policy.Actions.Allows(resource, action)
     }

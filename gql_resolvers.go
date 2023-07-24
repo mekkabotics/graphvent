@@ -105,15 +105,15 @@ func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Thread)
+  node, ok := p.Source.(*Thread)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Thread")
   }
 
-  var parent Thread = nil
+  var parent ThreadNode = nil
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"parent"}), func(context *StateContext) error {
-    parent = node.Parent()
+    parent = node.ThreadHandle().Parent
     return nil
   })
 
@@ -130,7 +130,7 @@ func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Thread)
+  node, ok := p.Source.(ThreadNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Thread")
   }
@@ -138,7 +138,7 @@ func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
   var state string
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"state"}), func(context *StateContext) error {
-    state = node.State()
+    state = node.ThreadHandle().StateName
     return nil
   })
 
@@ -155,15 +155,20 @@ func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Thread)
+  node, ok := p.Source.(ThreadNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Thread")
   }
 
-  var children []Thread = nil
+  var children []ThreadNode = nil
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"children"}), func(context *StateContext) error {
-    children = node.Children()
+    children = make([]ThreadNode, len(node.ThreadHandle().Children))
+    i := 0
+    for _, info := range(node.ThreadHandle().Children) {
+      children[i] = info.Child
+      i += 1
+    }
     return nil
   })
 
@@ -180,7 +185,7 @@ func GQLLockableName(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Lockable)
+  node, ok := p.Source.(LockableNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
@@ -188,7 +193,7 @@ func GQLLockableName(p graphql.ResolveParams) (interface{}, error) {
   name := ""
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"name"}), func(context *StateContext) error {
-    name = node.Name()
+    name = node.LockableHandle().Name
     return nil
   })
 
@@ -205,15 +210,20 @@ func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Lockable)
+  node, ok := p.Source.(LockableNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
 
-  var requirements []Lockable = nil
+  var requirements []LockableNode = nil
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"requirements"}), func(context *StateContext) error {
-    requirements = node.Requirements()
+    requirements = make([]LockableNode, len(node.LockableHandle().Requirements))
+    i := 0
+    for _, req := range(node.LockableHandle().Requirements) {
+      requirements[i] = req
+      i += 1
+    }
     return nil
   })
 
@@ -230,15 +240,20 @@ func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Lockable)
+  node, ok := p.Source.(LockableNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
 
-  var dependencies []Lockable = nil
+  var dependencies []LockableNode = nil
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"dependencies"}), func(context *StateContext) error {
-    dependencies = node.Dependencies()
+    dependencies = make([]LockableNode, len(node.LockableHandle().Dependencies))
+    i := 0
+    for _, dep := range(node.LockableHandle().Dependencies) {
+      dependencies[i] = dep
+      i += 1
+    }
     return nil
   })
 
@@ -255,7 +270,7 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
     return nil, err
   }
 
-  node, ok := p.Source.(Lockable)
+  node, ok := p.Source.(LockableNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to Lockable")
   }
@@ -263,7 +278,7 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   var owner Node = nil
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"owner"}), func(context *StateContext) error {
-    owner = node.Owner()
+    owner = node.LockableHandle().Owner
     return nil
   })
 

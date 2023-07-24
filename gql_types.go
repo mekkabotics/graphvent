@@ -142,9 +142,9 @@ var GQLTypeSimpleLockable = NewSingleton(func() *graphql.Object {
   return gql_type_simple_lockable
 }, nil)
 
-var GQLTypeGraphNode = NewSingleton(func() *graphql.Object {
+var GQLTypeSimpleNode = NewSingleton(func() *graphql.Object {
   object := graphql.NewObject(graphql.ObjectConfig{
-    Name: "GraphNode",
+    Name: "SimpleNode",
     Interfaces: []*graphql.Interface{
       GQLInterfaceNode.Type,
     },
