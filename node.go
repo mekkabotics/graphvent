@@ -203,7 +203,7 @@ func (node * GraphNode) Type() NodeType {
 func Signal(context *StateContext, node Node, princ Node, signal GraphSignal) error {
   context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID(), signal.String())
 
-  err := UseStates(context, princ, NewLockInfo(node, []string{"policies"}), func(context *StateContext) error {
+  err := UseStates(context, princ, NewLockInfo(node, []string{}), func(context *StateContext) error {
     return Allowed(context, node.Policies(), node, "signal", signal.Type(), princ)
   })
 
