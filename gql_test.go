@@ -31,7 +31,7 @@ func TestGQLDBLoad(t * testing.T) {
   u1_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  u1 := NewUser("Test User", time.Now(), &u1_key.PublicKey, []byte{}, []string{"gql"})
+  u1 := NewUser("Test User", time.Now(), &u1_key.PublicKey, []byte{})
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID().String())
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -137,13 +137,12 @@ func TestGQLAuth(t * testing.T) {
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  p1 := NewPerTagPolicy(RandID(), map[string]NodeActions{"gql": NewNodeActions(nil, []string{"read"})})
   p2 := NewSimplePolicy(RandID(), NewNodeActions(NodeActions{
     "signal": []string{"status"},
   }, nil))
 
   l1 := NewListener(RandID(), "GQL Thread")
-  err = AttachPolicies(ctx, &l1, &p1, &p2)
+  err = AttachPolicies(ctx, &l1, &p2)
   fatalErr(t, err)
 
   p3 := NewPerNodePolicy(RandID(), map[NodeID]NodeActions{
@@ -151,7 +150,7 @@ func TestGQLAuth(t * testing.T) {
   })
 
   gql := NewGQLThread(RandID(), "GQL Thread", "init", ":0", ecdh.P256(), key, nil, nil)
-  err = AttachPolicies(ctx, &gql, &p1, &p2, &p3)
+  err = AttachPolicies(ctx, &gql, &p2, &p3)
 
   context := NewWriteContext(ctx)
   err = LinkLockables(context, &l1, &l1, []LockableNode{&gql})

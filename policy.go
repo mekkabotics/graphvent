@@ -175,82 +175,6 @@ func (policy *SimplePolicy) Allows(node Node, resource string, action string, pr
   return policy.Actions.Allows(resource, action)
 }
 
-type PerTagPolicy struct {
-  SimpleNode
-  Actions map[string]NodeActions
-}
-
-type PerTagPolicyJSON struct {
-  SimpleNodeJSON
-  Actions map[string]map[string][]string `json:"json"`
-}
-
-func (policy *PerTagPolicy) Type() NodeType {
-  return NodeType("per_tag_policy")
-}
-
-func (policy *PerTagPolicy) Serialize() ([]byte, error) {
-  actions := map[string]map[string][]string{}
-  for tag, tag_actions := range(policy.Actions) {
-    actions[tag] = tag_actions
-  }
-
-  return json.MarshalIndent(&PerTagPolicyJSON{
-    SimpleNodeJSON: NewSimpleNodeJSON(&policy.SimpleNode),
-    Actions: actions,
-  }, "", "  ")
-}
-
-func NewPerTagPolicy(id NodeID, actions map[string]NodeActions) PerTagPolicy {
-  if actions == nil {
-    actions = map[string]NodeActions{}
-  }
-
-  return PerTagPolicy{
-    SimpleNode: NewSimpleNode(id),
-    Actions: actions,
-  }
-}
-
-func LoadPerTagPolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j PerTagPolicyJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
-  actions := map[string]NodeActions{}
-  for tag, tag_actions := range(j.Actions) {
-    actions[tag] = tag_actions
-  }
-
-  policy := NewPerTagPolicy(id, actions)
-  nodes[id] = &policy
-
-  err = RestoreSimpleNode(ctx, &policy.SimpleNode, j.SimpleNodeJSON, nodes)
-  if err != nil {
-    return nil, err
-  }
-
-  return &policy, nil
-}
-
-func (policy *PerTagPolicy) Allows(node Node, resource string, action string, principal Node) bool {
-  user, ok := principal.(*User)
-  if ok == false {
-    return false
-  }
-
-  for _, tag := range(user.Tags) {
-    tag_actions, exists := policy.Actions[tag]
-    if exists == true {
-      if tag_actions.Allows(resource, action) == true {
-        return true
-      }
-    }
-  }
-  return false
-}
 
 type DependencyPolicy struct {
   SimplePolicy
@@ -258,7 +182,7 @@ type DependencyPolicy struct {
 
 
 func (policy *DependencyPolicy) Type() NodeType {
-  return NodeType("parent_policy")
+  return NodeType("dependency_policy")
 }
 
 func NewDependencyPolicy(id NodeID, actions NodeActions) DependencyPolicy {
@@ -275,6 +199,99 @@ func (policy *DependencyPolicy) Allows(node Node, resource string, action string
 
   for _, dep := range(lockable.LockableHandle().Dependencies) {
     if dep.ID() == principal.ID() {
+      return policy.Actions.Allows(resource, action)
+    }
+  }
+
+  return false
+}
+
+type RequirementPolicy struct {
+  SimplePolicy
+}
+
+
+func (policy *RequirementPolicy) Type() NodeType {
+  return NodeType("dependency_policy")
+}
+
+func NewRequirementPolicy(id NodeID, actions NodeActions) RequirementPolicy {
+  return RequirementPolicy{
+    SimplePolicy: NewSimplePolicy(id, actions),
+  }
+}
+
+func (policy *RequirementPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+  lockable_node, ok := node.(LockableNode)
+  if ok == false {
+    return false
+  }
+  lockable := lockable_node.LockableHandle()
+
+  for _, req := range(lockable.Requirements) {
+    if req.ID() == principal.ID() {
+      return policy.Actions.Allows(resource, action)
+    }
+  }
+
+  return false
+}
+
+type ParentPolicy struct {
+  SimplePolicy
+}
+
+
+func (policy *ParentPolicy) Type() NodeType {
+  return NodeType("parent_policy")
+}
+
+func NewParentPolicy(id NodeID, actions NodeActions) ParentPolicy {
+  return ParentPolicy{
+    SimplePolicy: NewSimplePolicy(id, actions),
+  }
+}
+
+func (policy *ParentPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+  thread_node, ok := node.(ThreadNode)
+  if ok == false {
+    return false
+  }
+  thread := thread_node.ThreadHandle()
+
+  if thread.Owner != nil {
+    if thread.Owner.ID() == principal.ID() {
+      return policy.Actions.Allows(resource, action)
+    }
+  }
+
+  return false
+}
+
+type ChildrenPolicy struct {
+  SimplePolicy
+}
+
+
+func (policy *ChildrenPolicy) Type() NodeType {
+  return NodeType("children_policy")
+}
+
+func NewChildrenPolicy(id NodeID, actions NodeActions) ChildrenPolicy {
+  return ChildrenPolicy{
+    SimplePolicy: NewSimplePolicy(id, actions),
+  }
+}
+
+func (policy *ChildrenPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+  thread_node, ok := node.(ThreadNode)
+  if ok == false {
+    return false
+  }
+  thread := thread_node.ThreadHandle()
+
+  for _, info := range(thread.Children) {
+    if info.Child.ID() == principal.ID() {
       return policy.Actions.Allows(resource, action)
     }
   }

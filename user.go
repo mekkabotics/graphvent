@@ -22,7 +22,6 @@ type UserJSON struct {
   Granted time.Time `json:"granted"`
   Pubkey []byte `json:"pubkey"`
   Shared []byte `json:"shared"`
-  Tags []string `json:"tags"`
 }
 
 func (user *User) Type() NodeType {
@@ -41,7 +40,6 @@ func (user *User) Serialize() ([]byte, error) {
     Granted: user.Granted,
     Shared: user.Shared,
     Pubkey: pubkey,
-    Tags: user.Tags,
   }, "", "  ")
 }
 
@@ -66,7 +64,7 @@ func LoadUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error)
     return nil, fmt.Errorf("Invalid key type")
   }
 
-  user := NewUser(j.Name, j.Granted, pubkey, j.Shared, j.Tags)
+  user := NewUser(j.Name, j.Granted, pubkey, j.Shared)
   nodes[id] = &user
 
   err = RestoreLockable(ctx, &user.Lockable, j.LockableJSON, nodes)
@@ -77,13 +75,12 @@ func LoadUser(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error)
   return &user, nil
 }
 
-func NewUser(name string, granted time.Time, pubkey *ecdsa.PublicKey, shared []byte, tags []string) User {
+func NewUser(name string, granted time.Time, pubkey *ecdsa.PublicKey, shared []byte) User {
   id := KeyID(pubkey)
   return User{
     Lockable: NewLockable(id, name),
     Granted: granted,
     Pubkey: pubkey,
     Shared: shared,
-    Tags: tags,
   }
 }
