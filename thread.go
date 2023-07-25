@@ -194,6 +194,12 @@ func (thread *Thread) QueueAction(end time.Time, action string) {
   thread.NextAction, thread.TimeoutChan = thread.SoonestAction()
 }
 
+func (thread *Thread) ClearActionQueue() {
+  thread.ActionQueue = []QueuedAction{}
+  thread.NextAction = nil
+  thread.TimeoutChan = nil
+}
+
 func (thread *Thread) ThreadHandle() *Thread {
   return thread
 }
