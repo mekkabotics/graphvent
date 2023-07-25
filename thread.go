@@ -587,7 +587,7 @@ func ThreadStart(ctx * Context, node ThreadNode) (string, error) {
   thread := node.ThreadHandle()
   context := NewWriteContext(ctx)
   err := UpdateStates(context, thread, NewLockInfo(thread, []string{"state"}), func(context *StateContext) error {
-    err := LockLockables(context, map[NodeID]LockableNode{thread.ID(): thread}, thread)
+    err := LockLockables(context, map[NodeID]LockableNode{node.ID(): node}, node)
     if err != nil {
       return err
     }
@@ -598,7 +598,7 @@ func ThreadStart(ctx * Context, node ThreadNode) (string, error) {
   }
 
   context = NewReadContext(ctx)
-  return "wait", Signal(context, thread, thread, NewStatusSignal("started", thread.ID()))
+  return "wait", Signal(context, node, node, NewStatusSignal("started", node.ID()))
 }
 
 func ThreadWait(ctx * Context, node ThreadNode) (string, error) {
