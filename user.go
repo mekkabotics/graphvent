@@ -8,6 +8,11 @@ import (
   "crypto/x509"
 )
 
+type NodeWithUsers interface {
+  Node
+  Users() map[NodeID]*User
+}
+
 type User struct {
   Lockable
 

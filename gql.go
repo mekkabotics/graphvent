@@ -197,7 +197,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
 
     key_id := KeyID(remote_id)
 
-    _, exists := server.Users[key_id]
+    _, exists := server.UserMap[key_id]
     if exists {
       ctx.Log.Logf("gql", "REFRESHING AUTH FOR %s", key_id)
     } else {
@@ -215,7 +215,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
           Resources: nil,
         },
       }), func(context *StateContext) error {
-        server.Users[key_id] = &new_user
+        server.UserMap[key_id] = &new_user
         return nil
       })
       if err != nil {
@@ -378,7 +378,7 @@ func NewResolveContext(ctx *Context, server *GQLThread, r *http.Request) (*Resol
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
   }
 
-  user, exists := server.Users[auth_id]
+  user, exists := server.UserMap[auth_id]
   if exists == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no existing authorization for client %s", auth_id)
   }
@@ -636,7 +636,7 @@ type GQLThread struct {
   tls_key []byte
   tls_cert []byte
   Listen string
-  Users map[NodeID]*User
+  UserMap map[NodeID]*User
   Key *ecdsa.PrivateKey
   ECDH ecdh.Curve
   SubscribeLock sync.Mutex
@@ -681,6 +681,10 @@ func (thread * GQLThread) Serialize() ([]byte, error) {
   return json.MarshalIndent(&thread_json, "", "  ")
 }
 
+func (thread * GQLThread) Users() map[NodeID]*User {
+  return thread.UserMap
+}
+
 type GQLThreadJSON struct {
   ThreadJSON
   Listen string `json:"listen"`
@@ -715,9 +719,9 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
     panic(err)
   }
 
-  users := make([]string, len(thread.Users))
+  users := make([]string, len(thread.UserMap))
   i := 0
-  for id, _ := range(thread.Users) {
+  for id, _ := range(thread.UserMap) {
     users[i] = id.String()
     i += 1
   }
@@ -747,7 +751,7 @@ var LoadGQLThread = LoadJSONNode(func(id NodeID, j GQLThreadJSON) (Node, error) 
   thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, j.TLSCert, j.TLSKey)
   return &thread, nil
 }, func(ctx *Context, thread *GQLThread, j GQLThreadJSON, nodes NodeMap) error {
-  thread.Users = map[NodeID]*User{}
+  thread.UserMap = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
     ctx.Log.Logf("db", "THREAD_LOAD_USER: %s", id_str)
     user_id, err := ParseID(id_str)
@@ -758,7 +762,7 @@ var LoadGQLThread = LoadJSONNode(func(id NodeID, j GQLThreadJSON) (Node, error) 
     if err != nil {
       return err
     }
-    thread.Users[user_id] = user.(*User)
+    thread.UserMap[user_id] = user.(*User)
   }
 
   return RestoreThread(ctx, thread, j.ThreadJSON, nodes)
@@ -808,7 +812,7 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
     Thread: NewThread(id, name, state_name, []InfoType{"parent"}, gql_actions, gql_handlers),
     Listen: listen,
     SubscribeListeners: []chan GraphSignal{},
-    Users: map[NodeID]*User{},
+    UserMap: map[NodeID]*User{},
     http_done: &sync.WaitGroup{},
     Key: key,
     ECDH: ecdh_curve,

@@ -289,13 +289,13 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   return owner, nil
 }
 
-func GQLThreadUsers(p graphql.ResolveParams) (interface{}, error) {
+func GQLUserNodeUsers(p graphql.ResolveParams) (interface{}, error) {
   ctx, err := PrepResolve(p)
   if err != nil {
     return nil, err
   }
 
-  node, ok := p.Source.(*GQLThread)
+  node, ok := p.Source.(NodeWithUsers)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to GQLThread")
   }
@@ -303,9 +303,9 @@ func GQLThreadUsers(p graphql.ResolveParams) (interface{}, error) {
   var users []*User
   context := NewReadContext(ctx.Context)
   err = UseStates(context, ctx.User, NewLockInfo(node, []string{"users"}), func(context *StateContext) error {
-    users = make([]*User, len(node.Users))
+    users = make([]*User, len(node.Users()))
     i := 0
-    for _, user := range(node.Users) {
+    for _, user := range(node.Users()) {
       users[i] = user
       i += 1
     }

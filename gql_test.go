@@ -72,7 +72,7 @@ func TestGQLDBLoad(t * testing.T) {
   err = UpdateStates(context, &gql, NewLockMap(
     NewLockInfo(&gql, []string{"users"}),
   ), func(context *StateContext) error {
-    gql.Users[u1.ID()] = &u1
+    gql.UserMap[u1.ID()] = &u1
 
     err := LinkThreads(context, &gql, &gql, ChildInfo{&t1, map[InfoType]interface{}{
       "parent": &info,
@@ -116,7 +116,7 @@ func TestGQLDBLoad(t * testing.T) {
     ctx.Log.Logf("test", "\n%s\n\n", ser)
     dependency := gql_loaded.(*GQLThread).Thread.Dependencies[l1.ID()].(*Listener)
     l1_loaded = dependency
-    u_loaded := gql_loaded.(*GQLThread).Users[u1.ID()]
+    u_loaded := gql_loaded.(*GQLThread).UserMap[u1.ID()]
     err = UseStates(context, gql_loaded, NewLockInfo(u_loaded, nil), func(context *StateContext) error {
       ser, err := u_loaded.Serialize()
       ctx.Log.Logf("test", "\n%s\n\n", ser)

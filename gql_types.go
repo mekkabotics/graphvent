@@ -92,7 +92,7 @@ var GQLTypeGQLThread = NewSingleton(func() *graphql.Object {
 
   gql_type_gql_thread.AddFieldConfig("Users", &graphql.Field{
     Type: GQLTypeUser.List,
-    Resolve: GQLThreadUsers,
+    Resolve: GQLUserNodeUsers,
   })
 
   gql_type_gql_thread.AddFieldConfig("Listen", &graphql.Field{
