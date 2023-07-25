@@ -70,9 +70,9 @@ type Node interface {
 }
 
 type SimpleNode struct {
-  id NodeID
+  Id NodeID
   state_mutex sync.RWMutex
-  policies map[NodeID]Policy
+  PolicyMap map[NodeID]Policy
 }
 
 func (node *SimpleNode) NodeHandle() *SimpleNode {
@@ -81,8 +81,8 @@ func (node *SimpleNode) NodeHandle() *SimpleNode {
 
 func NewSimpleNode(id NodeID) SimpleNode {
   return SimpleNode{
-    id: id,
-    policies: map[NodeID]Policy{},
+    Id: id,
+    PolicyMap: map[NodeID]Policy{},
   }
 }
 
@@ -91,12 +91,12 @@ type SimpleNodeJSON struct {
 }
 
 func (node *SimpleNode) Process(context *StateContext, signal GraphSignal) error {
-  context.Graph.Log.Logf("signal", "SIMPLE_NODE_SIGNAL: %s - %s", node.id, signal)
+  context.Graph.Log.Logf("signal", "SIMPLE_NODE_SIGNAL: %s - %s", node.Id, signal)
   return nil
 }
 
 func (node *SimpleNode) ID() NodeID {
-  return node.id
+  return node.Id
 }
 
 func (node *SimpleNode) Type() NodeType {
@@ -125,9 +125,9 @@ func (node *SimpleNode) UnlockState(write bool) {
 }
 
 func NewSimpleNodeJSON(node *SimpleNode) SimpleNodeJSON {
-  policy_ids := make([]string, len(node.policies))
+  policy_ids := make([]string, len(node.PolicyMap))
   i := 0
-  for id, _ := range(node.policies) {
+  for id, _ := range(node.PolicyMap) {
     policy_ids[i] = id.String()
     i += 1
   }
@@ -153,7 +153,7 @@ func RestoreSimpleNode(ctx *Context, node *SimpleNode, j SimpleNodeJSON, nodes N
     if ok == false {
       return fmt.Errorf("%s is not a Policy", policy_id)
     }
-    node.policies[policy_id] = policy
+    node.PolicyMap[policy_id] = policy
   }
 
   return nil
@@ -178,9 +178,9 @@ func LoadSimpleNode(ctx *Context, id NodeID, data []byte, nodes NodeMap)(Node, e
 }
 
 func (node *SimpleNode) Policies() []Policy {
-  ret := make([]Policy, len(node.policies))
+  ret := make([]Policy, len(node.PolicyMap))
   i := 0
-  for _, policy := range(node.policies) {
+  for _, policy := range(node.PolicyMap) {
     ret[i] = policy
     i += 1
   }
@@ -227,7 +227,7 @@ func AttachPolicies(ctx *Context, node Node, policies ...Policy) error {
   context := NewWriteContext(ctx)
   return UpdateStates(context, node, NewLockInfo(node, []string{"policies"}), func(context *StateContext) error {
     for _, policy := range(policies) {
-      node.NodeHandle().policies[policy.ID()] = policy
+      node.NodeHandle().PolicyMap[policy.ID()] = policy
     }
     return nil
   })
