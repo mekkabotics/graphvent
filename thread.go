@@ -596,7 +596,7 @@ func ThreadStart(ctx * Context, node ThreadNode) (string, error) {
 
 func ThreadWait(ctx * Context, node ThreadNode) (string, error) {
   thread := node.ThreadHandle()
-  ctx.Log.Logf("thread", "THREAD_WAIT: %s", thread.ID())
+  ctx.Log.Logf("thread", "THREAD_WAIT: %s - %+v", thread.ID(), thread.ActionQueue)
   for {
     select {
       case signal := <- thread.Chan:
