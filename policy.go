@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "encoding/json"
+  "fmt"
 )
 
 // A policy represents a set of rules attached to a Node that allow principals to perform actions on it
@@ -80,13 +81,7 @@ func NewPerNodePolicy(id NodeID, actions map[NodeID]NodeActions) PerNodePolicy {
   }
 }
 
-func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j PerNodePolicyJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
+var LoadPerNodePolicy = LoadJSONNode(func(id NodeID, j PerNodePolicyJSON) (Node, error) {
   actions := map[NodeID]NodeActions{}
   for principal_str, node_actions := range(j.Actions) {
     principal_id, err := ParseID(principal_str)
@@ -98,15 +93,10 @@ func LoadPerNodePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Nod
   }
 
   policy := NewPerNodePolicy(id, actions)
-  nodes[id] = &policy
-
-  err = RestoreSimpleNode(ctx, &policy.SimpleNode, j.SimpleNodeJSON, nodes)
-  if err != nil {
-    return nil, err
-  }
-
   return &policy, nil
-}
+}, func(ctx *Context, node Node, j PerNodePolicyJSON, nodes NodeMap) error {
+  return RestoreSimpleNode(ctx, node.NodeHandle(), j.SimpleNodeJSON, nodes)
+})
 
 func (policy *PerNodePolicy) Allows(node Node, resource string, action string, principal Node) bool {
   node_actions, exists := policy.Actions[principal.ID()]
@@ -135,11 +125,16 @@ func (policy *SimplePolicy) Type() NodeType {
   return NodeType("simple_policy")
 }
 
-func (policy *SimplePolicy) Serialize() ([]byte, error) {
-  return json.MarshalIndent(&SimplePolicyJSON{
+func NewSimplePolicyJSON(policy *SimplePolicy) SimplePolicyJSON {
+  return SimplePolicyJSON{
     SimpleNodeJSON: NewSimpleNodeJSON(&policy.SimpleNode),
     Actions: policy.Actions,
-  }, "", "  ")
+  }
+}
+
+func (policy *SimplePolicy) Serialize() ([]byte, error) {
+  j := NewSimplePolicyJSON(policy)
+  return json.MarshalIndent(&j, "", "  ")
 }
 
 func NewSimplePolicy(id NodeID, actions NodeActions) SimplePolicy {
@@ -153,23 +148,12 @@ func NewSimplePolicy(id NodeID, actions NodeActions) SimplePolicy {
   }
 }
 
-func LoadSimplePolicy(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j SimplePolicyJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
+var LoadSimplePolicy = LoadJSONNode(func(id NodeID, j SimplePolicyJSON) (Node, error) {
   policy := NewSimplePolicy(id, j.Actions)
-  nodes[id] = &policy
-
-  err = RestoreSimpleNode(ctx, &policy.SimpleNode, j.SimpleNodeJSON, nodes)
-  if err != nil {
-    return nil, err
-  }
-
   return &policy, nil
-}
+}, func(ctx *Context, node Node, j SimplePolicyJSON, nodes NodeMap) error {
+  return RestoreSimpleNode(ctx, node.NodeHandle(), j.SimpleNodeJSON, nodes)
+})
 
 func (policy *SimplePolicy) Allows(node Node, resource string, action string, principal Node) bool {
   return policy.Actions.Allows(resource, action)
@@ -241,7 +225,6 @@ type ParentPolicy struct {
   SimplePolicy
 }
 
-
 func (policy *ParentPolicy) Type() NodeType {
   return NodeType("parent_policy")
 }
@@ -296,5 +279,67 @@ func (policy *ChildrenPolicy) Allows(node Node, resource string, action string, 
     }
   }
 
+  return false
+}
+
+type UserOfPolicy struct {
+  SimplePolicy
+  Target NodeWithUsers
+}
+
+type UserOfPolicyJSON struct {
+  SimplePolicyJSON
+  Target string `json:"target"`
+}
+
+func (policy *UserOfPolicy) Type() NodeType {
+  return NodeType("user_of_policy")
+}
+
+func (policy *UserOfPolicy) Serialize() ([]byte, error) {
+  target := ""
+  if policy.Target != nil {
+    target = policy.Target.ID().String()
+  }
+  return json.MarshalIndent(&UserOfPolicyJSON{
+    SimplePolicyJSON: NewSimplePolicyJSON(&policy.SimplePolicy),
+    Target: target,
+  }, "", "  ")
+}
+
+func NewUserOfPolicy(id NodeID, actions NodeActions) UserOfPolicy {
+  return UserOfPolicy{
+    SimplePolicy: NewSimplePolicy(id, actions),
+    Target: nil,
+  }
+}
+
+var LoadUserOfPolicy = LoadJSONNode(func(id NodeID, j UserOfPolicyJSON) (Node, error) {
+  policy := NewUserOfPolicy(id, j.Actions)
+  return &policy, nil
+}, func(ctx *Context, policy *UserOfPolicy, j UserOfPolicyJSON, nodes NodeMap) error {
+  if j.Target != "" {
+    target_id, err := ParseID(j.Target)
+    if err != nil {
+      return err
+    }
+
+    target_node, err := LoadNodeRecurse(ctx, target_id, nodes)
+    if err != nil {
+      return err
+    }
+
+    target, ok := target_node.(NodeWithUsers)
+    if ok == false {
+      return fmt.Errorf("%s is not a NodeWithUsers", target_node.ID())
+    }
+    policy.Target = target
+    return nil
+  }
+  return RestoreSimpleNode(ctx, policy, j.SimpleNodeJSON, nodes)
+})
+
+// TODO: pass state context through allows so that it can grab the target node's lock to check it's users safely
+func (policy *UserOfPolicy) Allows(node Node, resource string, action string, principal Node) bool {
   return false
 }
