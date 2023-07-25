@@ -195,6 +195,10 @@ func NewContext(db * badger.DB, log Logger) * Context {
   if err != nil {
     panic(err)
   }
+  err = ctx.RegisterNodeType(NewNodeDef((*Group)(nil), LoadGroup, GQLTypeSimpleLockable.Type))
+  if err != nil {
+    panic(err)
+  }
   err = ctx.RegisterNodeType(NewNodeDef((*PerNodePolicy)(nil), LoadPerNodePolicy, GQLTypeSimpleNode.Type))
   if err != nil {
     panic(err)

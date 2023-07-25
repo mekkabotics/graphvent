@@ -284,7 +284,7 @@ func (policy *ChildrenPolicy) Allows(context *StateContext, node Node, resource 
 
 type UserOfPolicy struct {
   SimplePolicy
-  Target NodeWithUsers
+  Target GroupNode
 }
 
 type UserOfPolicyJSON struct {
@@ -329,9 +329,9 @@ var LoadUserOfPolicy = LoadJSONNode(func(id NodeID, j UserOfPolicyJSON) (Node, e
       return err
     }
 
-    target, ok := target_node.(NodeWithUsers)
+    target, ok := target_node.(GroupNode)
     if ok == false {
-      return fmt.Errorf("%s is not a NodeWithUsers", target_node.ID())
+      return fmt.Errorf("%s is not a GroupNode", target_node.ID())
     }
     policy.Target = target
     return nil

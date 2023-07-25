@@ -289,13 +289,13 @@ func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
   return owner, nil
 }
 
-func GQLUserNodeUsers(p graphql.ResolveParams) (interface{}, error) {
+func GQLGroupNodeUsers(p graphql.ResolveParams) (interface{}, error) {
   ctx, err := PrepResolve(p)
   if err != nil {
     return nil, err
   }
 
-  node, ok := p.Source.(NodeWithUsers)
+  node, ok := p.Source.(GroupNode)
   if ok == false || node == nil {
     return nil, fmt.Errorf("Failed to cast source to GQLThread")
   }
