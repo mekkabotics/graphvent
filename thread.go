@@ -88,14 +88,15 @@ func LinkThreads(context *StateContext, princ Node, thread_node ThreadNode, info
   }
   thread := thread_node.ThreadHandle()
   child := info.Child.ThreadHandle()
+  child_node := info.Child
 
   if thread.ID() == child.ID() {
     return fmt.Errorf("Will not link %s as a child of itself", thread.ID())
   }
 
   return UpdateStates(context, princ, LockMap{
-    child.ID(): LockInfo{Node: child, Resources: []string{"parent"}},
-    thread.ID(): LockInfo{Node: thread, Resources: []string{"children"}},
+    child.ID(): LockInfo{Node: child_node, Resources: []string{"parent"}},
+    thread.ID(): LockInfo{Node: thread_node, Resources: []string{"children"}},
   }, func(context *StateContext) error {
     if child.Parent != nil {
       return fmt.Errorf("EVENT_LINK_ERR: %s already has a parent, cannot link as child", child.ID())
