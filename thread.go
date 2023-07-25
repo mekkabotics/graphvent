@@ -273,8 +273,9 @@ func (thread *Thread) SoonestAction() (*QueuedAction, <-chan time.Time) {
   var soonest_action *QueuedAction
   var soonest_time time.Time
   for _, action := range(thread.ActionQueue) {
-    if action.Timeout.Compare(soonest_time) == -1 {
+    if action.Timeout.Compare(soonest_time) == -1 || soonest_action == nil {
       soonest_action = &action
+      soonest_time = action.Timeout
     }
   }
   if soonest_action != nil {
