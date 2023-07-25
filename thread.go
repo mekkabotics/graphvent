@@ -542,7 +542,7 @@ func ThreadStartChild(ctx *Context, node ThreadNode, signal GraphSignal) (string
     if exists == false {
       return fmt.Errorf("%s is not a child of %s", sig.ID, thread.ID())
     }
-    return UpdateStates(context, thread, NewLockInfo(info.Child, []string{"start"}), func(context *StateContext) error {
+    return UpdateStates(context, node, NewLockInfo(info.Child, []string{"start"}), func(context *StateContext) error {
 
       parent_info, exists := info.Infos["parent"].(*ParentThreadInfo)
       if exists == false {
