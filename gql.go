@@ -733,13 +733,7 @@ func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
   }
 }
 
-func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j GQLThreadJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
+var LoadGQLThread = LoadJSONNode(func(id NodeID, j GQLThreadJSON) (Node, error) {
   ecdh_curve, ok := ecdh_curves[j.ECDH]
   if ok == false {
     return nil, fmt.Errorf("%d is not a known ECDH curve ID", j.ECDH)
@@ -751,29 +745,24 @@ func LoadGQLThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, e
   }
 
   thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, j.TLSCert, j.TLSKey)
-  nodes[id] = &thread
-
+  return &thread, nil
+}, func(ctx *Context, thread *GQLThread, j GQLThreadJSON, nodes NodeMap) error {
   thread.Users = map[NodeID]*User{}
   for _, id_str := range(j.Users) {
     ctx.Log.Logf("db", "THREAD_LOAD_USER: %s", id_str)
     user_id, err := ParseID(id_str)
     if err != nil {
-      return nil, err
+      return err
     }
     user, err := LoadNodeRecurse(ctx, user_id, nodes)
     if err != nil {
-      return nil, err
+      return err
     }
     thread.Users[user_id] = user.(*User)
   }
 
-  err = RestoreThread(ctx, &thread.Thread, j.ThreadJSON, nodes)
-  if err != nil {
-    return nil, err
-  }
-
-  return &thread, nil
-}
+  return RestoreThread(ctx, thread, j.ThreadJSON, nodes)
+})
 
 func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_cert []byte, tls_key []byte) GQLThread {
   if tls_cert == nil || tls_key == nil {

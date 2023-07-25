@@ -137,7 +137,8 @@ func NewSimpleNodeJSON(node *SimpleNode) SimpleNodeJSON {
   }
 }
 
-func RestoreSimpleNode(ctx *Context, node *SimpleNode, j SimpleNodeJSON, nodes NodeMap) error {
+func RestoreSimpleNode(ctx *Context, node Node, j SimpleNodeJSON, nodes NodeMap) error {
+  node_ptr := node.NodeHandle()
   for _, policy_str := range(j.Policies) {
     policy_id, err := ParseID(policy_str)
     if err != nil {
@@ -153,29 +154,38 @@ func RestoreSimpleNode(ctx *Context, node *SimpleNode, j SimpleNodeJSON, nodes N
     if ok == false {
       return fmt.Errorf("%s is not a Policy", policy_id)
     }
-    node.PolicyMap[policy_id] = policy
+    node_ptr.PolicyMap[policy_id] = policy
   }
 
   return nil
 }
 
-func LoadSimpleNode(ctx *Context, id NodeID, data []byte, nodes NodeMap)(Node, error) {
-  var j SimpleNodeJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
+func LoadJSONNode[J any, N Node](init_func func(NodeID, J)(Node, error), restore_func func(*Context, N, J, NodeMap)error)func(*Context, NodeID, []byte, NodeMap)(Node, error) {
+  return func(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
+    var j J
+    err := json.Unmarshal(data, &j)
+    if err != nil {
+      return nil, err
+    }
+
+    node, err := init_func(id, j)
+    if err != nil {
+      return nil, err
+    }
+    nodes[id] = node
+    err = restore_func(ctx, node.(N), j, nodes)
+    if err != nil {
+      return nil, err
+    }
+
+    return node, nil
   }
-
-  node := NewSimpleNode(id)
-  nodes[id] = &node
-
-  err = RestoreSimpleNode(ctx, &node, j, nodes)
-  if err != nil {
-    return nil, err
-  }
-
-  return &node, nil
 }
+
+var LoadSimpleNode = LoadJSONNode(func(id NodeID, j SimpleNodeJSON) (Node, error) {
+  node := NewSimpleNode(id)
+  return &node, nil
+}, RestoreSimpleNode)
 
 func (node *SimpleNode) Policies() []Policy {
   ret := make([]Policy, len(node.PolicyMap))

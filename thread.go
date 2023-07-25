@@ -225,11 +225,12 @@ func (thread *Thread) ChildList() []ThreadNode {
 }
 
 type ThreadJSON struct {
+  LockableJSON
   Parent string `json:"parent"`
   Children map[string]map[string]interface{} `json:"children"`
   ActionQueue []QueuedAction `json:"action_queue"`
   StateName string `json:"state_name"`
-  LockableJSON
+  InfoTypes []InfoType `json:"info_types"`
 }
 
 func NewThreadJSON(thread *Thread) ThreadJSON {
@@ -255,26 +256,14 @@ func NewThreadJSON(thread *Thread) ThreadJSON {
     ActionQueue: thread.ActionQueue,
     StateName: thread.StateName,
     LockableJSON: lockable_json,
+    InfoTypes: thread.InfoTypes,
   }
 }
 
-func LoadThread(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j ThreadJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
-  thread := NewThread(id, j.Name, j.StateName, nil, BaseThreadActions, BaseThreadHandlers)
-  nodes[id] = &thread
-
-  err = RestoreThread(ctx, &thread, j, nodes)
-  if err != nil {
-    return nil, err
-  }
-
+var LoadThread = LoadJSONNode(func(id NodeID, j ThreadJSON) (Node, error) {
+  thread := NewThread(id, j.Name, j.StateName, j.InfoTypes, BaseThreadActions, BaseThreadHandlers)
   return &thread, nil
-}
+}, RestoreThread)
 
 func (thread *Thread) SoonestAction() (*QueuedAction, <-chan time.Time) {
   var soonest_action *QueuedAction
@@ -292,9 +281,11 @@ func (thread *Thread) SoonestAction() (*QueuedAction, <-chan time.Time) {
   }
 }
 
-func RestoreThread(ctx *Context, thread *Thread, j ThreadJSON, nodes NodeMap) error {
-  thread.ActionQueue = j.ActionQueue
-  thread.NextAction, thread.TimeoutChan = thread.SoonestAction()
+func RestoreThread(ctx *Context, thread ThreadNode, j ThreadJSON, nodes NodeMap) error {
+  thread_ptr := thread.ThreadHandle()
+
+  thread_ptr.ActionQueue = j.ActionQueue
+  thread_ptr.NextAction, thread_ptr.TimeoutChan = thread_ptr.SoonestAction()
 
   if j.Parent != "" {
     parent_id, err := ParseID(j.Parent)
@@ -309,7 +300,7 @@ func RestoreThread(ctx *Context, thread *Thread, j ThreadJSON, nodes NodeMap) er
     if ok == false {
       return err
     }
-    thread.Parent = p_t
+    thread_ptr.Parent = p_t
   }
 
   for id_str, info_raw := range(j.Children) {
@@ -333,10 +324,10 @@ func RestoreThread(ctx *Context, thread *Thread, j ThreadJSON, nodes NodeMap) er
       return err
     }
 
-    thread.Children[id] = ChildInfo{child_t, parsed_info}
+    thread_ptr.Children[id] = ChildInfo{child_t, parsed_info}
   }
 
-  return RestoreLockable(ctx, &thread.Lockable, j.LockableJSON, nodes)
+  return RestoreLockable(ctx, thread, j.LockableJSON, nodes)
 }
 
 var deserializers = map[InfoType]func(interface{})(interface{}, error) {

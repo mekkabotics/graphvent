@@ -33,23 +33,10 @@ func NewListener(id NodeID, name string) Listener {
   }
 }
 
-func LoadListener(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j LockableJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
+var LoadListener = LoadJSONNode(func(id NodeID, j LockableJSON) (Node, error) {
   listener := NewListener(id, j.Name)
-  nodes[id] = &listener
-
-  err = RestoreLockable(ctx, &listener.Lockable, j, nodes)
-  if err != nil {
-    return nil, err
-  }
-
   return &listener, nil
-}
+}, RestoreLockable)
 
 type LockableNode interface {
   Node
@@ -462,24 +449,10 @@ func UnlockLockables(context *StateContext, to_unlock map[NodeID]LockableNode, o
   })
 }
 
-// Load function for Lockable
-func LoadLockable(ctx *Context, id NodeID, data []byte, nodes NodeMap) (Node, error) {
-  var j LockableJSON
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
+var LoadLockable = LoadJSONNode(func(id NodeID, j LockableJSON) (Node, error) {
   lockable := NewLockable(id, j.Name)
-  nodes[id] = &lockable
-
-  err = RestoreLockable(ctx, &lockable, j, nodes)
-  if err != nil {
-    return nil, err
-  }
-
   return &lockable, nil
-}
+}, RestoreLockable)
 
 func NewLockable(id NodeID, name string) Lockable {
   return Lockable{
@@ -493,7 +466,8 @@ func NewLockable(id NodeID, name string) Lockable {
 }
 
 // Helper function to load links when loading a struct that embeds Lockable
-func RestoreLockable(ctx * Context, lockable *Lockable, j LockableJSON, nodes NodeMap) error {
+func RestoreLockable(ctx * Context, lockable LockableNode, j LockableJSON, nodes NodeMap) error {
+  lockable_ptr := lockable.LockableHandle()
   if j.Owner != "" {
     owner_id, err := ParseID(j.Owner)
     if err != nil {
@@ -507,7 +481,7 @@ func RestoreLockable(ctx * Context, lockable *Lockable, j LockableJSON, nodes No
     if ok == false {
       return fmt.Errorf("%s is not a Lockable", j.Owner)
     }
-    lockable.Owner = owner
+    lockable_ptr.Owner = owner
   }
 
   for _, dep_str := range(j.Dependencies) {
@@ -524,7 +498,7 @@ func RestoreLockable(ctx * Context, lockable *Lockable, j LockableJSON, nodes No
       return fmt.Errorf("%+v is not a Lockable as expected", dep_node)
     }
     ctx.Log.Logf("db", "LOCKABLE_LOAD_DEPENDENCY: %s - %s - %+v", lockable.ID(), dep_id, reflect.TypeOf(dep))
-    lockable.Dependencies[dep_id] = dep
+    lockable_ptr.Dependencies[dep_id] = dep
   }
 
   for _, req_str := range(j.Requirements) {
@@ -540,7 +514,7 @@ func RestoreLockable(ctx * Context, lockable *Lockable, j LockableJSON, nodes No
     if ok == false {
       return fmt.Errorf("%+v is not a Lockable as expected", req_node)
     }
-    lockable.Requirements[req_id] = req
+    lockable_ptr.Requirements[req_id] = req
   }
 
   for l_id_str, h_str := range(j.LocksHeld) {
@@ -570,8 +544,8 @@ func RestoreLockable(ctx * Context, lockable *Lockable, j LockableJSON, nodes No
       }
       h_l = h
     }
-    lockable.RecordLock(l_l, h_l)
+    lockable_ptr.RecordLock(l_l, h_l)
   }
 
-  return RestoreSimpleNode(ctx, &lockable.SimpleNode, j.SimpleNodeJSON, nodes)
+  return RestoreSimpleNode(ctx, lockable, j.SimpleNodeJSON, nodes)
 }
