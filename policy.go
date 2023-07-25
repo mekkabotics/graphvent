@@ -9,7 +9,7 @@ import (
 type Policy interface {
   Node
   // Returns true if the principal is allowed to perform the action on the resource
-  Allows(node Node, resource string, action string, principal Node) bool
+  Allows(context *StateContext, node Node, resource string, action string, principal Node) bool
 }
 
 type NodeActions map[string][]string
@@ -98,7 +98,7 @@ var LoadPerNodePolicy = LoadJSONNode(func(id NodeID, j PerNodePolicyJSON) (Node,
   return RestoreSimpleNode(ctx, node.NodeHandle(), j.SimpleNodeJSON, nodes)
 })
 
-func (policy *PerNodePolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *PerNodePolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
   node_actions, exists := policy.Actions[principal.ID()]
   if exists == false {
     return false
@@ -155,7 +155,7 @@ var LoadSimplePolicy = LoadJSONNode(func(id NodeID, j SimplePolicyJSON) (Node, e
   return RestoreSimpleNode(ctx, node.NodeHandle(), j.SimpleNodeJSON, nodes)
 })
 
-func (policy *SimplePolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *SimplePolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
   return policy.Actions.Allows(resource, action)
 }
 
@@ -175,7 +175,7 @@ func NewDependencyPolicy(id NodeID, actions NodeActions) DependencyPolicy {
   }
 }
 
-func (policy *DependencyPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *DependencyPolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
   lockable, ok := node.(LockableNode)
   if ok == false {
     return false
@@ -205,7 +205,7 @@ func NewRequirementPolicy(id NodeID, actions NodeActions) RequirementPolicy {
   }
 }
 
-func (policy *RequirementPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *RequirementPolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
   lockable_node, ok := node.(LockableNode)
   if ok == false {
     return false
@@ -235,7 +235,7 @@ func NewParentPolicy(id NodeID, actions NodeActions) ParentPolicy {
   }
 }
 
-func (policy *ParentPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *ParentPolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
   thread_node, ok := node.(ThreadNode)
   if ok == false {
     return false
@@ -266,7 +266,7 @@ func NewChildrenPolicy(id NodeID, actions NodeActions) ChildrenPolicy {
   }
 }
 
-func (policy *ChildrenPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *ChildrenPolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
   thread_node, ok := node.(ThreadNode)
   if ok == false {
     return false
@@ -339,7 +339,22 @@ var LoadUserOfPolicy = LoadJSONNode(func(id NodeID, j UserOfPolicyJSON) (Node, e
   return RestoreSimpleNode(ctx, policy, j.SimpleNodeJSON, nodes)
 })
 
-// TODO: pass state context through allows so that it can grab the target node's lock to check it's users safely
-func (policy *UserOfPolicy) Allows(node Node, resource string, action string, principal Node) bool {
+func (policy *UserOfPolicy) Allows(context *StateContext, node Node, resource string, action string, principal Node) bool {
+  if policy.Target != nil {
+    allowed := false
+    err := UseStates(context, policy.Target, NewLockInfo(policy.Target, []string{"users"}), func(context *StateContext) error {
+      for _, user := range(policy.Target.Users()) {
+        if user.ID() == principal.ID() {
+          allowed = policy.Actions.Allows(resource, action)
+          return nil
+        }
+      }
+      return nil
+    })
+    if err != nil {
+      return false
+    }
+    return allowed
+  }
   return false
 }
