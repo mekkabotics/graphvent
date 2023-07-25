@@ -537,7 +537,7 @@ func ThreadStartChild(ctx *Context, node ThreadNode, signal GraphSignal) (string
   thread := node.ThreadHandle()
 
   context := NewWriteContext(ctx)
-  return "wait", UpdateStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
+  return "wait", UpdateStates(context, node, NewLockInfo(node, []string{"children"}), func(context *StateContext) error {
     info, exists:= thread.Children[sig.ID]
     if exists == false {
       return fmt.Errorf("%s is not a child of %s", sig.ID, thread.ID())
@@ -561,8 +561,8 @@ func ThreadStartChild(ctx *Context, node ThreadNode, signal GraphSignal) (string
 func ThreadRestore(ctx * Context, node ThreadNode, start bool) error {
   thread := node.ThreadHandle()
   context := NewWriteContext(ctx)
-  return UpdateStates(context, thread, NewLockInfo(thread, []string{"children"}), func(context *StateContext) error {
-    return UpdateStates(context, thread, LockList(thread.ChildList(), []string{"start"}), func(context *StateContext) error {
+  return UpdateStates(context, node, NewLockInfo(node, []string{"children"}), func(context *StateContext) error {
+    return UpdateStates(context, node, LockList(thread.ChildList(), []string{"start"}), func(context *StateContext) error {
       for _, info := range(thread.Children) {
         parent_info := info.Infos["parent"].(*ParentThreadInfo)
         if parent_info.Start == true && info.Child.ThreadHandle().StateName != "finished" {
