@@ -225,7 +225,7 @@ func Signal(context *StateContext, node Node, princ Node, signal GraphSignal) er
 
 func AttachPolicies(ctx *Context, node Node, policies ...Policy) error {
   context := NewWriteContext(ctx)
-  return UpdateStates(context, node, NewLockInfo(node, []string{"policies"}), func(context *StateContext) error {
+  return UpdateStates(context, node, NewLockMap(NewLockInfo(node, []string{"policies"}), LockList(policies, nil)), func(context *StateContext) error {
     for _, policy := range(policies) {
       node.NodeHandle().PolicyMap[policy.ID()] = policy
     }
