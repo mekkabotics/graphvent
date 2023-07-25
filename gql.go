@@ -889,8 +889,8 @@ var gql_actions ThreadActions = ThreadActions{
 
 
     context := NewWriteContext(ctx)
-    err = UpdateStates(context, gql_thread, NewLockMap(
-      NewLockInfo(gql_thread, []string{"http_server"}),
+    err = UpdateStates(context, node, NewLockMap(
+      NewLockInfo(node, []string{"http_server"}),
     ), func(context *StateContext) error {
       gql_thread.tcp_listener = listener
       gql_thread.http_server = http_server
