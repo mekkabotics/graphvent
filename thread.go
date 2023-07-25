@@ -578,13 +578,19 @@ func ThreadRestore(ctx * Context, node ThreadNode, start bool) error {
 func ThreadStart(ctx * Context, node ThreadNode) (string, error) {
   thread := node.ThreadHandle()
   context := NewWriteContext(ctx)
-  return "wait", UpdateStates(context, thread, NewLockInfo(thread, []string{"state"}), func(context *StateContext) error {
+  err := UpdateStates(context, thread, NewLockInfo(thread, []string{"state"}), func(context *StateContext) error {
     err := LockLockables(context, map[NodeID]LockableNode{thread.ID(): thread}, thread)
     if err != nil {
       return err
     }
     return thread.SetState("started")
   })
+  if err != nil {
+    return "", err
+  }
+
+  context = NewReadContext(ctx)
+  return "wait", Signal(context, thread, thread, NewStatusSignal("started", thread.ID()))
 }
 
 func ThreadWait(ctx * Context, node ThreadNode) (string, error) {
