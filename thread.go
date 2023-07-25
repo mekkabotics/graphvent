@@ -483,9 +483,6 @@ func ThreadLoop(ctx * Context, node ThreadNode, first_action string) error {
     return err
   }
 
-
-
-
   ctx.Log.Logf("thread", "THREAD_LOOP_DONE: %s", thread.ID())
 
   return nil
@@ -495,8 +492,8 @@ func ThreadChildLinked(ctx *Context, node ThreadNode, signal GraphSignal) (strin
   thread := node.ThreadHandle()
   ctx.Log.Logf("thread", "THREAD_CHILD_LINKED: %+v", signal)
   context := NewWriteContext(ctx)
-  err := UpdateStates(context, thread, NewLockMap(
-    NewLockInfo(thread, []string{"children"}),
+  err := UpdateStates(context, node, NewLockMap(
+    NewLockInfo(node, []string{"children"}),
   ), func(context *StateContext) error {
     sig, ok := signal.(IDSignal)
     if ok == false {
@@ -586,7 +583,7 @@ func ThreadRestore(ctx * Context, node ThreadNode, start bool) error {
 func ThreadStart(ctx * Context, node ThreadNode) (string, error) {
   thread := node.ThreadHandle()
   context := NewWriteContext(ctx)
-  err := UpdateStates(context, thread, NewLockInfo(thread, []string{"state"}), func(context *StateContext) error {
+  err := UpdateStates(context, node, NewLockInfo(node, []string{"state"}), func(context *StateContext) error {
     err := LockLockables(context, map[NodeID]LockableNode{node.ID(): node}, node)
     if err != nil {
       return err
@@ -618,7 +615,7 @@ func ThreadWait(ctx * Context, node ThreadNode) (string, error) {
       case <- thread.TimeoutChan:
         timeout_action := ""
         context := NewWriteContext(ctx)
-        err := UpdateStates(context, thread, NewLockMap(NewLockInfo(thread, []string{"timeout"})), func(context *StateContext) error {
+        err := UpdateStates(context, node, NewLockMap(NewLockInfo(node, []string{"timeout"})), func(context *StateContext) error {
           timeout_action = thread.NextAction.Action
           thread.NextAction, thread.TimeoutChan = thread.SoonestAction()
           return nil
@@ -635,12 +632,12 @@ func ThreadWait(ctx * Context, node ThreadNode) (string, error) {
 func ThreadFinish(ctx *Context, node ThreadNode) (string, error) {
   thread := node.ThreadHandle()
   context := NewWriteContext(ctx)
-  return "", UpdateStates(context, thread, NewLockInfo(thread, []string{"state"}), func(context *StateContext) error {
+  return "", UpdateStates(context, node, NewLockInfo(node, []string{"state"}), func(context *StateContext) error {
     err := thread.SetState("finished")
     if err != nil {
       return err
     }
-    return UnlockLockables(context, map[NodeID]LockableNode{thread.ID(): thread}, thread)
+    return UnlockLockables(context, map[NodeID]LockableNode{node.ID(): node}, node)
   })
 }
 
@@ -648,9 +645,8 @@ var ThreadAbortedError = errors.New("Thread aborted by signal")
 
 // Default thread action function for "abort", sends a signal and returns a ThreadAbortedError
 func ThreadAbort(ctx * Context, node ThreadNode, signal GraphSignal) (string, error) {
-  thread := node.ThreadHandle()
   context := NewReadContext(ctx)
-  err := Signal(context, thread, thread, NewStatusSignal("aborted", thread.ID()))
+  err := Signal(context, node, node, NewStatusSignal("aborted", node.ID()))
   if err != nil {
     return "", err
   }
@@ -659,9 +655,8 @@ func ThreadAbort(ctx * Context, node ThreadNode, signal GraphSignal) (string, er
 
 // Default thread action for "stop", sends a signal and returns no error
 func ThreadStop(ctx * Context, node ThreadNode, signal GraphSignal) (string, error) {
-  thread := node.ThreadHandle()
   context := NewReadContext(ctx)
-  err := Signal(context, thread, thread, NewStatusSignal("stopped", thread.ID()))
+  err := Signal(context, node, node, NewStatusSignal("stopped", node.ID()))
   return "finish", err
 }
 
