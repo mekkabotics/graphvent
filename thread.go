@@ -604,7 +604,7 @@ func ThreadWait(ctx * Context, node ThreadNode) (string, error) {
         signal_fn, exists := thread.Handlers[signal.Type()]
         if exists == true {
           ctx.Log.Logf("thread", "THREAD_HANDLER: %s - %s", thread.ID(), signal.Type())
-          return signal_fn(ctx, thread, signal)
+          return signal_fn(ctx, node, signal)
         } else {
           ctx.Log.Logf("thread", "THREAD_NOHANDLER: %s - %s", thread.ID(), signal.Type())
         }
