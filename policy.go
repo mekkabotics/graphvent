@@ -24,6 +24,27 @@ func NewRequirementOfPolicy(nodes NodeActions) RequirementOfPolicy {
   }
 }
 
+// Check if any of principals dependencies are in the policy
+func (policy *RequirementOfPolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
+  lockable_ext, err := GetExt[*LockableExt](principal)
+
+  if err != nil {
+    return false
+  }
+
+  for dep_id, _ := range(lockable_ext.Dependencies) {
+    for node_id, actions := range(policy.NodeActions) {
+      if node_id == dep_id {
+        if actions.Allows(action) == true {
+          return true
+        }
+        break
+      }
+    }
+  }
+  return false
+}
+
 const ChildOfPolicyType = PolicyType("CHILD_OF")
 type ChildOfPolicy struct {
   PerNodePolicy
@@ -55,7 +76,18 @@ func (policy *ChildOfPolicy) Allows(context *StateContext, principal *Node, acti
   return false
 }
 
-type NodeActions map[NodeID][]string
+type Actions []string
+
+func (actions Actions) Allows(action string) bool {
+  for _, a := range(actions) {
+    if a == action {
+      return true
+    }
+  }
+  return false
+}
+
+type NodeActions map[NodeID]Actions
 
 func PerNodePolicyLoad(init_fn func(NodeActions)(Policy, error)) func(*Context, []byte)(Policy, error) {
   return func(ctx *Context, data []byte)(Policy, error){
@@ -84,7 +116,7 @@ func PerNodePolicyLoad(init_fn func(NodeActions)(Policy, error)) func(*Context, 
   }
 }
 
-func NewChildOfPolicy(node_actions map[NodeID][]string) ChildOfPolicy {
+func NewChildOfPolicy(node_actions NodeActions) ChildOfPolicy {
   return ChildOfPolicy{
     PerNodePolicy: NewPerNodePolicy(node_actions),
   }
@@ -121,7 +153,7 @@ func (policy *ParentOfPolicy) Allows(context *StateContext, principal *Node, act
   return false
 }
 
-func NewParentOfPolicy(node_actions map[NodeID][]string) ParentOfPolicy {
+func NewParentOfPolicy(node_actions NodeActions) ParentOfPolicy {
   return ParentOfPolicy{
     PerNodePolicy: NewPerNodePolicy(node_actions),
   }
@@ -129,7 +161,7 @@ func NewParentOfPolicy(node_actions map[NodeID][]string) ParentOfPolicy {
 
 func NewPerNodePolicy(node_actions NodeActions) PerNodePolicy {
   if node_actions == nil {
-    node_actions = map[NodeID][]string{}
+    node_actions = NodeActions{}
   }
 
   return PerNodePolicy{
@@ -138,7 +170,7 @@ func NewPerNodePolicy(node_actions NodeActions) PerNodePolicy {
 }
 
 type PerNodePolicy struct {
-  NodeActions map[NodeID][]string
+  NodeActions NodeActions
 }
 
 type PerNodePolicyJSON struct {
@@ -329,7 +361,7 @@ func LoadACLPolicyExt(ctx *Context, data []byte) (Extension, error) {
   }
 
   policies := map[PolicyType]Policy{}
-  acl_ctx := ctx.ExtByType(ACLPolicyExtType).Data.(ACLPolicyExtContext)
+  acl_ctx := ctx.ExtByType(ACLPolicyExtType).Data.(*ACLPolicyExtContext)
   for name, ser := range(j.Policies) {
     policy_def, exists := acl_ctx.Types[PolicyType(name)]
     if exists == false {

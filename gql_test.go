@@ -11,15 +11,15 @@ import (
 )
 
 func TestGQLDBLoad(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "db", "policy", "signal"})
+  ctx := logTestContext(t, []string{"test", "db"})
 
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLExtType, ACLPolicyExtType})
   fatalErr(t, err)
 
   u1 := NewNode(ctx, RandID(), TestUserNodeType)
-  u1_policy := NewPerNodePolicy(map[NodeID][]string{
-    u1.ID: []string{"users.write", "children.write", "parent.write", "dependencies.write", "requirements.write"},
+  u1_policy := NewPerNodePolicy(NodeActions{
+    u1.ID: Actions{"users.write", "children.write", "parent.write", "dependencies.write", "requirements.write"},
   })
   u1.Extensions[ACLExtType] = NewACLExt(nil)
   u1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
@@ -33,8 +33,8 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   l1 := NewNode(ctx, RandID(), ListenerNodeType)
-  l1_policy := NewRequirementOfPolicy(map[NodeID][]string{
-    l1.ID: []string{"signal.status"},
+  l1_policy := NewRequirementOfPolicy(NodeActions{
+    l1.ID: Actions{"signal.status"},
   })
 
   l1.Extensions[ACLExtType] = NewACLExt(NodeList(u1))
@@ -52,8 +52,8 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   t1 := NewNode(ctx, RandID(), TestThreadNodeType)
-  t1_policy := NewParentOfPolicy(map[NodeID][]string{
-    t1.ID: []string{"signal.abort", "state.write"},
+  t1_policy := NewParentOfPolicy(NodeActions{
+    t1.ID: Actions{"signal.abort", "state.write"},
   })
   t1.Extensions[ACLExtType] = NewACLExt(NodeList(u1))
   t1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
@@ -73,8 +73,8 @@ func TestGQLDBLoad(t * testing.T) {
   fatalErr(t, err)
 
   gql := NewNode(ctx, RandID(), TestGQLNodeType)
-  gql_policy := NewChildOfPolicy(map[NodeID][]string{
-    gql.ID: []string{"signal.status"},
+  gql_policy := NewChildOfPolicy(NodeActions{
+    gql.ID: Actions{"signal.status"},
   })
   gql.Extensions[ACLExtType] = NewACLExt(NodeList(u1))
   gql.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{

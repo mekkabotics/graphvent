@@ -417,13 +417,14 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     if known == false {
       return nil, fmt.Errorf("%s tried to load extension 0x%x, which is not a known extension type", id, type_hash)
     }
+    ctx.Log.Logf("db", "DB_EXTENSION_LOADING: %s/%s", id, def.Type)
     extension, err := def.Load(ctx, ext_db.Data)
     if err != nil {
       return nil, err
     }
     node.Extensions[def.Type] = extension
     found_extensions = append(found_extensions, def.Type)
-    ctx.Log.Logf("db", "DB_EXTENSION_LOADED: %s - 0x%x - %+v", id, type_hash, def.Type)
+    ctx.Log.Logf("db", "DB_EXTENSION_LOADED: %s/%s - %+v", id, def.Type, extension)
   }
 
   missing_extensions := []ExtType{}

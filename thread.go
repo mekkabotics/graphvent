@@ -189,6 +189,7 @@ func NewThreadExt(ctx*Context, thread_type ThreadType, parent *Node, children ma
   next_action, timeout_chan := SoonestAction(action_queue)
 
   return &ThreadExt{
+    ThreadType: thread_type,
     Actions: type_info.Actions,
     Handlers: type_info.Handlers,
     SignalChan: make(chan Signal, THREAD_BUFFER_SIZE),
@@ -209,23 +210,43 @@ func LoadThreadExt(ctx *Context, data []byte) (Extension, error) {
   if err != nil {
     return nil, err
   }
+  ctx.Log.Logf("db", "DB_LOAD_THREAD_EXT_JSON: %+v", j)
 
   parent, err := RestoreNode(ctx, j.Parent)
   if err != nil {
     return nil, err
   }
 
+
+  thread_ctx, err := GetCtx[*ThreadExt, *ThreadExtContext](ctx)
+  if err != nil {
+    return nil, err
+  }
+
   children := map[NodeID]ChildInfo{}
-  for id_str, _ := range(j.Children) {
+  for id_str, infos := range(j.Children) {
     child_node, err := RestoreNode(ctx, id_str)
     if err != nil {
       return nil, err
     }
-    //TODO: Restore child info based off context
+    child_infos := map[InfoType]Info{}
+    for info_type_str, info_data := range(infos) {
+      info_type := InfoType(info_type_str)
+      info_load, exists := thread_ctx.Loads[info_type]
+      if exists == false {
+        return nil, fmt.Errorf("%s is not a known InfoType in ThreacExrContxt", info_type)
+      }
+
+      info, err := info_load(info_data)
+      if err != nil {
+        return nil, err
+      }
+      child_infos[info_type] = info
+    }
 
     children[child_node.ID] = ChildInfo{
       Child: child_node,
-      Infos: map[InfoType]Info{},
+      Infos: child_infos,
     }
   }
 

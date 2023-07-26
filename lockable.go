@@ -28,11 +28,11 @@ func LoadListenerExt(ctx *Context, data []byte) (Extension, error) {
 }
 
 const ListenerExtType = ExtType("LISTENER")
-func (listener ListenerExt) Type() ExtType {
+func (listener *ListenerExt) Type() ExtType {
   return ListenerExtType
 }
 
-func (ext ListenerExt) Process(context *StateContext, node *Node, signal Signal) error {
+func (ext *ListenerExt) Process(context *StateContext, node *Node, signal Signal) error {
   select {
   case ext.Chan <- signal:
   default:
@@ -41,7 +41,7 @@ func (ext ListenerExt) Process(context *StateContext, node *Node, signal Signal)
   return nil
 }
 
-func (ext ListenerExt) Serialize() ([]byte, error) {
+func (ext *ListenerExt) Serialize() ([]byte, error) {
   return json.MarshalIndent(ext.Buffer, "", "  ")
 }
 
@@ -100,6 +100,8 @@ func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   if err != nil {
     return nil, err
   }
+
+  ctx.Log.Logf("db", "DB_LOADING_LOCKABLE_EXT_JSON: %+v", j)
 
   owner, err := RestoreNode(ctx, j.Owner)
   if err != nil {
@@ -516,6 +518,9 @@ func SaveNode(node *Node) string {
 }
 
 func RestoreNode(ctx *Context, id_str string) (*Node, error) {
+  if id_str == "" {
+    return nil, nil
+  }
   id, err := ParseID(id_str)
   if err != nil {
     return nil, err
@@ -540,19 +545,22 @@ func RestoreNodeMap(ctx *Context, ids map[string]string) (NodeMap, error) {
       return nil, err
     }
 
-    id_2, err := ParseID(id_str_2)
-    if err != nil {
-      return nil, err
-    }
-
     node_1, err := LoadNode(ctx, id_1)
     if err != nil {
       return nil, err
     }
 
-    node_2, err := LoadNode(ctx, id_2)
-    if err != nil {
-      return nil, err
+
+    var node_2 *Node = nil
+    if id_str_2 != "" {
+      id_2, err := ParseID(id_str_2)
+      if err != nil {
+        return nil, err
+      }
+      node_2, err = LoadNode(ctx, id_2)
+      if err != nil {
+        return nil, err
+      }
     }
 
     nodes[node_1.ID] = node_2
