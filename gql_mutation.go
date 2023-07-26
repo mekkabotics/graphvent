@@ -13,7 +13,7 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
+      _, ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
       }
@@ -23,16 +23,19 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
         return nil, err
       }
 
-      var node Node = nil
+      var node *Node = nil
       context := NewReadContext(ctx.Context)
-      err = UseStates(context, ctx.User, NewLockMap(
-        NewLockInfo(ctx.Server, []string{"children"}),
+      err = UseStates(context, ctx.User, NewACLMap(
+        NewACLInfo(ctx.Server, []string{"children"}),
       ), func(context *StateContext) (error){
-        node = FindChild(context, ctx.User, &ctx.Server.Thread, id)
+        node, err = FindChild(context, ctx.User, ctx.Server, id)
+        if err != nil {
+          return err
+        }
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        return Signal(context, node, ctx.User, AbortSignal)
+        return SendSignal(context, node, ctx.User, AbortSignal)
       })
       if err != nil {
         return nil, err
@@ -61,7 +64,7 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
+      _, ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
       }
@@ -81,18 +84,21 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
         return nil, err
       }
 
-      var signal GraphSignal
+      var signal Signal
       context := NewWriteContext(ctx.Context)
-      err = UseStates(context, ctx.User, NewLockMap(
-        NewLockInfo(ctx.Server, []string{"children"}),
+      err = UseStates(context, ctx.User, NewACLMap(
+        NewACLInfo(ctx.Server, []string{"children"}),
       ), func(context *StateContext) error {
-        parent := FindChild(context, ctx.User, &ctx.Server.Thread, parent_id)
+        parent, err := FindChild(context, ctx.User, ctx.Server, parent_id)
+        if err != nil {
+          return err
+        }
         if parent == nil {
-          return fmt.Errorf("%s is not a child of %s", parent_id, ctx.Server.ID())
+          return fmt.Errorf("%s is not a child of %s", parent_id, ctx.Server.ID)
         }
 
         signal = NewStartChildSignal(child_id, action)
-        return Signal(context, ctx.User, parent, signal)
+        return SendSignal(context, ctx.User, parent, signal)
       })
       if err != nil {
         return nil, err

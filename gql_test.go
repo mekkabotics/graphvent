@@ -10,7 +10,7 @@ import (
   "crypto/elliptic"
 )
 
-func TestGQLDBLoad(t * testing.T) {
+func TestGQL(t * testing.T) {
   ctx := logTestContext(t, []string{"test", "db"})
 
   TestUserNodeType := NodeType("TEST_USER")

@@ -4,9 +4,9 @@ import (
 )
 
 var GQLQuerySelf = &graphql.Field{
-  Type: GQLTypeGQLThread.Type,
+  Type: GQLTypeBaseThread.Type,
   Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-    ctx, err := PrepResolve(p)
+    _, ctx, err := PrepResolve(p)
     if err != nil {
       return nil, err
     }
@@ -16,9 +16,9 @@ var GQLQuerySelf = &graphql.Field{
 }
 
 var GQLQueryUser = &graphql.Field{
-  Type: GQLTypeUser.Type,
+  Type: GQLTypeBaseNode.Type,
   Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-    ctx, err := PrepResolve(p)
+    _, ctx, err := PrepResolve(p)
     if err != nil {
       return nil, err
     }
