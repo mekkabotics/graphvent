@@ -34,10 +34,14 @@ type Context struct {
   Nodes map[NodeID]*Node
 }
 
-func (ctx *Context) ExtByType(ext_type ExtType) ExtensionInfo {
+func (ctx *Context) ExtByType(ext_type ExtType) *ExtensionInfo {
   type_hash := ext_type.Hash()
-  ext, _ := ctx.Extensions[type_hash]
-  return ext
+  ext, ok := ctx.Extensions[type_hash]
+  if ok == true {
+    return &ext
+  } else {
+    return nil
+  }
 }
 
 func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) error {
@@ -114,6 +118,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterExtension(ListenerExtType, LoadListenerExt, nil)
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterExtension(ThreadExtType, LoadThreadExt, NewThreadExtContext())
   if err != nil {
     return nil, err
@@ -130,6 +139,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterExtension(GQLExtType, LoadGQLExt, NewGQLExtContext())
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterGQLThread(ctx)
   if err != nil {
     return nil, err
   }

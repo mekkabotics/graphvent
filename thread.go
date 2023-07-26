@@ -6,24 +6,121 @@ import (
   "sync"
   "errors"
   "encoding/json"
+  "crypto/sha512"
+  "encoding/binary"
 )
+
+type ThreadAction func(*Context, *Node, *ThreadExt)(string, error)
+type ThreadActions map[string]ThreadAction
+type ThreadHandler func(*Context, *Node, *ThreadExt, GraphSignal)(string, error)
+type ThreadHandlers map[string]ThreadHandler
+
+type InfoType string
+func (t InfoType) String() string {
+  return string(t)
+}
+
+type Info interface {
+  Serializable[InfoType]
+}
+
+// Data required by a parent thread to restore it's children
+type ParentInfo struct {
+  Start bool `json:"start"`
+  StartAction string `json:"start_action"`
+  RestoreAction string `json:"restore_action"`
+}
+
+const ParentInfoType = InfoType("PARENT")
+func (info *ParentInfo) Type() InfoType {
+  return ParentInfoType
+}
+
+func (info *ParentInfo) Serialize() ([]byte, error) {
+  return json.MarshalIndent(info, "", "  ")
+}
 
 type QueuedAction struct {
   Timeout time.Time `json:"time"`
   Action string `json:"action"`
 }
 
-type ThreadExtContext struct {
-  Loads map[InfoType]func([]byte)ThreadInfo
+type ThreadType string
+func (thread ThreadType) Hash() uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("THREAD: %s", string(thread))))
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
+type ThreadInfo struct {
+  Actions ThreadActions
+  Handlers ThreadHandlers
+}
+
+type InfoLoadFunc func([]byte)(Info, error)
+type ThreadExtContext struct {
+  Types map[ThreadType]ThreadInfo
+  Loads map[InfoType]InfoLoadFunc
+}
+
+const BaseThreadType = ThreadType("BASE")
 func NewThreadExtContext() *ThreadExtContext {
+  return &ThreadExtContext{
+    Types: map[ThreadType]ThreadInfo{
+      BaseThreadType: ThreadInfo{
+        Actions: BaseThreadActions,
+        Handlers: BaseThreadHandlers,
+      },
+    },
+    Loads: map[InfoType]InfoLoadFunc{
+      ParentInfoType: func(data []byte) (Info, error) {
+        var info ParentInfo
+        err := json.Unmarshal(data, &info)
+        if err != nil {
+          return nil, err
+        }
+
+        return &info, nil
+      },
+    },
+  }
+}
+
+func (ctx *ThreadExtContext) RegisterThreadType(thread_type ThreadType, actions ThreadActions, handlers ThreadHandlers) error {
+  if actions == nil || handlers == nil {
+    return fmt.Errorf("Cannot register ThreadType %s with nil actions or handlers", thread_type)
+  }
+
+  _, exists := ctx.Types[thread_type]
+  if exists == true {
+    return fmt.Errorf("ThreadType %s already registered in ThreadExtContext, cannot register again", thread_type)
+  }
+  ctx.Types[thread_type] = ThreadInfo{
+    Actions: actions,
+    Handlers: handlers,
+  }
+
+  return nil
+}
+
+func (ctx *ThreadExtContext) RegisterInfoType(info_type InfoType, load_fn InfoLoadFunc) error {
+  if load_fn == nil {
+    return fmt.Errorf("Cannot register %s with nil load_fn", info_type)
+  }
+
+  _, exists := ctx.Loads[info_type]
+  if exists == true {
+    return fmt.Errorf("InfoType %s is already registered in ThreadExtContext, cannot register again", info_type)
+  }
+
+  ctx.Loads[info_type] = load_fn
   return nil
 }
 
 type ThreadExt struct {
   Actions ThreadActions
   Handlers ThreadHandlers
+
+  ThreadType ThreadType
 
   SignalChan chan GraphSignal
   TimeoutChan <-chan time.Time
@@ -43,6 +140,7 @@ type ThreadExt struct {
 
 type ThreadExtJSON struct {
   State string `json:"state"`
+  Type string `json:"type"`
   Parent string `json:"parent"`
   Children map[string][]byte `json:"children"`
   ActionQueue []QueuedAction
@@ -50,6 +148,39 @@ type ThreadExtJSON struct {
 
 func (ext *ThreadExt) Serialize() ([]byte, error) {
   return nil, fmt.Errorf("NOT_IMPLEMENTED")
+}
+
+func NewThreadExt(ctx*Context, thread_type ThreadType, parent *Node, children map[NodeID]ChildInfo, state string, action_queue []QueuedAction) (*ThreadExt, error) {
+  if children == nil {
+    children = map[NodeID]ChildInfo{}
+  }
+
+  if action_queue == nil {
+    action_queue = []QueuedAction{}
+  }
+
+  thread_ctx, err := GetCtx[*ThreadExt, *ThreadExtContext](ctx)
+  if err != nil {
+    return nil, err
+  }
+  type_info, exists := thread_ctx.Types[thread_type]
+  if exists == false {
+    return nil, fmt.Errorf("Tried to load thread type %s which is not in context", thread_type)
+  }
+  next_action, timeout_chan := SoonestAction(action_queue)
+
+  return &ThreadExt{
+    Actions: type_info.Actions,
+    Handlers: type_info.Handlers,
+    SignalChan: make(chan GraphSignal, THREAD_BUFFER_SIZE),
+    TimeoutChan: timeout_chan,
+    Active: false,
+    State: state,
+    Parent: parent,
+    Children: children,
+    ActionQueue: action_queue,
+    NextAction: next_action,
+  }, nil
 }
 
 const THREAD_BUFFER_SIZE int = 1024
@@ -75,26 +206,11 @@ func LoadThreadExt(ctx *Context, data []byte) (Extension, error) {
 
     children[child_node.ID] = ChildInfo{
       Child: child_node,
-      Infos: map[InfoType]ThreadInfo{},
+      Infos: map[InfoType]Info{},
     }
   }
 
-  next_action, timeout_chan := SoonestAction(j.ActionQueue)
-
-  extension := ThreadExt{
-    Actions: BaseThreadActions,
-    Handlers: BaseThreadHandlers,
-    SignalChan: make(chan GraphSignal, THREAD_BUFFER_SIZE),
-    TimeoutChan: timeout_chan,
-    Active: false,
-    State: j.State,
-    Parent: parent,
-    Children: children,
-    ActionQueue: j.ActionQueue,
-    NextAction: next_action,
-  }
-
-  return &extension, nil
+  return NewThreadExt(ctx, ThreadType(j.Type), parent, children, j.State, j.ActionQueue)
 }
 
 const ThreadExtType = ExtType("THREAD")
@@ -281,91 +397,19 @@ func LinkThreads(context *StateContext, principal *Node, thread *Node, info Chil
   })
 }
 
-type ThreadAction func(*Context, *Node, *ThreadExt)(string, error)
-type ThreadActions map[string]ThreadAction
-type ThreadHandler func(*Context, *Node, *ThreadExt, GraphSignal)(string, error)
-type ThreadHandlers map[string]ThreadHandler
-
-type InfoType string
-func (t InfoType) String() string {
-  return string(t)
-}
-
-type ThreadInfo interface {
-  Serializable[InfoType]
-}
-
-// Data required by a parent thread to restore it's children
-type ParentThreadInfo struct {
-  Start bool `json:"start"`
-  StartAction string `json:"start_action"`
-  RestoreAction string `json:"restore_action"`
-}
-
-const ParentThreadInfoType = InfoType("PARENT")
-func (info *ParentThreadInfo) Type() InfoType {
-  return ParentThreadInfoType
-}
-
-func (info *ParentThreadInfo) Serialize() ([]byte, error) {
-  return json.MarshalIndent(info, "", "  ")
-}
-
 type ChildInfo struct {
   Child *Node
-  Infos map[InfoType]ThreadInfo
+  Infos map[InfoType]Info
 }
 
-func NewChildInfo(child *Node, infos map[InfoType]ThreadInfo) ChildInfo {
+func NewChildInfo(child *Node, infos map[InfoType]Info) ChildInfo {
   if infos == nil {
-    infos = map[InfoType]ThreadInfo{}
+    infos = map[InfoType]Info{}
   }
 
   return ChildInfo{
     Child: child,
     Infos: infos,
-  }
-}
-
-var deserializers = map[InfoType]func(interface{})(interface{}, error) {
-  "parent": func(raw interface{})(interface{}, error) {
-    m, ok := raw.(map[string]interface{})
-    if ok == false {
-      return nil, fmt.Errorf("Failed to cast parent info to map")
-    }
-    start, ok := m["start"].(bool)
-    if ok == false {
-      return nil, fmt.Errorf("Failed to get start from parent info")
-    }
-    start_action, ok := m["start_action"].(string)
-    if ok == false {
-      return nil, fmt.Errorf("Failed to get start_action from parent info")
-    }
-    restore_action, ok := m["restore_action"].(string)
-    if ok == false {
-      return nil, fmt.Errorf("Failed to get restore_action from parent info")
-    }
-
-    return &ParentThreadInfo{
-      Start: start,
-      StartAction: start_action,
-      RestoreAction: restore_action,
-    }, nil
-  },
-}
-
-func NewThreadExt(buffer int, name string, state string, actions ThreadActions, handlers ThreadHandlers) ThreadExt {
-  return ThreadExt{
-    Actions: actions,
-    Handlers: handlers,
-    SignalChan: make(chan GraphSignal, buffer),
-    TimeoutChan: nil,
-    Active: false,
-    State: state,
-    Parent: nil,
-    Children: map[NodeID]ChildInfo{},
-    ActionQueue: []QueuedAction{},
-    NextAction: nil,
   }
 }
 
@@ -485,7 +529,7 @@ func ThreadChildLinked(ctx *Context, thread *Node, thread_ext *ThreadExt, signal
       ctx.Log.Logf("thread", "THREAD_NODE_LINKED: %s is not a child of %s", sig.ID)
       return nil
     }
-    parent_info, exists := info.Infos["parent"].(*ParentThreadInfo)
+    parent_info, exists := info.Infos["parent"].(*ParentInfo)
     if exists == false {
       panic("ran ThreadChildLinked from a thread that doesn't require 'parent' child info. library party foul")
     }
@@ -520,7 +564,7 @@ func ThreadStartChild(ctx *Context, thread *Node, thread_ext *ThreadExt, signal 
     }
     return UpdateStates(context, thread, NewACLInfo(info.Child, []string{"start"}), func(context *StateContext) error {
 
-      parent_info, exists := info.Infos["parent"].(*ParentThreadInfo)
+      parent_info, exists := info.Infos["parent"].(*ParentInfo)
       if exists == false {
         return fmt.Errorf("Called ThreadStartChild from a thread that doesn't require parent child info")
       }
@@ -544,7 +588,7 @@ func ThreadRestore(ctx * Context, thread *Node, thread_ext *ThreadExt, start boo
           return err
         }
 
-        parent_info := info.Infos["parent"].(*ParentThreadInfo)
+        parent_info := info.Infos["parent"].(*ParentInfo)
         if parent_info.Start == true && child_ext.State != "finished" {
           ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID, info.Child.ID)
           if start == true {

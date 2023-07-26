@@ -6,13 +6,25 @@ import (
 )
 
 type ListenerExt struct {
+  Buffer int
   Chan chan GraphSignal
 }
 
-func NewListenerExt(buffer int) ListenerExt {
-  return ListenerExt{
+func NewListenerExt(buffer int) *ListenerExt {
+  return &ListenerExt{
+    Buffer: buffer,
     Chan: make(chan GraphSignal, buffer),
   }
+}
+
+func LoadListenerExt(ctx *Context, data []byte) (Extension, error) {
+  var j int
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  return NewListenerExt(j), nil
 }
 
 const ListenerExtType = ExtType("LISTENER")
@@ -20,7 +32,7 @@ func (listener ListenerExt) Type() ExtType {
   return ListenerExtType
 }
 
-func (ext ListenerExt) Process(context *StateContext, signal GraphSignal) error {
+func (ext ListenerExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
   select {
   case ext.Chan <- signal:
   default:
@@ -29,8 +41,8 @@ func (ext ListenerExt) Process(context *StateContext, signal GraphSignal) error 
   return nil
 }
 
-func (node ListenerExt) Serialize() ([]byte, error) {
-  return []byte{}, nil
+func (ext ListenerExt) Serialize() ([]byte, error) {
+  return json.MarshalIndent(ext.Buffer, "", "  ")
 }
 
 type LockableExt struct {
@@ -61,6 +73,27 @@ func (ext *LockableExt) Serialize() ([]byte, error) {
   }, "", "  ")
 }
 
+func NewLockableExt(owner *Node, requirements NodeMap, dependencies NodeMap, locks_held NodeMap) *LockableExt {
+  if requirements == nil {
+    requirements = NodeMap{}
+  }
+
+  if dependencies == nil {
+    dependencies = NodeMap{}
+  }
+
+  if locks_held == nil {
+    locks_held = NodeMap{}
+  }
+
+  return &LockableExt{
+    Owner: owner,
+    Requirements: requirements,
+    Dependencies: dependencies,
+    LocksHeld: locks_held,
+  }
+}
+
 func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   var j LockableExtJSON
   err := json.Unmarshal(data, &j)
@@ -88,14 +121,8 @@ func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  extension := LockableExt{
-    Owner: owner,
-    Requirements: requirements,
-    Dependencies: dependencies,
-    LocksHeld: locks_held,
-  }
 
-  return &extension, nil
+  return NewLockableExt(owner, requirements, dependencies, locks_held), nil
 }
 
 func (ext *LockableExt) Process(context *StateContext, node *Node, signal GraphSignal) error {

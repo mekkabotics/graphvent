@@ -30,6 +30,21 @@ import (
   "encoding/pem"
 )
 
+const GQLThreadType = ThreadType("GQL")
+func RegisterGQLThread(ctx *Context) error {
+  thread_ctx, err := GetCtx[*ThreadExt, *ThreadExtContext](ctx)
+  if err != nil {
+    return err
+  }
+
+  err = thread_ctx.RegisterThreadType(GQLThreadType, gql_actions, gql_handlers)
+  if err != nil {
+    return err
+  }
+
+  return nil
+}
+
 type AuthReqJSON struct {
   Time time.Time `json:"time"`
   Pubkey []byte `json:"pubkey"`
@@ -793,19 +808,10 @@ func LoadGQLExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  extension := GQLExt{
-    Listen: j.Listen,
-    Key: key,
-    ECDH: ecdh_curve,
-    SubscribeListeners: []chan GraphSignal{},
-    tls_key: j.TLSKey,
-    tls_cert: j.TLSCert,
-  }
-
-  return &extension, nil
+  return NewGQLExt(j.Listen, ecdh_curve, key, j.TLSCert, j.TLSKey), nil
 }
 
-func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_cert []byte, tls_key []byte) GQLExt {
+func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_cert []byte, tls_key []byte) *GQLExt {
   if tls_cert == nil || tls_key == nil {
     ssl_key, err := ecdsa.GenerateKey(key.Curve, rand.Reader)
     if err != nil {
@@ -845,7 +851,7 @@ func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_
     tls_cert = ssl_cert_pem
     tls_key = ssl_key_pem
   }
-  return GQLExt{
+  return &GQLExt{
     Listen: listen,
     SubscribeListeners: []chan GraphSignal{},
     Key: key,

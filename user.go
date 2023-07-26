@@ -88,6 +88,15 @@ func (ext *GroupExt) Serialize() ([]byte, error) {
   }, "", "  ")
 }
 
+func NewGroupExt(members NodeMap) *GroupExt {
+  if members == nil {
+    members = NodeMap{}
+  }
+  return &GroupExt{
+    Members: members,
+  }
+}
+
 func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
   var j struct {
     Members []string `json:"members"`
@@ -103,10 +112,7 @@ func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  extension := GroupExt{
-    Members: members,
-  }
-  return &extension, nil
+  return NewGroupExt(members), nil
 }
 
 func (ext *GroupExt) Process(context *StateContext, node *Node, signal GraphSignal) error {

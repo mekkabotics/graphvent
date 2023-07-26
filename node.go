@@ -78,12 +78,29 @@ type Node struct {
   Extensions map[ExtType]Extension
 }
 
+func GetCtx[T Extension, C any](ctx *Context) (C, error) {
+  var zero T
+  var zero_ctx C
+  ext_type := zero.Type()
+  ext_info := ctx.ExtByType(ext_type)
+  if ext_info == nil {
+    return zero_ctx, fmt.Errorf("%s is not an extension in ctx", ext_type)
+  }
+
+  ext_ctx, ok := ext_info.Data.(C)
+  if ok == false {
+    return zero_ctx, fmt.Errorf("context for %s is %+v, not %+v", ext_type, reflect.TypeOf(ext_info.Data), reflect.TypeOf(zero))
+  }
+
+  return ext_ctx, nil
+}
+
 func GetExt[T Extension](node *Node) (T, error) {
   var zero T
   ext_type := zero.Type()
   ext, exists := node.Extensions[ext_type]
   if exists == false {
-    return zero, fmt.Errorf("%s does not have %s extension", node.ID, ext_type)
+    return zero, fmt.Errorf("%s does not have %s extension - %+v", node.ID, ext_type, node.Extensions)
   }
 
   ret, ok := ext.(T)
@@ -373,6 +390,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   node = &new_node
   ctx.Nodes[id] = node
 
+  found_extensions := []ExtType{}
   // Parse each of the extensions from the db
   for _, ext_db := range(node_db.Extensions) {
     type_hash := ext_db.Header.TypeHash
@@ -385,7 +403,44 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
       return nil, err
     }
     node.Extensions[def.Type] = extension
-    ctx.Log.Logf("db", "DB_EXTENSION_LOADED: %s - 0x%x", id, type_hash)
+    found_extensions = append(found_extensions, def.Type)
+    ctx.Log.Logf("db", "DB_EXTENSION_LOADED: %s - 0x%x - %+v", id, type_hash, def.Type)
+  }
+
+  missing_extensions := []ExtType{}
+  for _, ext := range(node_type.Extensions) {
+    found := false
+    for _, found_ext := range(found_extensions) {
+      if found_ext == ext {
+        found = true
+        break
+      }
+    }
+    if found == false {
+      missing_extensions = append(missing_extensions, ext)
+    }
+  }
+
+  if len(missing_extensions) > 0 {
+    return nil, fmt.Errorf("DB_LOAD_MISSING_EXTENSIONS: %s - %+v - %+v", id, node_type, missing_extensions)
+  }
+
+  extra_extensions := []ExtType{}
+  for _, found_ext := range(found_extensions) {
+    found := false
+    for _, ext := range(node_type.Extensions) {
+      if ext == found_ext {
+        found = true
+        break
+      }
+    }
+    if found == false {
+      extra_extensions = append(extra_extensions, found_ext)
+    }
+  }
+
+  if len(extra_extensions) > 0 {
+    return nil, fmt.Errorf("DB_LOAD_EXTRA_EXTENSIONS: %s - %+v - %+v", id, node_type, extra_extensions)
   }
 
   ctx.Log.Logf("db", "DB_NODE_LOADED: %s", id)

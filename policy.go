@@ -65,6 +65,16 @@ func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
   }, nil
 }
 
+func NewACLExt(delegations NodeMap) *ACLExt {
+  if delegations == nil {
+    delegations = NodeMap{}
+  }
+
+  return &ACLExt{
+    Delegations: delegations,
+  }
+}
+
 func (ext *ACLExt) Serialize() ([]byte, error) {
   delegations := make([]string, len(ext.Delegations))
   i := 0
