@@ -70,7 +70,7 @@ type AuthRespJSON struct {
   Signature []byte `json:"signature"`
 }
 
-func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.PublicKey, []byte, error) {
+func NewAuthRespJSON(gql_ext *GQLExt, req AuthReqJSON) (AuthRespJSON, *ecdsa.PublicKey, []byte, error) {
     // Check if req.Time is within +- 1 second of now
     now := time.Now()
     earliest := now.Add(-1 * time.Second)
@@ -82,12 +82,12 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.P
       return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_EARLY: %s", req.Time)
     }
 
-    x, y := elliptic.Unmarshal(thread.Key.Curve, req.Pubkey)
+    x, y := elliptic.Unmarshal(gql_ext.Key.Curve, req.Pubkey)
     if x == nil {
       return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_UNMARSHAL_FAIL: %+v", req.Pubkey)
     }
 
-    remote, err := thread.ECDH.NewPublicKey(req.ECDHPubkey)
+    remote, err := gql_ext.ECDH.NewPublicKey(req.ECDHPubkey)
     if err != nil {
       return AuthRespJSON{}, nil, nil, err
     }
@@ -98,7 +98,7 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.P
     sig_hash := sha512.Sum512(sig_data)
 
     remote_key := &ecdsa.PublicKey{
-      Curve: thread.Key.Curve,
+      Curve: gql_ext.Key.Curve,
       X: x,
       Y: y,
     }
@@ -113,7 +113,7 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.P
       return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_VERIFY_FAIL: %+v", req)
     }
 
-    ec_key, err := thread.ECDH.GenerateKey(rand.Reader)
+    ec_key, err := gql_ext.ECDH.GenerateKey(rand.Reader)
     if err != nil {
       return AuthRespJSON{}, nil, nil, err
     }
@@ -125,7 +125,7 @@ func NewAuthRespJSON(thread *GQLThread, req AuthReqJSON) (AuthRespJSON, *ecdsa.P
     resp_sig_data := append(ec_key_pub, time_ser...)
     resp_sig_hash := sha512.Sum512(resp_sig_data)
 
-    resp_sig, err := ecdsa.SignASN1(rand.Reader, thread.Key, resp_sig_hash[:])
+    resp_sig, err := ecdsa.SignASN1(rand.Reader, gql_ext.Key, resp_sig_hash[:])
     if err != nil {
       return AuthRespJSON{}, nil, nil, err
     }
@@ -156,7 +156,7 @@ func ParseAuthRespJSON(resp AuthRespJSON, ecdsa_curve elliptic.Curve, ecdh_curve
   return shared_secret, nil
 }
 
-func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *http.Request) {
+func AuthHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r *http.Request) {
     ctx.Log.Logf("gql", "GQL_AUTH_REQUEST: %s", r.RemoteAddr)
     enableCORS(&w)
@@ -174,7 +174,7 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       return
     }
 
-    resp, remote_id, shared, err := NewAuthRespJSON(server, req)
+    resp, _, _, err := NewAuthRespJSON(gql_ext, req)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_ERROR: %s", err)
       return
@@ -195,34 +195,31 @@ func AuthHandler(ctx *Context, server *GQLThread) func(http.ResponseWriter, *htt
       return
     }
 
-    key_id := KeyID(remote_id)
-
-    _, exists := server.UserMap[key_id]
-    if exists {
+    /*if exists {
       ctx.Log.Logf("gql", "REFRESHING AUTH FOR %s", key_id)
     } else {
       ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
 
       new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared)
       context := NewWriteContext(ctx)
-      err := UpdateStates(context, server, NewLockMap(LockMap{
-        server.ID(): LockInfo{
+      err := UpdateStates(context, server, ACLMap{
+        server.ID: ACLInfo{
           Node: server,
           Resources: []string{"users"},
         },
-        new_user.ID(): LockInfo{
+        new_user.ID: ACLInfo{
           Node: &new_user,
           Resources: nil,
         },
-      }), func(context *StateContext) error {
-        server.UserMap[key_id] = &new_user
+      }, func(context *StateContext) error {
+        server.Users[key_id] = &new_user
         return nil
       })
       if err != nil {
         ctx.Log.Logf("gql", "GQL_AUTH_UPDATE_ERR: %s", err)
         return
       }
-    }
+    }*/
 
   }
 }
@@ -363,11 +360,13 @@ func checkForAuthHeader(header http.Header) (string, bool) {
 
 type ResolveContext struct {
   Context *Context
-  Server *GQLThread
-  User *User
+  GQLContext *GQLExtContext
+  Server *Node
+  Ext *GQLExt
+  User *Node
 }
 
-func NewResolveContext(ctx *Context, server *GQLThread, r *http.Request) (*ResolveContext, error) {
+func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
   username, password, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
@@ -378,25 +377,29 @@ func NewResolveContext(ctx *Context, server *GQLThread, r *http.Request) (*Resol
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
   }
 
-  user, exists := server.UserMap[auth_id]
+  user, exists := gql_ext.Users[auth_id]
   if exists == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no existing authorization for client %s", auth_id)
   }
 
-  if base64.StdEncoding.EncodeToString(user.Shared) != password {
+  user_ext, err := GetExt[*ECDHExt](user)
+  if err != nil {
+    return nil, err
+  }
+
+  if base64.StdEncoding.EncodeToString(user_ext.Shared) != password {
     return nil, fmt.Errorf("GQL_AUTH_FAIL")
   }
 
   return &ResolveContext{
     Context: ctx,
+    GQLContext: ctx.Extensions[GQLExtType.Hash()].Data.(*GQLExtContext),
     Server: server,
     User: user,
   }, nil
 }
 
-func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *http.Request) {
-  gql_ctx := context.Background()
-
+func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gql", "GQL REQUEST: %s", r.RemoteAddr)
     enableCORS(&w)
@@ -406,7 +409,7 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
-    resolve_context, err := NewResolveContext(ctx, server, r)
+    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       json.NewEncoder(w).Encode(GQLUnauthorized(fmt.Sprintf("%s", err)))
@@ -414,7 +417,7 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
     }
 
     req_ctx := context.Background()
-    req_ctx = context.WithValue(gql_ctx, "resolve", resolve_context)
+    req_ctx = context.WithValue(req_ctx, "resolve", resolve_context)
 
     str, err := io.ReadAll(r.Body)
     if err != nil {
@@ -425,8 +428,10 @@ func GQLHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *ht
     query := GQLPayload{}
     json.Unmarshal(str, &query)
 
+    gql_context := ctx.Extensions[GQLExtType.Hash()].Data.(*GQLExtContext)
+
     params := graphql.Params{
-      Schema: ctx.GQL.Schema,
+      Schema: gql_context.Schema,
       Context: req_ctx,
       RequestString: query.Query,
     }
@@ -494,11 +499,7 @@ func GQLWSDo(ctx * Context, p graphql.Params) chan *graphql.Result {
   return sendOneResultAndClose(res)
 }
 
-func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *http.Request) {
-  gql_ctx := context.Background()
-  gql_ctx = context.WithValue(gql_ctx, "graph_context", ctx)
-  gql_ctx = context.WithValue(gql_ctx, "gql_server", server)
-
+func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
     enableCORS(&w)
@@ -508,7 +509,7 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
     }
 
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
-    resolve_context, err := NewResolveContext(ctx, server, r)
+    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       return
@@ -557,8 +558,9 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
           }
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
+          gql_context := ctx.Extensions[GQLExtType.Hash()].Data.(*GQLExtContext)
           params := graphql.Params{
-            Schema: ctx.GQL.Schema,
+            Schema: gql_context.Schema,
             Context: req_ctx,
             RequestString: msg.Payload.Query,
           }
@@ -628,35 +630,94 @@ func GQLWSHandler(ctx * Context, server * GQLThread) func(http.ResponseWriter, *
   }
 }
 
-type GQLThread struct {
-  Thread
+// Map of go types to graphql types
+type ObjTypeMap map[reflect.Type]*graphql.Object
+
+// GQL Specific Context information
+type GQLExtContext struct {
+  // Generated GQL schema
+  Schema graphql.Schema
+
+  // List of GQL types
+  TypeList []graphql.Type
+
+  // Interface type maps to map go types of specific interfaces to gql types
+  ValidNodes ObjTypeMap
+  ValidLockables ObjTypeMap
+  ValidThreads ObjTypeMap
+
+  BaseNodeType *graphql.Object
+  BaseLockableType *graphql.Object
+  BaseThreadType *graphql.Object
+
+  Query *graphql.Object
+  Mutation *graphql.Object
+  Subscription *graphql.Object
+}
+
+func NewGQLExtContext() *GQLExtContext {
+  query := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Query",
+    Fields: graphql.Fields{},
+  })
+
+  mutation := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Mutation",
+    Fields: graphql.Fields{},
+  })
+
+  subscription := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Subscription",
+    Fields: graphql.Fields{},
+  })
+
+  context := GQLExtContext{
+    Schema: graphql.Schema{},
+    TypeList: []graphql.Type{},
+    ValidNodes: ObjTypeMap{},
+    ValidThreads: ObjTypeMap{},
+    ValidLockables: ObjTypeMap{},
+    Query: query,
+    Mutation: mutation,
+    Subscription: subscription,
+    BaseNodeType: GQLTypeBaseNode.Type,
+    BaseLockableType: GQLTypeBaseLockable.Type,
+    BaseThreadType: GQLTypeBaseThread.Type,
+  }
+
+  return &context
+}
+
+type GQLExt struct {
   tcp_listener net.Listener
   http_server *http.Server
-  http_done *sync.WaitGroup
+  http_done sync.WaitGroup
   tls_key []byte
   tls_cert []byte
   Listen string
-  UserMap map[NodeID]*User
+  Users NodeMap
   Key *ecdsa.PrivateKey
   ECDH ecdh.Curve
   SubscribeLock sync.Mutex
   SubscribeListeners []chan GraphSignal
 }
 
-func (thread *GQLThread) NewSubscriptionChannel(buffer int) chan GraphSignal {
-  thread.SubscribeLock.Lock()
-  defer thread.SubscribeLock.Unlock()
+func (ext *GQLExt) NewSubscriptionChannel(buffer int) chan GraphSignal {
+  ext.SubscribeLock.Lock()
+  defer ext.SubscribeLock.Unlock()
 
   new_listener := make(chan GraphSignal, buffer)
-  thread.SubscribeListeners = append(thread.SubscribeListeners, new_listener)
+  ext.SubscribeListeners = append(ext.SubscribeListeners, new_listener)
 
   return new_listener
 }
 
-func (thread *GQLThread) Process(context *StateContext, signal GraphSignal) error {
+func (ext *GQLExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+  ext.SubscribeLock.Lock()
+  defer ext.SubscribeLock.Unlock()
+
   active_listeners := []chan GraphSignal{}
-  thread.SubscribeLock.Lock()
-  for _, listener := range(thread.SubscribeListeners) {
+  for _, listener := range(ext.SubscribeListeners) {
     select {
       case listener <- signal:
         active_listeners = append(active_listeners, listener)
@@ -667,32 +728,36 @@ func (thread *GQLThread) Process(context *StateContext, signal GraphSignal) erro
         }(listener)
     }
   }
-  thread.SubscribeListeners = active_listeners
-  thread.SubscribeLock.Unlock()
-  return thread.Thread.Process(context, signal)
+  ext.SubscribeListeners = active_listeners
+  return nil
 }
 
-func (thread * GQLThread) Type() NodeType {
-  return NodeType("gql_thread")
+const GQLExtType = ExtType("gql_thread")
+func (ext *GQLExt) Type() ExtType {
+  return GQLExtType
 }
 
-func (thread * GQLThread) Serialize() ([]byte, error) {
-  thread_json := NewGQLThreadJSON(thread)
-  return json.MarshalIndent(&thread_json, "", "  ")
-}
-
-func (thread * GQLThread) Users() map[NodeID]*User {
-  return thread.UserMap
-}
-
-type GQLThreadJSON struct {
-  ThreadJSON
+type GQLExtJSON struct {
   Listen string `json:"listen"`
-  Users []string `json:"users"`
   Key []byte `json:"key"`
   ECDH uint8 `json:"ecdh_curve"`
   TLSKey []byte `json:"ssl_key"`
   TLSCert []byte `json:"ssl_cert"`
+}
+
+func (ext *GQLExt) Serialize() ([]byte, error) {
+  ser_key, err := x509.MarshalECPrivateKey(ext.Key)
+  if err != nil {
+    return nil, err
+  }
+
+  return json.MarshalIndent(&GQLExtJSON{
+    Listen: ext.Listen,
+    Key: ser_key,
+    ECDH: ecdh_curve_ids[ext.ECDH],
+    TLSKey: ext.tls_key,
+    TLSCert: ext.tls_cert,
+  }, "", "  ")
 }
 
 var ecdsa_curves = map[uint8]elliptic.Curve{
@@ -711,33 +776,13 @@ var ecdh_curve_ids = map[ecdh.Curve]uint8{
   ecdh.P256(): 0,
 }
 
-func NewGQLThreadJSON(thread *GQLThread) GQLThreadJSON {
-  thread_json := NewThreadJSON(&thread.Thread)
-
-  ser_key, err := x509.MarshalECPrivateKey(thread.Key)
+func LoadGQLExt(ctx *Context, data []byte) (Extension, error) {
+  var j GQLExtJSON
+  err := json.Unmarshal(data, &j)
   if err != nil {
-    panic(err)
+    return nil, err
   }
 
-  users := make([]string, len(thread.UserMap))
-  i := 0
-  for id, _ := range(thread.UserMap) {
-    users[i] = id.String()
-    i += 1
-  }
-
-  return GQLThreadJSON{
-    ThreadJSON: thread_json,
-    Listen: thread.Listen,
-    Users: users,
-    Key: ser_key,
-    ECDH: ecdh_curve_ids[thread.ECDH],
-    TLSKey: thread.tls_key,
-    TLSCert: thread.tls_cert,
-  }
-}
-
-var LoadGQLThread = LoadJSONNode(func(id NodeID, j GQLThreadJSON) (Node, error) {
   ecdh_curve, ok := ecdh_curves[j.ECDH]
   if ok == false {
     return nil, fmt.Errorf("%d is not a known ECDH curve ID", j.ECDH)
@@ -748,27 +793,19 @@ var LoadGQLThread = LoadJSONNode(func(id NodeID, j GQLThreadJSON) (Node, error) 
     return nil, err
   }
 
-  thread := NewGQLThread(id, j.Name, j.StateName, j.Listen, ecdh_curve, key, j.TLSCert, j.TLSKey)
-  return &thread, nil
-}, func(ctx *Context, thread *GQLThread, j GQLThreadJSON, nodes NodeMap) error {
-  thread.UserMap = map[NodeID]*User{}
-  for _, id_str := range(j.Users) {
-    ctx.Log.Logf("db", "THREAD_LOAD_USER: %s", id_str)
-    user_id, err := ParseID(id_str)
-    if err != nil {
-      return err
-    }
-    user, err := LoadNodeRecurse(ctx, user_id, nodes)
-    if err != nil {
-      return err
-    }
-    thread.UserMap[user_id] = user.(*User)
+  extension := GQLExt{
+    Listen: j.Listen,
+    Key: key,
+    ECDH: ecdh_curve,
+    SubscribeListeners: []chan GraphSignal{},
+    tls_key: j.TLSKey,
+    tls_cert: j.TLSCert,
   }
 
-  return RestoreThread(ctx, thread, j.ThreadJSON, nodes)
-})
+  return &extension, nil
+}
 
-func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_cert []byte, tls_key []byte) GQLThread {
+func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_cert []byte, tls_key []byte) GQLExt {
   if tls_cert == nil || tls_key == nil {
     ssl_key, err := ecdsa.GenerateKey(key.Curve, rand.Reader)
     if err != nil {
@@ -808,12 +845,9 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
     tls_cert = ssl_cert_pem
     tls_key = ssl_key_pem
   }
-  return GQLThread{
-    Thread: NewThread(id, name, state_name, []InfoType{"parent"}, gql_actions, gql_handlers),
+  return GQLExt{
     Listen: listen,
     SubscribeListeners: []chan GraphSignal{},
-    UserMap: map[NodeID]*User{},
-    http_done: &sync.WaitGroup{},
     Key: key,
     ECDH: ecdh_curve,
     tls_cert: tls_cert,
@@ -823,23 +857,26 @@ func NewGQLThread(id NodeID, name string, state_name string, listen string, ecdh
 
 var gql_actions ThreadActions = ThreadActions{
   "wait": ThreadWait,
-  "restore": func(ctx *Context, node ThreadNode) (string, error) {
-    return "start_server", ThreadRestore(ctx, node, false)
+  "restore": func(ctx *Context, thread *Node, thread_ext *ThreadExt) (string, error) {
+    return "start_server", ThreadRestore(ctx, thread, thread_ext, false)
   },
-  "start": func(ctx * Context, node ThreadNode) (string, error) {
-    _, err := ThreadStart(ctx, node)
+  "start": func(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
+    _, err := ThreadStart(ctx, thread, thread_ext)
     if err != nil {
       return "", err
     }
-    return "start_server", ThreadRestore(ctx, node, true)
+    return "start_server", ThreadRestore(ctx, thread, thread_ext, true)
   },
-  "start_server": func(ctx * Context, node ThreadNode) (string, error) {
-    gql_thread := node.(*GQLThread)
+  "start_server": func(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
+    gql_ext, err := GetExt[*GQLExt](thread)
+    if err != nil {
+      return "", err
+    }
 
     mux := http.NewServeMux()
-    mux.HandleFunc("/auth", AuthHandler(ctx, gql_thread))
-    mux.HandleFunc("/gql", GQLHandler(ctx, gql_thread))
-    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, gql_thread))
+    mux.HandleFunc("/auth", AuthHandler(ctx, thread, gql_ext))
+    mux.HandleFunc("/gql", GQLHandler(ctx, thread, gql_ext))
+    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, thread, gql_ext))
 
     // Server a graphiql interface(TODO make configurable whether to start this)
     mux.HandleFunc("/graphiql", GraphiQLHandler())
@@ -849,7 +886,7 @@ var gql_actions ThreadActions = ThreadActions{
     mux.Handle("/site/", http.StripPrefix("/site", fs))
 
     http_server := &http.Server{
-      Addr: gql_thread.Listen,
+      Addr: gql_ext.Listen,
       Handler: mux,
     }
 
@@ -858,7 +895,7 @@ var gql_actions ThreadActions = ThreadActions{
       return "", fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
     }
 
-    cert, err := tls.X509KeyPair(gql_thread.tls_cert, gql_thread.tls_key)
+    cert, err := tls.X509KeyPair(gql_ext.tls_cert, gql_ext.tls_key)
     if err != nil {
       return "", err
     }
@@ -870,23 +907,21 @@ var gql_actions ThreadActions = ThreadActions{
 
     listener := tls.NewListener(l, &config)
 
-    gql_thread.http_done.Add(1)
-    go func(gql_thread *GQLThread) {
-      defer gql_thread.http_done.Done()
+    gql_ext.http_done.Add(1)
+    go func(qql_ext *GQLExt) {
+      defer gql_ext.http_done.Done()
 
       err := http_server.Serve(listener)
       if err != http.ErrServerClosed {
           panic(fmt.Sprintf("Failed to start gql server: %s", err))
       }
-    }(gql_thread)
+    }(gql_ext)
 
 
     context := NewWriteContext(ctx)
-    err = UpdateStates(context, node, NewLockMap(
-      NewLockInfo(node, []string{"http_server"}),
-    ), func(context *StateContext) error {
-      gql_thread.tcp_listener = listener
-      gql_thread.http_server = http_server
+    err = UpdateStates(context, thread, NewACLInfo(thread, []string{"http_server"}),  func(context *StateContext) error {
+      gql_ext.tcp_listener = listener
+      gql_ext.http_server = http_server
       return nil
     })
 
@@ -895,18 +930,22 @@ var gql_actions ThreadActions = ThreadActions{
     }
 
     context = NewReadContext(ctx)
-    err = Signal(context, gql_thread, gql_thread, NewStatusSignal("server_started", gql_thread.ID()))
+    err = Signal(context, thread, thread, NewStatusSignal("server_started", thread.ID))
     if err != nil {
       return "", err
     }
 
     return "wait", nil
   },
-  "finish": func(ctx *Context, node ThreadNode) (string, error) {
-    gql_thread := node.(*GQLThread)
-    gql_thread.http_server.Shutdown(context.TODO())
-    gql_thread.http_done.Wait()
-    return ThreadFinish(ctx, node)
+  "finish": func(ctx *Context, thread *Node, thread_ext *ThreadExt) (string, error) {
+    gql_ext, err := GetExt[*GQLExt](thread)
+    if err != nil {
+      return "", err
+    }
+
+    gql_ext.http_server.Shutdown(context.TODO())
+    gql_ext.http_done.Wait()
+    return ThreadFinish(ctx, thread, thread_ext)
   },
 }
 

@@ -8,6 +8,19 @@ import (
   "encoding/json"
 )
 
+type QueuedAction struct {
+  Timeout time.Time `json:"time"`
+  Action string `json:"action"`
+}
+
+type ThreadExtContext struct {
+  Loads map[InfoType]func([]byte)ThreadInfo
+}
+
+func NewThreadExtContext() *ThreadExtContext {
+  return nil
+}
+
 type ThreadExt struct {
   Actions ThreadActions
   Handlers ThreadHandlers
@@ -19,7 +32,7 @@ type ThreadExt struct {
 
   ActiveLock sync.Mutex
   Active bool
-  StateName string
+  State string
 
   Parent *Node
   Children map[NodeID]ChildInfo
@@ -28,13 +41,92 @@ type ThreadExt struct {
   NextAction *QueuedAction
 }
 
+type ThreadExtJSON struct {
+  State string `json:"state"`
+  Parent string `json:"parent"`
+  Children map[string][]byte `json:"children"`
+  ActionQueue []QueuedAction
+}
+
 func (ext *ThreadExt) Serialize() ([]byte, error) {
   return nil, fmt.Errorf("NOT_IMPLEMENTED")
+}
+
+const THREAD_BUFFER_SIZE int = 1024
+func LoadThreadExt(ctx *Context, data []byte) (Extension, error) {
+  var j ThreadExtJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  parent, err := RestoreNode(ctx, j.Parent)
+  if err != nil {
+    return nil, err
+  }
+
+  children := map[NodeID]ChildInfo{}
+  for id_str, _ := range(j.Children) {
+    child_node, err := RestoreNode(ctx, id_str)
+    if err != nil {
+      return nil, err
+    }
+    //TODO: Restore child info based off context
+
+    children[child_node.ID] = ChildInfo{
+      Child: child_node,
+      Infos: map[InfoType]ThreadInfo{},
+    }
+  }
+
+  next_action, timeout_chan := SoonestAction(j.ActionQueue)
+
+  extension := ThreadExt{
+    Actions: BaseThreadActions,
+    Handlers: BaseThreadHandlers,
+    SignalChan: make(chan GraphSignal, THREAD_BUFFER_SIZE),
+    TimeoutChan: timeout_chan,
+    Active: false,
+    State: j.State,
+    Parent: parent,
+    Children: children,
+    ActionQueue: j.ActionQueue,
+    NextAction: next_action,
+  }
+
+  return &extension, nil
 }
 
 const ThreadExtType = ExtType("THREAD")
 func (ext *ThreadExt) Type() ExtType {
   return ThreadExtType
+}
+
+func (ext *ThreadExt) QueueAction(end time.Time, action string) {
+  ext.ActionQueue = append(ext.ActionQueue, QueuedAction{end, action})
+  ext.NextAction, ext.TimeoutChan = SoonestAction(ext.ActionQueue)
+}
+
+func (ext *ThreadExt) ClearActionQueue() {
+  ext.ActionQueue = []QueuedAction{}
+  ext.NextAction = nil
+  ext.TimeoutChan = nil
+}
+
+func SoonestAction(actions []QueuedAction) (*QueuedAction, <-chan time.Time) {
+  var soonest_action *QueuedAction
+  var soonest_time time.Time
+  for _, action := range(actions) {
+    if action.Timeout.Compare(soonest_time) == -1 || soonest_action == nil {
+      soonest_action = &action
+      soonest_time = action.Timeout
+    }
+  }
+  if soonest_action != nil {
+    return soonest_action, time.After(time.Until(soonest_action.Timeout))
+  } else {
+    return nil, nil
+  }
 }
 
 func (ext *ThreadExt) ChildList() []*Node {
@@ -235,38 +327,6 @@ func NewChildInfo(child *Node, infos map[InfoType]ThreadInfo) ChildInfo {
   }
 }
 
-type QueuedAction struct {
-  Timeout time.Time `json:"time"`
-  Action string `json:"action"`
-}
-
-func (ext *ThreadExt) QueueAction(end time.Time, action string) {
-  ext.ActionQueue = append(ext.ActionQueue, QueuedAction{end, action})
-  ext.NextAction, ext.TimeoutChan = ext.SoonestAction()
-}
-
-func (ext *ThreadExt) ClearActionQueue() {
-  ext.ActionQueue = []QueuedAction{}
-  ext.NextAction = nil
-  ext.TimeoutChan = nil
-}
-
-func (ext *ThreadExt) SoonestAction() (*QueuedAction, <-chan time.Time) {
-  var soonest_action *QueuedAction
-  var soonest_time time.Time
-  for _, action := range(ext.ActionQueue) {
-    if action.Timeout.Compare(soonest_time) == -1 || soonest_action == nil {
-      soonest_action = &action
-      soonest_time = action.Timeout
-    }
-  }
-  if soonest_action != nil {
-    return soonest_action, time.After(time.Until(soonest_action.Timeout))
-  } else {
-    return nil, nil
-  }
-}
-
 var deserializers = map[InfoType]func(interface{})(interface{}, error) {
   "parent": func(raw interface{})(interface{}, error) {
     m, ok := raw.(map[string]interface{})
@@ -294,14 +354,14 @@ var deserializers = map[InfoType]func(interface{})(interface{}, error) {
   },
 }
 
-func NewThreadExt(buffer int, name string, state_name string, actions ThreadActions, handlers ThreadHandlers) ThreadExt {
+func NewThreadExt(buffer int, name string, state string, actions ThreadActions, handlers ThreadHandlers) ThreadExt {
   return ThreadExt{
     Actions: actions,
     Handlers: handlers,
     SignalChan: make(chan GraphSignal, buffer),
     TimeoutChan: nil,
     Active: false,
-    StateName: state_name,
+    State: state,
     Parent: nil,
     Children: map[NodeID]ChildInfo{},
     ActionQueue: []QueuedAction{},
@@ -322,7 +382,7 @@ func (ext *ThreadExt) SetActive(active bool) error {
 }
 
 func (ext *ThreadExt) SetState(state string) error {
-  ext.StateName = state
+  ext.State = state
   return nil
 }
 
@@ -485,7 +545,7 @@ func ThreadRestore(ctx * Context, thread *Node, thread_ext *ThreadExt, start boo
         }
 
         parent_info := info.Infos["parent"].(*ParentThreadInfo)
-        if parent_info.Start == true && child_ext.StateName != "finished" {
+        if parent_info.Start == true && child_ext.State != "finished" {
           ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID, info.Child.ID)
           if start == true {
             ChildGo(ctx, thread_ext, info.Child, parent_info.StartAction)
@@ -537,7 +597,7 @@ func ThreadWait(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, err
         context := NewWriteContext(ctx)
         err := UpdateStates(context, thread, NewACLMap(NewACLInfo(thread, []string{"timeout"})), func(context *StateContext) error {
           timeout_action = thread_ext.NextAction.Action
-          thread_ext.NextAction, thread_ext.TimeoutChan = thread_ext.SoonestAction()
+          thread_ext.NextAction, thread_ext.TimeoutChan = SoonestAction(thread_ext.ActionQueue)
           return nil
         })
         if err != nil {

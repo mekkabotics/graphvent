@@ -3,6 +3,7 @@ package graphvent
 import (
   "github.com/graphql-go/graphql"
   "reflect"
+  "fmt"
 )
 
 func NewField(init func()*graphql.Field) *graphql.Field {
@@ -26,22 +27,34 @@ func NewSingleton[K graphql.Type](init func() K, post_init func(K, *graphql.List
   }
 }
 
-func addNodeInterfaceFields(i *graphql.Interface) {
+func AddNodeInterfaceFields(i *graphql.Interface) {
   i.AddFieldConfig("ID", &graphql.Field{
     Type: graphql.String,
   })
+
+  i.AddFieldConfig("TypeHash", &graphql.Field{
+    Type: graphql.String,
+  })
+}
+
+func PrepTypeResolve(p graphql.ResolveTypeParams) (*ResolveContext, error) {
+  resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
+  if ok == false {
+    return nil, fmt.Errorf("Bad resolve in params context")
+  }
+  return resolve_context, nil
 }
 
 var GQLInterfaceNode = NewSingleton(func() *graphql.Interface {
   i := graphql.NewInterface(graphql.InterfaceConfig{
     Name: "Node",
     ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
+      ctx, err := PrepTypeResolve(p)
+      if err != nil {
         return nil
       }
 
-      valid_nodes := ctx.GQL.ValidNodes
+      valid_nodes := ctx.GQLContext.ValidNodes
       p_type := reflect.TypeOf(p.Value)
 
       for key, value := range(valid_nodes) {
@@ -50,9 +63,9 @@ var GQLInterfaceNode = NewSingleton(func() *graphql.Interface {
         }
       }
 
-      _, ok = p.Value.(Node)
+      _, ok := p.Value.(Node)
       if ok == true {
-        return ctx.GQL.BaseNodeType
+        return ctx.GQLContext.BaseNodeType
       }
 
       return nil
@@ -60,41 +73,21 @@ var GQLInterfaceNode = NewSingleton(func() *graphql.Interface {
     Fields: graphql.Fields{},
   })
 
-  addNodeInterfaceFields(i)
+  AddNodeInterfaceFields(i)
 
   return i
 }, nil)
-
-func addLockableInterfaceFields(i *graphql.Interface, lockable *graphql.Interface, list *graphql.List) {
-  addNodeInterfaceFields(i)
-
-  i.AddFieldConfig("Name", &graphql.Field{
-    Type: graphql.String,
-  })
-
-  i.AddFieldConfig("Requirements", &graphql.Field{
-    Type: list,
-  })
-
-  i.AddFieldConfig("Dependencies", &graphql.Field{
-    Type: list,
-  })
-
-  i.AddFieldConfig("Owner", &graphql.Field{
-    Type: lockable,
-  })
-}
 
 var GQLInterfaceLockable = NewSingleton(func() *graphql.Interface {
   gql_interface_lockable := graphql.NewInterface(graphql.InterfaceConfig{
     Name: "Lockable",
     ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
+      ctx, err := PrepTypeResolve(p)
+      if err != nil {
         return nil
       }
 
-      valid_lockables := ctx.GQL.ValidLockables
+      valid_lockables := ctx.GQLContext.ValidLockables
       p_type := reflect.TypeOf(p.Value)
 
       for key, value := range(valid_lockables) {
@@ -103,9 +96,9 @@ var GQLInterfaceLockable = NewSingleton(func() *graphql.Interface {
         }
       }
 
-      _, ok = p.Value.(Lockable)
-      if ok == true {
-        return ctx.GQL.BaseLockableType
+      _, ok := p.Value.(*Node)
+      if ok == false {
+        return ctx.GQLContext.BaseLockableType
       }
       return nil
     },
@@ -114,31 +107,30 @@ var GQLInterfaceLockable = NewSingleton(func() *graphql.Interface {
 
   return gql_interface_lockable
 }, func(lockable *graphql.Interface, lockable_list *graphql.List) {
-  addLockableInterfaceFields(lockable, lockable, lockable_list)
+  lockable.AddFieldConfig("Requirements", &graphql.Field{
+    Type: lockable_list,
+  })
+
+  lockable.AddFieldConfig("Dependencies", &graphql.Field{
+    Type: lockable_list,
+  })
+
+  lockable.AddFieldConfig("Owner", &graphql.Field{
+    Type: lockable,
+  })
+  AddNodeInterfaceFields(lockable)
 })
-
-func addThreadInterfaceFields(i *graphql.Interface, thread *graphql.Interface, list *graphql.List) {
-  addLockableInterfaceFields(i, GQLInterfaceLockable.Type, GQLInterfaceLockable.List)
-
-  i.AddFieldConfig("Children", &graphql.Field{
-    Type: list,
-  })
-
-  i.AddFieldConfig("Parent", &graphql.Field{
-    Type: thread,
-  })
-}
 
 var GQLInterfaceThread = NewSingleton(func() *graphql.Interface {
   gql_interface_thread := graphql.NewInterface(graphql.InterfaceConfig{
     Name: "Thread",
     ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, ok := p.Context.Value("graph_context").(*Context)
-      if ok == false {
+      ctx, err := PrepTypeResolve(p)
+      if err != nil {
         return nil
       }
 
-      valid_threads := ctx.GQL.ValidThreads
+      valid_threads := ctx.GQLContext.ValidThreads
       p_type := reflect.TypeOf(p.Value)
 
       for key, value := range(valid_threads) {
@@ -147,9 +139,14 @@ var GQLInterfaceThread = NewSingleton(func() *graphql.Interface {
         }
       }
 
-      _, ok = p.Value.(Thread)
-      if ok == true {
-        return ctx.GQL.BaseThreadType
+      node, ok := p.Value.(*Node)
+      if ok == false {
+        return nil
+      }
+
+      _, err = GetExt[*ThreadExt](node)
+      if err == nil {
+        return ctx.GQLContext.BaseThreadType
       }
 
       return nil
@@ -159,5 +156,17 @@ var GQLInterfaceThread = NewSingleton(func() *graphql.Interface {
 
   return gql_interface_thread
 }, func(thread *graphql.Interface, thread_list *graphql.List) {
-  addThreadInterfaceFields(thread, thread, thread_list)
+  thread.AddFieldConfig("Children", &graphql.Field{
+    Type: thread_list,
+  })
+
+  thread.AddFieldConfig("Parent", &graphql.Field{
+    Type: thread,
+  })
+
+  thread.AddFieldConfig("State", &graphql.Field{
+    Type: graphql.String,
+  })
+
+  AddNodeInterfaceFields(thread)
 })

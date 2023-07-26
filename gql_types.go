@@ -9,15 +9,15 @@ func AddNodeFields(obj *graphql.Object) {
     Type: graphql.String,
     Resolve: GQLNodeID,
   })
+
+  obj.AddFieldConfig("TypeHash", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLNodeTypeHash,
+  })
 }
 
 func AddLockableFields(obj *graphql.Object) {
   AddNodeFields(obj)
-
-  obj.AddFieldConfig("Name", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLLockableName,
-  })
 
   obj.AddFieldConfig("Requirements", &graphql.Field{
     Type: GQLInterfaceLockable.List,
@@ -36,7 +36,7 @@ func AddLockableFields(obj *graphql.Object) {
 }
 
 func AddThreadFields(obj *graphql.Object) {
-  AddLockableFields(obj)
+  AddNodeFields(obj)
 
   obj.AddFieldConfig("State", &graphql.Field{
     Type: graphql.String,
@@ -54,56 +54,7 @@ func AddThreadFields(obj *graphql.Object) {
   })
 }
 
-var GQLTypeUser = NewSingleton(func() *graphql.Object {
-  gql_type_user := graphql.NewObject(graphql.ObjectConfig{
-    Name: "User",
-    Interfaces: []*graphql.Interface{
-      GQLInterfaceNode.Type,
-      GQLInterfaceLockable.Type,
-    },
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(*User)
-      return ok
-    },
-    Fields: graphql.Fields{},
-  })
-
-  AddLockableFields(gql_type_user)
-
-  return gql_type_user
-}, nil)
-
-var GQLTypeGQLThread = NewSingleton(func() *graphql.Object {
-  gql_type_gql_thread := graphql.NewObject(graphql.ObjectConfig{
-    Name: "GQLThread",
-    Interfaces: []*graphql.Interface{
-      GQLInterfaceNode.Type,
-      GQLInterfaceThread.Type,
-      GQLInterfaceLockable.Type,
-    },
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(*GQLThread)
-      return ok
-    },
-    Fields: graphql.Fields{},
-  })
-
-  AddThreadFields(gql_type_gql_thread)
-
-  gql_type_gql_thread.AddFieldConfig("Users", &graphql.Field{
-    Type: GQLTypeUser.List,
-    Resolve: GQLGroupNodeUsers,
-  })
-
-  gql_type_gql_thread.AddFieldConfig("Listen", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLThreadListen,
-  })
-
-  return gql_type_gql_thread
-}, nil)
-
-var GQLTypeSimpleThread = NewSingleton(func() *graphql.Object {
+var GQLTypeBaseThread = NewSingleton(func() *graphql.Object {
   gql_type_simple_thread := graphql.NewObject(graphql.ObjectConfig{
     Name: "SimpleThread",
     Interfaces: []*graphql.Interface{
@@ -112,8 +63,13 @@ var GQLTypeSimpleThread = NewSingleton(func() *graphql.Object {
       GQLInterfaceLockable.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(Thread)
-      return ok
+      node, ok := p.Value.(*Node)
+      if ok == false {
+        return false
+      }
+
+      _, err := GetExt[*ThreadExt](node)
+      return err == nil
     },
     Fields: graphql.Fields{},
   })
@@ -123,7 +79,7 @@ var GQLTypeSimpleThread = NewSingleton(func() *graphql.Object {
   return gql_type_simple_thread
 }, nil)
 
-var GQLTypeSimpleLockable = NewSingleton(func() *graphql.Object {
+var GQLTypeBaseLockable = NewSingleton(func() *graphql.Object {
   gql_type_simple_lockable := graphql.NewObject(graphql.ObjectConfig{
     Name: "SimpleLockable",
     Interfaces: []*graphql.Interface{
@@ -131,8 +87,13 @@ var GQLTypeSimpleLockable = NewSingleton(func() *graphql.Object {
       GQLInterfaceLockable.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(Lockable)
-      return ok
+      node, ok := p.Value.(*Node)
+      if ok == false {
+        return false
+      }
+
+      _, err := GetExt[*LockableExt](node)
+      return err == nil
     },
     Fields: graphql.Fields{},
   })
@@ -142,14 +103,14 @@ var GQLTypeSimpleLockable = NewSingleton(func() *graphql.Object {
   return gql_type_simple_lockable
 }, nil)
 
-var GQLTypeSimpleNode = NewSingleton(func() *graphql.Object {
+var GQLTypeBaseNode = NewSingleton(func() *graphql.Object {
   object := graphql.NewObject(graphql.ObjectConfig{
     Name: "SimpleNode",
     Interfaces: []*graphql.Interface{
       GQLInterfaceNode.Type,
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(Node)
+      _, ok := p.Value.(*Node)
       return ok
     },
     Fields: graphql.Fields{},

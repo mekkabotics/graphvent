@@ -73,6 +73,7 @@ type Extension interface {
 // Nodes represent an addressible group of extensions
 type Node struct {
   ID NodeID
+  Type NodeType
   Lock sync.RWMutex
   ExtensionMap map[ExtType]Extension
 }
@@ -91,65 +92,6 @@ func GetExt[T Extension](node *Node) (T, error) {
   }
 
   return ret, nil
-}
-
-// The ACL extension stores a map of nodes to delegate ACL to, and a list of policies
-type ACLExtension struct {
-  Delegations NodeMap
-}
-
-func (ext ACLExtension) Process(context *StateContext, node *Node, signal GraphSignal) error {
-  return nil
-}
-
-func LoadACLExtension(ctx *Context, data []byte) (Extension, error) {
-  var j struct {
-    Delegations []string `json:"delegation"`
-  }
-
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
-  delegations := NodeMap{}
-  for _, str := range(j.Delegations) {
-    id, err := ParseID(str)
-    if err != nil {
-      return nil, err
-    }
-
-    node, err := LoadNode(ctx, id)
-    if err != nil {
-      return nil, err
-    }
-
-    delegations[id] = node
-  }
-
-  return ACLExtension{
-    Delegations: delegations,
-  }, nil
-}
-
-func (ext ACLExtension) Serialize() ([]byte, error) {
-  delegations := make([]string, len(ext.Delegations))
-  i := 0
-  for id, _ := range(ext.Delegations) {
-    delegations[i] = id.String()
-    i += 1
-  }
-
-  return json.MarshalIndent(&struct{
-    Delegations []string `json:"delegations"`
-  }{
-    Delegations: delegations,
-  }, "", "  ")
-}
-
-const ACLExtType = ExtType("ACL")
-func (extension ACLExtension) Type() ExtType {
-  return ACLExtType
 }
 
 func (node *Node) Serialize() ([]byte, error) {
@@ -181,9 +123,10 @@ func (node *Node) Serialize() ([]byte, error) {
   return node_db.Serialize(), nil
 }
 
-func NewNode(id NodeID) Node {
+func NewNode(id NodeID, node_type NodeType) Node {
   return Node{
     ID: id,
+    Type: node_type,
     ExtensionMap: map[ExtType]Extension{},
   }
 }
@@ -198,15 +141,15 @@ func Allowed(context *StateContext, principal *Node, action string, node *Node) 
   if exists == false {
     return fmt.Errorf("%s does not have ACL extension, other nodes cannot perform actions on it", node.ID)
   }
-  acl_ext := ext.(ACLExtension)
+  acl_ext := ext.(ACLExt)
 
   for _, policy_node := range(acl_ext.Delegations) {
     ext, exists := policy_node.ExtensionMap[ACLPolicyExtType]
     if exists == false {
-      context.Graph.Log.Logf("policy", "WARNING: %s has dependency %s which doesn't have ACLPolicyExtension")
+      context.Graph.Log.Logf("policy", "WARNING: %s has dependency %s which doesn't have ACLPolicyExt")
       continue
     }
-    policy_ext := ext.(ACLPolicyExtension)
+    policy_ext := ext.(ACLPolicyExt)
     if policy_ext.Allows(context, principal, action, node) == true {
       context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.%s", principal.ID, node.ID, action)
       return nil
@@ -238,11 +181,12 @@ func Signal(context *StateContext, node *Node, princ *Node, signal GraphSignal) 
 // Magic first four bytes of serialized DB content, stored big endian
 const NODE_DB_MAGIC = 0x2491df14
 // Total length of the node database header, has magic to verify and type_hash to map to load function
-const NODE_DB_HEADER_LEN = 8
+const NODE_DB_HEADER_LEN = 16
 // A DBHeader is parsed from the first NODE_DB_HEADER_LEN bytes of a serialized DB node
 type NodeDBHeader struct {
   Magic uint32
   NumExtensions uint32
+  TypeHash uint64
 }
 
 type NodeDB struct {
@@ -258,6 +202,7 @@ func NewNodeDB(data []byte) (NodeDB, error) {
 
   magic := binary.BigEndian.Uint32(data[0:4])
   num_extensions := binary.BigEndian.Uint32(data[4:8])
+  node_type_hash := binary.BigEndian.Uint64(data[8:16])
 
   ptr += NODE_DB_HEADER_LEN
 
@@ -290,6 +235,7 @@ func NewNodeDB(data []byte) (NodeDB, error) {
   return NodeDB{
     Header: NodeDBHeader{
       Magic: magic,
+      TypeHash: node_type_hash,
       NumExtensions: num_extensions,
     },
     Extensions: extensions,
@@ -304,6 +250,7 @@ func (header NodeDBHeader) Serialize() []byte {
   ret := make([]byte, NODE_DB_HEADER_LEN)
   binary.BigEndian.PutUint32(ret[0:4], header.Magic)
   binary.BigEndian.PutUint32(ret[4:8], header.NumExtensions)
+  binary.BigEndian.PutUint64(ret[8:16], header.TypeHash)
   return ret
 }
 
@@ -411,8 +358,13 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
+  node_type, known := ctx.Types[node_db.Header.TypeHash]
+  if known == false {
+    return nil, fmt.Errorf("Tried to load node %s of type 0x%x, which is not a known node type", id, node_db.Header.TypeHash)
+  }
+
   // Create the blank node with the ID, and add it to the context
-  new_node := NewNode(id)
+  new_node := NewNode(id, node_type.Type)
   node = &new_node
   ctx.Nodes[id] = node
 
@@ -474,6 +426,12 @@ func ACLList(list []*Node, resources []string) ACLMap {
     }
   }
   return reqs
+}
+
+type NodeType string
+func (node NodeType) Hash() uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("NODE: %s", string(node))))
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
 type PolicyType string

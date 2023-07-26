@@ -45,46 +45,57 @@ func (ext *LockableExt) Type() ExtType {
   return LockableExtType
 }
 
+type LockableExtJSON struct {
+  Owner string `json:"owner"`
+  Requirements []string `json:"requirements"`
+  Dependencies []string `json:"dependencies"`
+  LocksHeld map[string]string `json:"locks_held"`
+}
+
 func (ext *LockableExt) Serialize() ([]byte, error) {
-  requirements := make([]string, len(ext.Requirements))
-  req_n := 0
-  for id, _ := range(ext.Requirements) {
-    requirements[req_n] = id.String()
-    req_n++
+  return json.MarshalIndent(&LockableExtJSON{
+    Owner: SaveNode(ext.Owner),
+    Requirements: SaveNodeList(ext.Requirements),
+    Dependencies: SaveNodeList(ext.Dependencies),
+    LocksHeld: SaveNodeMap(ext.LocksHeld),
+  }, "", "  ")
+}
+
+func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
+  var j LockableExtJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
   }
 
-  dependencies := make([]string, len(ext.Dependencies))
-  dep_n := 0
-  for id, _ := range(ext.Dependencies) {
-    dependencies[dep_n] = id.String()
-    dep_n++
+  owner, err := RestoreNode(ctx, j.Owner)
+  if err != nil {
+    return nil, err
   }
 
-  owner := ""
-  if ext.Owner != nil {
-    owner = ext.Owner.ID.String()
+  requirements, err := RestoreNodeList(ctx, j.Requirements)
+  if err != nil {
+    return nil, err
   }
 
-  locks_held := map[string]string{}
-  for lockable_id, node := range(ext.LocksHeld) {
-    if node == nil {
-      locks_held[lockable_id.String()] = ""
-    } else {
-      locks_held[lockable_id.String()] = node.ID.String()
-    }
+  dependencies, err := RestoreNodeList(ctx, j.Dependencies)
+  if err != nil {
+    return nil, err
   }
 
-  return json.MarshalIndent(&struct{
-    Owner string `json:"owner"`
-    Requirements []string `json:"requirements"`
-    Dependencies []string `json:"dependencies"`
-    LocksHeld map[string]string `json:"locks_held"`
-  }{
+  locks_held, err := RestoreNodeMap(ctx, j.LocksHeld)
+  if err != nil {
+    return nil, err
+  }
+
+  extension := LockableExt{
     Owner: owner,
     Requirements: requirements,
     Dependencies: dependencies,
     LocksHeld: locks_held,
-  }, "", "  ")
+  }
+
+  return &extension, nil
 }
 
 func (ext *LockableExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
@@ -469,6 +480,14 @@ func UnlockLockables(context *StateContext, to_unlock NodeMap, old_owner *Node) 
   })
 }
 
+func SaveNode(node *Node) string {
+  str := ""
+  if node != nil {
+    str = node.ID.String()
+  }
+  return str
+}
+
 func RestoreNode(ctx *Context, id_str string) (*Node, error) {
   id, err := ParseID(id_str)
   if err != nil {
@@ -476,6 +495,14 @@ func RestoreNode(ctx *Context, id_str string) (*Node, error) {
   }
 
   return LoadNode(ctx, id)
+}
+
+func SaveNodeMap(nodes NodeMap) map[string]string {
+  m := map[string]string{}
+  for id, node := range(nodes) {
+    m[id.String()] = SaveNode(node)
+  }
+  return m
 }
 
 func RestoreNodeMap(ctx *Context, ids map[string]string) (NodeMap, error) {
@@ -505,6 +532,17 @@ func RestoreNodeMap(ctx *Context, ids map[string]string) (NodeMap, error) {
   }
 
   return nodes, nil
+}
+
+func SaveNodeList(nodes NodeMap) []string {
+  ids := make([]string, len(nodes))
+  i := 0
+  for id, _ := range(nodes) {
+    ids[i] = id.String()
+    i += 1
+  }
+
+  return ids
 }
 
 func RestoreNodeList(ctx *Context, ids []string) (NodeMap, error) {

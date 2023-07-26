@@ -8,47 +8,47 @@ import (
   "crypto/x509"
 )
 
-type GroupNode interface {
-  Node
-  Users() map[NodeID]*User
-}
-
-type User struct {
-  Lockable
-
+type ECDHExt struct {
   Granted time.Time
   Pubkey *ecdsa.PublicKey
   Shared []byte
-  Tags []string
 }
 
-type UserJSON struct {
-  LockableJSON
+type ECDHExtJSON struct {
   Granted time.Time `json:"granted"`
   Pubkey []byte `json:"pubkey"`
   Shared []byte `json:"shared"`
 }
 
-func (user *User) Type() NodeType {
-  return NodeType("user")
+func (ext *ECDHExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+  return nil
 }
 
-func (user *User) Serialize() ([]byte, error) {
-  lockable_json := NewLockableJSON(&user.Lockable)
-  pubkey, err := x509.MarshalPKIXPublicKey(user.Pubkey)
+const ECDHExtType = ExtType("ECDH")
+func (ext *ECDHExt) Type() ExtType {
+  return ECDHExtType
+}
+
+func (ext *ECDHExt) Serialize() ([]byte, error) {
+  pubkey, err := x509.MarshalPKIXPublicKey(ext.Pubkey)
   if err != nil {
     return nil, err
   }
 
-  return json.MarshalIndent(&UserJSON{
-    LockableJSON: lockable_json,
-    Granted: user.Granted,
-    Shared: user.Shared,
+  return json.MarshalIndent(&ECDHExtJSON{
+    Granted: ext.Granted,
     Pubkey: pubkey,
+    Shared: ext.Shared,
   }, "", "  ")
 }
 
-var LoadUser = LoadJSONNode(func(id NodeID, j UserJSON) (Node, error) {
+func LoadECDHExt(ctx *Context, data []byte) (Extension, error) {
+  var j ECDHExtJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
   pub, err := x509.ParsePKIXPublicKey(j.Pubkey)
   if err != nil {
     return nil, err
@@ -59,83 +59,56 @@ var LoadUser = LoadJSONNode(func(id NodeID, j UserJSON) (Node, error) {
   case *ecdsa.PublicKey:
     pubkey = pub.(*ecdsa.PublicKey)
   default:
-    return nil, fmt.Errorf("Invalid key type")
+    return nil, fmt.Errorf("Invalid key type: %+v", pub)
   }
 
-  user := NewUser(j.Name, j.Granted, pubkey, j.Shared)
-  return &user, nil
-}, func(ctx *Context, user *User, j UserJSON, nodes NodeMap) error {
-  return RestoreLockable(ctx, user, j.LockableJSON, nodes)
-})
-
-func NewUser(name string, granted time.Time, pubkey *ecdsa.PublicKey, shared []byte) User {
-  id := KeyID(pubkey)
-  return User{
-    Lockable: NewLockable(id, name),
-    Granted: granted,
+  extension := ECDHExt{
+    Granted: j.Granted,
     Pubkey: pubkey,
-    Shared: shared,
-  }
-}
-
-type Group struct {
-  Lockable
-
-  UserMap map[NodeID]*User
-}
-
-func NewGroup(id NodeID, name string) Group {
-  return Group{
-    Lockable: NewLockable(id, name),
-    UserMap: map[NodeID]*User{},
-  }
-}
-
-type GroupJSON struct {
-  LockableJSON
-  Users []string `json:"users"`
-}
-
-func (group *Group) Type() NodeType {
-  return NodeType("group")
-}
-
-func (group *Group) Serialize() ([]byte, error) {
-  users := make([]string, len(group.UserMap))
-  i := 0
-  for id, _ := range(group.UserMap) {
-    users[i] = id.String()
-    i += 1
+    Shared: j.Shared,
   }
 
-  return json.MarshalIndent(&GroupJSON{
-    LockableJSON: NewLockableJSON(&group.Lockable),
-    Users: users,
+  return &extension, nil
+}
+
+type GroupExt struct {
+  Members NodeMap
+}
+
+const GroupExtType = ExtType("GROUP")
+func (ext *GroupExt) Type() ExtType {
+  return GroupExtType
+}
+
+func (ext *GroupExt) Serialize() ([]byte, error) {
+  return json.MarshalIndent(&struct{
+    Members []string `json:"members"`
+  }{
+    Members: SaveNodeList(ext.Members),
   }, "", "  ")
 }
 
-var LoadGroup = LoadJSONNode(func(id NodeID, j GroupJSON) (Node, error) {
-  group := NewGroup(id, j.Name)
-  return &group, nil
-}, func(ctx *Context, group *Group, j GroupJSON, nodes NodeMap) error {
-  for _, id_str := range(j.Users) {
-    id, err := ParseID(id_str)
-    if err != nil {
-      return err
-    }
-
-    user_node, err := LoadNodeRecurse(ctx, id, nodes)
-    if err != nil {
-      return err
-    }
-
-    user, ok := user_node.(*User)
-    if ok == false {
-      return fmt.Errorf("%s is not a *User", id_str)
-    }
-
-    group.UserMap[id] = user
+func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
+  var j struct {
+    Members []string `json:"members"`
   }
 
-  return RestoreLockable(ctx, group, j.LockableJSON, nodes)
-})
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return nil, err
+  }
+
+  members, err := RestoreNodeList(ctx, j.Members)
+  if err != nil {
+    return nil, err
+  }
+
+  extension := GroupExt{
+    Members: members,
+  }
+  return &extension, nil
+}
+
+func (ext *GroupExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+  return nil
+}
