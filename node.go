@@ -150,6 +150,7 @@ func NewNode(id NodeID, node_type NodeType) Node {
 }
 
 func Allowed(context *StateContext, principal *Node, action string, node *Node) error {
+  context.Graph.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal.ID, node.ID, action)
   if principal == nil {
     context.Graph.Log.Logf("policy", "POLICY_CHECK_ERR: %s %s.%s", principal.ID, node.ID, action)
     return fmt.Errorf("nil is not allowed to perform any actions")
@@ -160,24 +161,31 @@ func Allowed(context *StateContext, principal *Node, action string, node *Node) 
     return nil
   }
 
+  // Check if the node has a policy extension itself, and check against the policies in it
+  policy_ext, err := GetExt[*ACLPolicyExt](node)
+  if err == nil {
+    if policy_ext.Allows(context, principal, action, node) == true {
+      return nil
+    }
+  }
+
   acl_ext, err := GetExt[*ACLExt](node)
   if err != nil {
     return err
   }
 
   for _, policy_node := range(acl_ext.Delegations) {
-    ext, exists := policy_node.Extensions[ACLPolicyExtType]
-    if exists == false {
-      context.Graph.Log.Logf("policy", "WARNING: %s has dependency %s which doesn't have ACLPolicyExt")
-      continue
+    context.Graph.Log.Logf("policy", "POLICY_DELEGATION_CHECK: %s->%s", node.ID, policy_node.ID)
+    policy_ext, err := GetExt[*ACLPolicyExt](policy_node)
+    if err != nil {
+      return err
     }
-    policy_ext := ext.(ACLPolicyExt)
     if policy_ext.Allows(context, principal, action, node) == true {
       context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.%s", principal.ID, node.ID, action)
       return nil
     }
   }
-  context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.%s.%s", principal.ID, node.ID, action)
+  context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.%s", principal.ID, node.ID, action)
   return fmt.Errorf("%s is not allowed to perform %s on %s", principal.ID, action, node.ID)
 }
 
@@ -190,10 +198,14 @@ func Signal(context *StateContext, node *Node, princ *Node, signal GraphSignal) 
     return Allowed(context, princ, fmt.Sprintf("signal.%s", signal.Type()), node)
   })
 
+  if err != nil {
+    return err
+  }
+
   for _, ext := range(node.Extensions) {
     err = ext.Process(context, node, signal)
     if err != nil {
-      return nil
+      return err
     }
   }
 
@@ -324,7 +336,7 @@ func WriteNodes(context *StateContext) error {
   for id, _ := range(context.Locked) {
     node, _ := context.Graph.Nodes[id]
     if node == nil {
-      return fmt.Errorf("DB_SERIALIZE_ERROR: cannot serialize nil node, maybe node isn't in the context")
+      return fmt.Errorf("DB_SERIALIZE_ERROR: cannot serialize nil node(%s), maybe node isn't in the context", id)
     }
 
     ser, err := node.Serialize()

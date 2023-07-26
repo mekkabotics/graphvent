@@ -142,12 +142,31 @@ type ThreadExtJSON struct {
   State string `json:"state"`
   Type string `json:"type"`
   Parent string `json:"parent"`
-  Children map[string][]byte `json:"children"`
+  Children map[string]map[string][]byte `json:"children"`
   ActionQueue []QueuedAction
 }
 
 func (ext *ThreadExt) Serialize() ([]byte, error) {
-  return nil, fmt.Errorf("NOT_IMPLEMENTED")
+  children := map[string]map[string][]byte{}
+  for id, child := range(ext.Children) {
+    id_str := id.String()
+    children[id_str] = map[string][]byte{}
+    for info_type, info := range(child.Infos) {
+      var err error
+      children[id_str][string(info_type)], err = info.Serialize()
+      if err != nil {
+        return nil, err
+      }
+    }
+  }
+
+  return json.MarshalIndent(&ThreadExtJSON{
+    State: ext.State,
+    Type: string(ext.ThreadType),
+    Parent: SaveNode(ext.Parent),
+    Children: children,
+    ActionQueue: ext.ActionQueue,
+  }, "", "  ")
 }
 
 func NewThreadExt(ctx*Context, thread_type ThreadType, parent *Node, children map[NodeID]ChildInfo, state string, action_queue []QueuedAction) (*ThreadExt, error) {
@@ -265,10 +284,11 @@ func (ext *ThreadExt) Process(context *StateContext, node *Node, signal GraphSig
   case Up:
     err = UseStates(context, node, NewACLInfo(node, []string{"parent"}), func(context *StateContext) error {
       if ext.Parent != nil {
-        return Signal(context, ext.Parent, node, signal)
-      } else {
-        return nil
+        if ext.Parent.ID != node.ID {
+          return Signal(context, ext.Parent, node, signal)
+        }
       }
+      return nil
     })
   case Down:
     err = UseStates(context, node, NewACLInfo(node, []string{"children"}), func(context *StateContext) error {
@@ -360,7 +380,7 @@ func LinkThreads(context *StateContext, principal *Node, thread *Node, info Chil
     return err
   }
 
-  child_ext, err := GetExt[*ThreadExt](thread)
+  child_ext, err := GetExt[*ThreadExt](child)
   if err != nil {
     return err
   }
@@ -562,17 +582,15 @@ func ThreadStartChild(ctx *Context, thread *Node, thread_ext *ThreadExt, signal 
     if exists == false {
       return fmt.Errorf("%s is not a child of %s", sig.ID, thread.ID)
     }
-    return UpdateStates(context, thread, NewACLInfo(info.Child, []string{"start"}), func(context *StateContext) error {
 
-      parent_info, exists := info.Infos["parent"].(*ParentInfo)
-      if exists == false {
-        return fmt.Errorf("Called ThreadStartChild from a thread that doesn't require parent child info")
-      }
-      parent_info.Start = true
-      ChildGo(ctx, thread_ext, info.Child, sig.Action)
+    parent_info, exists := info.Infos["parent"].(*ParentInfo)
+    if exists == false {
+      return fmt.Errorf("Called ThreadStartChild from a thread that doesn't require parent child info")
+    }
+    parent_info.Start = true
+    ChildGo(ctx, thread_ext, info.Child, sig.Action)
 
-      return nil
-    })
+    return nil
   })
 }
 
@@ -581,14 +599,14 @@ func ThreadStartChild(ctx *Context, thread *Node, thread_ext *ThreadExt, signal 
 func ThreadRestore(ctx * Context, thread *Node, thread_ext *ThreadExt, start bool) error {
   context := NewWriteContext(ctx)
   return UpdateStates(context, thread, NewACLInfo(thread, []string{"children"}), func(context *StateContext) error {
-    return UpdateStates(context, thread, ACLList(thread_ext.ChildList(), []string{"start", "state"}), func(context *StateContext) error {
+    return UpdateStates(context, thread, ACLList(thread_ext.ChildList(), []string{"state"}), func(context *StateContext) error {
       for _, info := range(thread_ext.Children) {
         child_ext, err := GetExt[*ThreadExt](info.Child)
         if err != nil {
           return err
         }
 
-        parent_info := info.Infos["parent"].(*ParentInfo)
+        parent_info := info.Infos[ParentInfoType].(*ParentInfo)
         if parent_info.Start == true && child_ext.State != "finished" {
           ctx.Log.Logf("thread", "THREAD_RESTORED: %s -> %s", thread.ID, info.Child.ID)
           if start == true {
