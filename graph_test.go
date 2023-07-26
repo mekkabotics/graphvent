@@ -52,13 +52,15 @@ func (t * GraphTester) CheckForNone(listener chan GraphSignal, str string) {
   }
 }
 
-func logTestContext(t * testing.T, components []string) * Context {
+func logTestContext(t * testing.T, components []string) *Context {
   db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
   if err != nil {
     t.Fatal(err)
   }
 
-  return NewContext(db, NewConsoleLogger(components))
+  ctx, err := NewContext(db, NewConsoleLogger(components))
+  fatalErr(t, err)
+  return ctx
 }
 
 func testContext(t * testing.T) * Context {
@@ -67,7 +69,9 @@ func testContext(t * testing.T) * Context {
     t.Fatal(err)
   }
 
-  return NewContext(db, NewConsoleLogger([]string{}))
+  ctx, err := NewContext(db, NewConsoleLogger([]string{}))
+  fatalErr(t, err)
+  return ctx
 }
 
 func fatalErr(t * testing.T, err error) {
