@@ -20,7 +20,7 @@ type ECDHExtJSON struct {
   Shared []byte `json:"shared"`
 }
 
-func (ext *ECDHExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext *ECDHExt) Process(context *StateContext, node *Node, signal Signal) error {
   return nil
 }
 
@@ -115,6 +115,6 @@ func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
   return NewGroupExt(members), nil
 }
 
-func (ext *GroupExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext *GroupExt) Process(context *StateContext, node *Node, signal Signal) error {
   return nil
 }

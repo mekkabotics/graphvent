@@ -714,30 +714,30 @@ type GQLExt struct {
   Key *ecdsa.PrivateKey
   ECDH ecdh.Curve
   SubscribeLock sync.Mutex
-  SubscribeListeners []chan GraphSignal
+  SubscribeListeners []chan Signal
 }
 
-func (ext *GQLExt) NewSubscriptionChannel(buffer int) chan GraphSignal {
+func (ext *GQLExt) NewSubscriptionChannel(buffer int) chan Signal {
   ext.SubscribeLock.Lock()
   defer ext.SubscribeLock.Unlock()
 
-  new_listener := make(chan GraphSignal, buffer)
+  new_listener := make(chan Signal, buffer)
   ext.SubscribeListeners = append(ext.SubscribeListeners, new_listener)
 
   return new_listener
 }
 
-func (ext *GQLExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext *GQLExt) Process(context *StateContext, node *Node, signal Signal) error {
   ext.SubscribeLock.Lock()
   defer ext.SubscribeLock.Unlock()
 
-  active_listeners := []chan GraphSignal{}
+  active_listeners := []chan Signal{}
   for _, listener := range(ext.SubscribeListeners) {
     select {
       case listener <- signal:
         active_listeners = append(active_listeners, listener)
       default:
-        go func(listener chan GraphSignal) {
+        go func(listener chan Signal) {
           listener <- NewDirectSignal("Channel Closed")
           close(listener)
         }(listener)
@@ -853,7 +853,7 @@ func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_
   }
   return &GQLExt{
     Listen: listen,
-    SubscribeListeners: []chan GraphSignal{},
+    SubscribeListeners: []chan Signal{},
     Key: key,
     ECDH: ecdh_curve,
     tls_cert: tls_cert,
@@ -936,7 +936,7 @@ var gql_actions ThreadActions = ThreadActions{
     }
 
     context = NewReadContext(ctx)
-    err = Signal(context, thread, thread, NewStatusSignal("server_started", thread.ID))
+    err = SendSignal(context, thread, thread, NewStatusSignal("server_started", thread.ID))
     if err != nil {
       return "", err
     }

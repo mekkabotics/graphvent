@@ -125,7 +125,7 @@ var GQLTypeSignal = NewSingleton(func() *graphql.Object {
   gql_type_signal := graphql.NewObject(graphql.ObjectConfig{
     Name: "Signal",
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      _, ok := p.Value.(GraphSignal)
+      _, ok := p.Value.(Signal)
       return ok
     },
     Fields: graphql.Fields{},

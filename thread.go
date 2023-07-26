@@ -12,8 +12,8 @@ import (
 
 type ThreadAction func(*Context, *Node, *ThreadExt)(string, error)
 type ThreadActions map[string]ThreadAction
-type ThreadHandler func(*Context, *Node, *ThreadExt, GraphSignal)(string, error)
-type ThreadHandlers map[string]ThreadHandler
+type ThreadHandler func(*Context, *Node, *ThreadExt, Signal)(string, error)
+type ThreadHandlers map[SignalType]ThreadHandler
 
 type InfoType string
 func (t InfoType) String() string {
@@ -122,7 +122,7 @@ type ThreadExt struct {
 
   ThreadType ThreadType
 
-  SignalChan chan GraphSignal
+  SignalChan chan Signal
   TimeoutChan <-chan time.Time
 
   ChildWaits sync.WaitGroup
@@ -191,7 +191,7 @@ func NewThreadExt(ctx*Context, thread_type ThreadType, parent *Node, children ma
   return &ThreadExt{
     Actions: type_info.Actions,
     Handlers: type_info.Handlers,
-    SignalChan: make(chan GraphSignal, THREAD_BUFFER_SIZE),
+    SignalChan: make(chan Signal, THREAD_BUFFER_SIZE),
     TimeoutChan: timeout_chan,
     Active: false,
     State: state,
@@ -276,7 +276,7 @@ func (ext *ThreadExt) ChildList() []*Node {
 }
 
 // Assumed that thread is already locked for signal
-func (ext *ThreadExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext *ThreadExt) Process(context *StateContext, node *Node, signal Signal) error {
   context.Graph.Log.Logf("signal", "THREAD_PROCESS: %s", node.ID)
 
   var err error
@@ -285,7 +285,7 @@ func (ext *ThreadExt) Process(context *StateContext, node *Node, signal GraphSig
     err = UseStates(context, node, NewACLInfo(node, []string{"parent"}), func(context *StateContext) error {
       if ext.Parent != nil {
         if ext.Parent.ID != node.ID {
-          return Signal(context, ext.Parent, node, signal)
+          return SendSignal(context, ext.Parent, node, signal)
         }
       }
       return nil
@@ -293,7 +293,7 @@ func (ext *ThreadExt) Process(context *StateContext, node *Node, signal GraphSig
   case Down:
     err = UseStates(context, node, NewACLInfo(node, []string{"children"}), func(context *StateContext) error {
       for _, info := range(ext.Children) {
-        err := Signal(context, info.Child, node, signal)
+        err := SendSignal(context, info.Child, node, signal)
         if err != nil {
           return err
         }
@@ -535,7 +535,7 @@ func ThreadLoop(ctx * Context, thread *Node, first_action string) error {
   return nil
 }
 
-func ThreadChildLinked(ctx *Context, thread *Node, thread_ext *ThreadExt, signal GraphSignal) (string, error) {
+func ThreadChildLinked(ctx *Context, thread *Node, thread_ext *ThreadExt, signal Signal) (string, error) {
   ctx.Log.Logf("thread", "THREAD_CHILD_LINKED: %s - %+v", thread.ID, signal)
   context := NewWriteContext(ctx)
   err := UpdateStates(context, thread, NewACLInfo(thread, []string{"children"}), func(context *StateContext) error {
@@ -570,7 +570,7 @@ func ThreadChildLinked(ctx *Context, thread *Node, thread_ext *ThreadExt, signal
 
 // Helper function to start a child from a thread during a signal handler
 // Starts a write context, so cannot be called from either a write or read context
-func ThreadStartChild(ctx *Context, thread *Node, thread_ext *ThreadExt, signal GraphSignal) (string, error) {
+func ThreadStartChild(ctx *Context, thread *Node, thread_ext *ThreadExt, signal Signal) (string, error) {
   sig, ok := signal.(StartChildSignal)
   if ok == false {
     return "wait", nil
@@ -638,7 +638,7 @@ func ThreadStart(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, er
   }
 
   context = NewReadContext(ctx)
-  return "wait", Signal(context, thread, thread, NewStatusSignal("started", thread.ID))
+  return "wait", SendSignal(context, thread, thread, NewStatusSignal("started", thread.ID))
 }
 
 func ThreadWait(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
@@ -685,9 +685,9 @@ func ThreadFinish(ctx *Context, thread *Node, thread_ext *ThreadExt) (string, er
 var ThreadAbortedError = errors.New("Thread aborted by signal")
 
 // Default thread action function for "abort", sends a signal and returns a ThreadAbortedError
-func ThreadAbort(ctx * Context, thread *Node, thread_ext *ThreadExt, signal GraphSignal) (string, error) {
+func ThreadAbort(ctx * Context, thread *Node, thread_ext *ThreadExt, signal Signal) (string, error) {
   context := NewReadContext(ctx)
-  err := Signal(context, thread, thread, NewStatusSignal("aborted", thread.ID))
+  err := SendSignal(context, thread, thread, NewStatusSignal("aborted", thread.ID))
   if err != nil {
     return "", err
   }
@@ -695,9 +695,9 @@ func ThreadAbort(ctx * Context, thread *Node, thread_ext *ThreadExt, signal Grap
 }
 
 // Default thread action for "stop", sends a signal and returns no error
-func ThreadStop(ctx * Context, thread *Node, thread_ext *ThreadExt, signal GraphSignal) (string, error) {
+func ThreadStop(ctx * Context, thread *Node, thread_ext *ThreadExt, signal Signal) (string, error) {
   context := NewReadContext(ctx)
-  err := Signal(context, thread, thread, NewStatusSignal("stopped", thread.ID))
+  err := SendSignal(context, thread, thread, NewStatusSignal("stopped", thread.ID))
   return "finish", err
 }
 

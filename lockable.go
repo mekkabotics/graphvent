@@ -7,13 +7,13 @@ import (
 
 type ListenerExt struct {
   Buffer int
-  Chan chan GraphSignal
+  Chan chan Signal
 }
 
 func NewListenerExt(buffer int) *ListenerExt {
   return &ListenerExt{
     Buffer: buffer,
-    Chan: make(chan GraphSignal, buffer),
+    Chan: make(chan Signal, buffer),
   }
 }
 
@@ -32,7 +32,7 @@ func (listener ListenerExt) Type() ExtType {
   return ListenerExtType
 }
 
-func (ext ListenerExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext ListenerExt) Process(context *StateContext, node *Node, signal Signal) error {
   select {
   case ext.Chan <- signal:
   default:
@@ -125,7 +125,7 @@ func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   return NewLockableExt(owner, requirements, dependencies, locks_held), nil
 }
 
-func (ext *LockableExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext *LockableExt) Process(context *StateContext, node *Node, signal Signal) error {
   context.Graph.Log.Logf("signal", "LOCKABLE_PROCESS: %s", node.ID)
 
   var err error
@@ -136,7 +136,7 @@ func (ext *LockableExt) Process(context *StateContext, node *Node, signal GraphS
       owner_sent := false
       for _, dependency := range(ext.Dependencies) {
         context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", node.ID, dependency.ID)
-        Signal(context, dependency, node, signal)
+        SendSignal(context, dependency, node, signal)
         if ext.Owner != nil {
           if dependency.ID == ext.Owner.ID {
             owner_sent = true
@@ -146,7 +146,7 @@ func (ext *LockableExt) Process(context *StateContext, node *Node, signal GraphS
       if ext.Owner != nil && owner_sent == false {
         if ext.Owner.ID != node.ID {
           context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", node.ID, ext.Owner.ID)
-          return Signal(context, ext.Owner, node, signal)
+          return SendSignal(context, ext.Owner, node, signal)
         }
       }
       return nil
@@ -154,7 +154,7 @@ func (ext *LockableExt) Process(context *StateContext, node *Node, signal GraphS
   case Down:
     err = UseStates(context, node, NewACLInfo(node, []string{"requirements"}), func(context *StateContext) error {
       for _, requirement := range(ext.Requirements) {
-        err := Signal(context, requirement, node, signal)
+        err := SendSignal(context, requirement, node, signal)
         if err != nil {
           return err
         }

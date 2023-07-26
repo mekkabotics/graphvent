@@ -9,21 +9,20 @@ func TestNodeDB(t *testing.T) {
   node_type := NodeType("test")
   err := ctx.RegisterNodeType(node_type, []ExtType{"ACL"})
   fatalErr(t, err)
-  node := NewNode(RandID(), node_type)
+  node := NewNode(ctx, RandID(), node_type)
   node.Extensions[ACLExtType] = &ACLExt{
     Delegations: NodeMap{},
   }
-  ctx.Nodes[node.ID] = &node
 
   context := NewWriteContext(ctx)
-  err = UpdateStates(context, &node, NewACLInfo(&node, []string{"test"}), func(context *StateContext) error {
+  err = UpdateStates(context, node, NewACLInfo(node, []string{"test"}), func(context *StateContext) error {
     ser, err := node.Serialize()
     ctx.Log.Logf("test", "NODE_SER: %+v", ser)
     return err
   })
   fatalErr(t, err)
 
-  delete(ctx.Nodes, node.ID)
+  ctx.Nodes = NodeMap{}
   _, err = LoadNode(ctx, node.ID)
   fatalErr(t, err)
 }

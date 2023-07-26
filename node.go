@@ -67,7 +67,7 @@ type Extension interface {
   Serializable[ExtType]
   // Send a signal to this extension to process,
   // this typically triggers signals to be sent to nodes linked in the extension
-  Process(context *StateContext, node *Node, signal GraphSignal) error
+  Process(context *StateContext, node *Node, signal Signal) error
 }
 
 // Nodes represent an addressible group of extensions
@@ -141,12 +141,20 @@ func (node *Node) Serialize() ([]byte, error) {
   return node_db.Serialize(), nil
 }
 
-func NewNode(id NodeID, node_type NodeType) Node {
-  return Node{
+func NewNode(ctx *Context, id NodeID, node_type NodeType) *Node {
+  _, exists := ctx.Nodes[id]
+  if exists == true {
+    panic("Attempted to create an existing node")
+  }
+
+  node := &Node{
     ID: id,
     Type: node_type,
     Extensions: map[ExtType]Extension{},
   }
+
+  ctx.Nodes[id] = node
+  return node
 }
 
 func Allowed(context *StateContext, principal *Node, action string, node *Node) error {
@@ -191,8 +199,9 @@ func Allowed(context *StateContext, principal *Node, action string, node *Node) 
 
 // Check that princ is allowed to signal this action,
 // then send the signal to all the extensions of the node
-func Signal(context *StateContext, node *Node, princ *Node, signal GraphSignal) error {
-  context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID, signal.String())
+func SendSignal(context *StateContext, node *Node, princ *Node, signal Signal) error {
+  ser, _ := signal.Serialize()
+  context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID, string(ser))
 
   err := UseStates(context, princ, NewACLInfo(node, []string{}), func(context *StateContext) error {
     return Allowed(context, princ, fmt.Sprintf("signal.%s", signal.Type()), node)
@@ -398,9 +407,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   }
 
   // Create the blank node with the ID, and add it to the context
-  new_node := NewNode(id, node_type.Type)
-  node = &new_node
-  ctx.Nodes[id] = node
+  node = NewNode(ctx, id, node_type.Type)
 
   found_extensions := []ExtType{}
   // Parse each of the extensions from the db

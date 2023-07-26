@@ -11,54 +11,48 @@ const (
   Direct
 )
 
-// GraphSignals are passed around the event tree/resource DAG and cast by Type()
-type GraphSignal interface {
-  // How to propogate the signal
+type SignalType string
+
+type Signal interface {
+  Serializable[SignalType]
   Direction() SignalDirection
-  Type() string
-  String() string
 }
 
-// BaseSignal is the most basic type of signal, it has no additional data
 type BaseSignal struct {
-  FDirection SignalDirection `json:"direction"`
-  FType string `json:"type"`
+  SignalDirection SignalDirection `json:"direction"`
+  SignalType SignalType `json:"type"`
 }
 
-func (signal BaseSignal) String() string {
-  ser, err := json.Marshal(signal)
-  if err != nil {
-    return "STATE_SER_ERR"
-  }
-  return string(ser)
+func (signal BaseSignal) Type() SignalType {
+  return signal.SignalType
 }
 
 func (signal BaseSignal) Direction() SignalDirection {
-  return signal.FDirection
+  return signal.SignalDirection
 }
 
-func (signal BaseSignal) Type() string {
-  return signal.FType
+func (signal BaseSignal) Serialize() ([]byte, error) {
+  return json.MarshalIndent(signal, "", "  ")
 }
 
-func NewBaseSignal(_type string, direction SignalDirection) BaseSignal {
+func NewBaseSignal(signal_type SignalType, direction SignalDirection) BaseSignal {
   signal := BaseSignal{
-    FDirection: direction,
-    FType: _type,
+    SignalDirection: direction,
+    SignalType: signal_type,
   }
   return signal
 }
 
-func NewDownSignal(_type string) BaseSignal {
-  return NewBaseSignal(_type, Down)
+func NewDownSignal(signal_type SignalType) BaseSignal {
+  return NewBaseSignal(signal_type, Down)
 }
 
-func NewSignal(_type string) BaseSignal {
-  return NewBaseSignal(_type, Up)
+func NewUpSignal(signal_type SignalType) BaseSignal {
+  return NewBaseSignal(signal_type, Up)
 }
 
-func NewDirectSignal(_type string) BaseSignal {
-  return NewBaseSignal(_type, Direct)
+func NewDirectSignal(signal_type SignalType) BaseSignal {
+  return NewBaseSignal(signal_type, Direct)
 }
 
 var AbortSignal = NewBaseSignal("abort", Down)
@@ -77,9 +71,9 @@ func (signal IDSignal) String() string {
   return string(ser)
 }
 
-func NewIDSignal(_type string, direction SignalDirection, id NodeID) IDSignal {
+func NewIDSignal(signal_type SignalType, direction SignalDirection, id NodeID) IDSignal {
   return IDSignal{
-    BaseSignal: NewBaseSignal(_type, direction),
+    BaseSignal: NewBaseSignal(signal_type, direction),
     ID: id,
   }
 }

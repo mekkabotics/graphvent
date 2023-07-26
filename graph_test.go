@@ -13,7 +13,7 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForStatus(ctx * Context, listener chan GraphSignal, status string, timeout time.Duration, str string) GraphSignal {
+func (t * GraphTester) WaitForStatus(ctx * Context, listener chan Signal, status string, timeout time.Duration, str string) Signal {
   timeout_channel := time.After(timeout)
   for true {
     select {
@@ -42,7 +42,7 @@ func (t * GraphTester) WaitForStatus(ctx * Context, listener chan GraphSignal, s
   return nil
 }
 
-func (t * GraphTester) CheckForNone(listener chan GraphSignal, str string) {
+func (t * GraphTester) CheckForNone(listener chan Signal, str string) {
   timeout := time.After(listner_timeout)
   select {
   case sig := <- listener:

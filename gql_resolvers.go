@@ -303,21 +303,21 @@ func GQLGroupMembers(p graphql.ResolveParams) (interface{}, error) {
   return members, nil
 }
 
-func GQLSignalFn(p graphql.ResolveParams, fn func(GraphSignal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
-    if signal, ok := p.Source.(GraphSignal); ok {
+func GQLSignalFn(p graphql.ResolveParams, fn func(Signal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
+    if signal, ok := p.Source.(Signal); ok {
       return fn(signal, p)
     }
     return nil, fmt.Errorf("Failed to cast source to event")
 }
 
 func GQLSignalType(p graphql.ResolveParams) (interface{}, error) {
-  return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
+  return GQLSignalFn(p, func(signal Signal, p graphql.ResolveParams)(interface{}, error){
     return signal.Type(), nil
   })
 }
 
 func GQLSignalDirection(p graphql.ResolveParams) (interface{}, error) {
-    return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
+    return GQLSignalFn(p, func(signal Signal, p graphql.ResolveParams)(interface{}, error){
       direction := signal.Direction()
       if direction == Up {
         return "up", nil
@@ -331,7 +331,8 @@ func GQLSignalDirection(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLSignalString(p graphql.ResolveParams) (interface{}, error) {
-    return GQLSignalFn(p, func(signal GraphSignal, p graphql.ResolveParams)(interface{}, error){
-      return signal.String(), nil
+    return GQLSignalFn(p, func(signal Signal, p graphql.ResolveParams)(interface{}, error){
+      ser, err := signal.Serialize()
+      return string(ser), err
     })
 }
