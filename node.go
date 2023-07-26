@@ -75,13 +75,13 @@ type Node struct {
   ID NodeID
   Type NodeType
   Lock sync.RWMutex
-  ExtensionMap map[ExtType]Extension
+  Extensions map[ExtType]Extension
 }
 
 func GetExt[T Extension](node *Node) (T, error) {
   var zero T
   ext_type := zero.Type()
-  ext, exists := node.ExtensionMap[ext_type]
+  ext, exists := node.Extensions[ext_type]
   if exists == false {
     return zero, fmt.Errorf("%s does not have %s extension", node.ID, ext_type)
   }
@@ -95,17 +95,18 @@ func GetExt[T Extension](node *Node) (T, error) {
 }
 
 func (node *Node) Serialize() ([]byte, error) {
-  extensions := make([]ExtensionDB, len(node.ExtensionMap))
+  extensions := make([]ExtensionDB, len(node.Extensions))
   node_db := NodeDB{
     Header: NodeDBHeader{
       Magic: NODE_DB_MAGIC,
+      TypeHash: node.Type.Hash(),
       NumExtensions: uint32(len(extensions)),
     },
     Extensions: extensions,
   }
 
   i := 0
-  for ext_type, info := range(node.ExtensionMap) {
+  for ext_type, info := range(node.Extensions) {
     ser, err := info.Serialize()
     if err != nil {
       return nil, err
@@ -127,7 +128,7 @@ func NewNode(id NodeID, node_type NodeType) Node {
   return Node{
     ID: id,
     Type: node_type,
-    ExtensionMap: map[ExtType]Extension{},
+    Extensions: map[ExtType]Extension{},
   }
 }
 
@@ -137,14 +138,18 @@ func Allowed(context *StateContext, principal *Node, action string, node *Node) 
     return fmt.Errorf("nil is not allowed to perform any actions")
   }
 
-  ext, exists := node.ExtensionMap[ACLExtType]
-  if exists == false {
-    return fmt.Errorf("%s does not have ACL extension, other nodes cannot perform actions on it", node.ID)
+  // Nodes are allowed to perform all actions on themselves regardless of whether or not they have an ACL extension
+  if principal.ID == node.ID {
+    return nil
   }
-  acl_ext := ext.(ACLExt)
+
+  acl_ext, err := GetExt[*ACLExt](node)
+  if err != nil {
+    return err
+  }
 
   for _, policy_node := range(acl_ext.Delegations) {
-    ext, exists := policy_node.ExtensionMap[ACLPolicyExtType]
+    ext, exists := policy_node.Extensions[ACLPolicyExtType]
     if exists == false {
       context.Graph.Log.Logf("policy", "WARNING: %s has dependency %s which doesn't have ACLPolicyExt")
       continue
@@ -168,7 +173,7 @@ func Signal(context *StateContext, node *Node, princ *Node, signal GraphSignal) 
     return Allowed(context, princ, fmt.Sprintf("signal.%s", signal.Type()), node)
   })
 
-  for _, ext := range(node.ExtensionMap) {
+  for _, ext := range(node.Extensions) {
     err = ext.Process(context, node, signal)
     if err != nil {
       return nil
@@ -379,7 +384,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     if err != nil {
       return nil, err
     }
-    node.ExtensionMap[def.Type] = extension
+    node.Extensions[def.Type] = extension
     ctx.Log.Logf("db", "DB_EXTENSION_LOADED: %s - 0x%x", id, type_hash)
   }
 

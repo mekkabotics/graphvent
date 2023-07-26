@@ -41,7 +41,7 @@ type ACLExt struct {
   Delegations NodeMap
 }
 
-func (ext ACLExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
+func (ext *ACLExt) Process(context *StateContext, node *Node, signal GraphSignal) error {
   return nil
 }
 
@@ -60,12 +60,12 @@ func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  return ACLExt{
+  return &ACLExt{
     Delegations: delegations,
   }, nil
 }
 
-func (ext ACLExt) Serialize() ([]byte, error) {
+func (ext *ACLExt) Serialize() ([]byte, error) {
   delegations := make([]string, len(ext.Delegations))
   i := 0
   for id, _ := range(ext.Delegations) {
@@ -81,7 +81,7 @@ func (ext ACLExt) Serialize() ([]byte, error) {
 }
 
 const ACLExtType = ExtType("ACL")
-func (extension ACLExt) Type() ExtType {
+func (ext *ACLExt) Type() ExtType {
   return ACLExtType
 }
 

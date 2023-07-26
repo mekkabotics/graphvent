@@ -17,6 +17,7 @@ type ExtensionInfo struct {
 // Information about a loaded node type
 type NodeInfo struct {
   Type NodeType
+  Extensions []ExtType
 }
 
 // A Context is all the data needed to run a graphvent
@@ -39,15 +40,31 @@ func (ctx *Context) ExtByType(ext_type ExtType) ExtensionInfo {
   return ext
 }
 
-func (ctx *Context) RegisterNodeType(node_type NodeType) error {
+func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) error {
   type_hash := node_type.Hash()
   _, exists := ctx.Types[type_hash]
   if exists == true {
     return fmt.Errorf("Cannot register node type %s, type already exists in context", node_type)
   }
 
+  ext_found := map[ExtType]bool{}
+  for _, extension := range(extensions) {
+    _, in_ctx := ctx.Extensions[extension.Hash()]
+    if in_ctx == false {
+      return fmt.Errorf("Cannot register node type %s, required extension %s not in context", node_type, extension)
+    }
+
+    _, duplicate := ext_found[extension]
+    if duplicate == true {
+      return fmt.Errorf("Duplicate extension %s found in extension list", extension)
+    }
+
+    ext_found[extension] = true
+  }
+
   ctx.Types[type_hash] = NodeInfo{
     Type: node_type,
+    Extensions: extensions,
   }
   return nil
 }
