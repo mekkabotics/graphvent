@@ -171,15 +171,21 @@ func Allowed(context *StateContext, principal *Node, action string, node *Node) 
 
   // Check if the node has a policy extension itself, and check against the policies in it
   policy_ext, err := GetExt[*ACLPolicyExt](node)
+  self_tried := false
   if err == nil {
     if policy_ext.Allows(context, principal, action, node) == true {
       return nil
     }
+    self_tried = true
   }
 
   acl_ext, err := GetExt[*ACLExt](node)
   if err != nil {
-    return err
+    if self_tried == true {
+      return fmt.Errorf("POLICY_SELF: policies on %s do not allow %s to perform %s", node.ID, principal.ID, action)
+    } else {
+      return err
+    }
   }
 
   for _, policy_node := range(acl_ext.Delegations) {
@@ -211,10 +217,10 @@ func SendSignal(context *StateContext, node *Node, princ *Node, signal Signal) e
     return err
   }
 
-  for _, ext := range(node.Extensions) {
+  for ext_type, ext := range(node.Extensions) {
     err = ext.Process(context, node, signal)
     if err != nil {
-      return err
+      context.Graph.Log.Logf("signal", "EXTENSION_SIGNAL_ERR: %s/%s - %s", node.ID, ext_type, err)
     }
   }
 
@@ -460,7 +466,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   }
 
   if len(extra_extensions) > 0 {
-    return nil, fmt.Errorf("DB_LOAD_EXTRA_EXTENSIONS: %s - %+v - %+v", id, node_type, extra_extensions)
+    ctx.Log.Logf("db", "DB_LOAD_EXTRA_EXTENSIONS: %s - %+v - %+v", id, node_type, extra_extensions)
   }
 
   ctx.Log.Logf("db", "DB_NODE_LOADED: %s", id)

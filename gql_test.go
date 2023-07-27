@@ -61,24 +61,20 @@ func TestGQLDB(t * testing.T) {
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
-  gql := NewNode(ctx, RandID(), TestGQLNodeType)
+  gql, err := NewGQLNode(ctx, NewGQLExt(":0", ecdh.P256(), key, nil, nil))
+  fatalErr(t, err)
   gql_policy := NewChildOfPolicy(NodeActions{
     gql.ID: Actions{"signal.status"},
   })
-  gql.Extensions[ACLExtType] = NewACLExt(NodeList(u1))
   gql.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
     ChildOfPolicyType: &gql_policy,
   })
-  gql.Extensions[GroupExtType] = NewGroupExt(nil)
-  gql.Extensions[GQLExtType] = NewGQLExt(":0", ecdh.P256(), key, nil, nil)
-  gql.Extensions[ThreadExtType], err = NewThreadExt(ctx, GQLThreadType, nil, nil, "ini", nil)
-  fatalErr(t, err)
-  gql.Extensions[LockableExtType] = NewLockableExt(nil, nil, nil, nil)
 
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
+
   info := ParentInfo{true, "start", "restore"}
   context := NewWriteContext(ctx)
-  err = UpdateStates(context, u1, NewACLInfo(gql, []string{"users"}), func(context *StateContext) error {
+  err = UpdateStates(context, u1, ACLMap{}, func(context *StateContext) error {
     err := LinkThreads(context, u1, gql, ChildInfo{t1, map[InfoType]Info{
       ParentInfoType: &info,
     }})
