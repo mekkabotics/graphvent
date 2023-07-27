@@ -8,43 +8,35 @@ import (
 
 //Function to load an extension from bytes
 type ExtensionLoadFunc func(*Context, []byte) (Extension, error)
-// Information about a loaded extension
+
+// Information about a registered extension
 type ExtensionInfo struct {
   Load ExtensionLoadFunc
   Type ExtType
   Data interface{}
 }
 
-// Information about a loaded node type
+// Information about a registered node type
 type NodeInfo struct {
   Type NodeType
   Extensions []ExtType
 }
 
-// A Context is all the data needed to run a graphvent
+// A Context stores all the data to run a graphvent process
 type Context struct {
   // DB is the database connection used to load and write nodes
   DB * badger.DB
-  // Log is an interface used to record events happening
+  // Logging interface
   Log Logger
-  // A mapping between type hashes and their corresponding extension definitions
+  // Map between database extension hashes and the registered info
   Extensions map[uint64]ExtensionInfo
-  // A mapping between type hashes and their corresponding node definitions
+  // Map between database type hashes and the registered info
   Types map[uint64]NodeInfo
-  // All loaded Nodes
+  // Routing map to all the nodes local to this context
   Nodes map[NodeID]*Node
 }
 
-func (ctx *Context) ExtByType(ext_type ExtType) *ExtensionInfo {
-  type_hash := ext_type.Hash()
-  ext, ok := ctx.Extensions[type_hash]
-  if ok == true {
-    return &ext
-  } else {
-    return nil
-  }
-}
-
+// Register a NodeType to the context, with the list of extensions it requires
 func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) error {
   type_hash := node_type.Hash()
   _, exists := ctx.Types[type_hash]
@@ -94,6 +86,7 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
   return nil
 }
 
+// Route a Signal to dest. Currently only local context routing is supported
 func (ctx *Context) Send(source NodeID, dest NodeID, signal Signal) error {
   target, exists := ctx.Nodes[dest]
   if exists == false {
@@ -110,7 +103,7 @@ func (ctx *Context) Send(source NodeID, dest NodeID, signal Signal) error {
   return nil
 }
 
-// Create a new Context with all the library content added
+// Create a new Context with the base library content added
 func NewContext(db * badger.DB, log Logger) (*Context, error) {
   ctx := &Context{
     DB: db,

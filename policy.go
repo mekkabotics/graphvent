@@ -267,7 +267,10 @@ func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
 
   policies := make([]Policy, len(j.Policies))
   i := 0
-  acl_ctx := ctx.ExtByType(ACLExtType).Data.(*ACLExtContext)
+  acl_ctx, err := GetCtx[*ACLExt, *ACLExtContext](ctx)
+  if err != nil {
+    return nil, err
+  }
   for name, ser := range(j.Policies) {
     policy_def, exists := acl_ctx.Types[PolicyType(name)]
     if exists == false {
