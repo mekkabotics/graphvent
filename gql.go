@@ -31,19 +31,7 @@ import (
 )
 
 const GQLThreadType = ThreadType("GQL")
-func RegisterGQLThread(ctx *Context) error {
-  thread_ctx, err := GetCtx[*ThreadExt, *ThreadExtContext](ctx)
-  if err != nil {
-    return err
-  }
-
-  err = thread_ctx.RegisterThreadType(GQLThreadType, gql_actions, gql_handlers)
-  if err != nil {
-    return err
-  }
-
-  return nil
-}
+const GQLNodeType = NodeType("GQL")
 
 type AuthReqJSON struct {
   Time time.Time `json:"time"`
@@ -650,6 +638,31 @@ type GQLInterface struct {
   Default *graphql.Object
   List *graphql.List
   Extensions []ExtType
+}
+
+type GQLType struct {
+  Type *graphql.Object
+  List *graphql.List
+}
+
+func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init func(*GQLType)) *GQLType {
+  var gql GQLType
+  gql.Type = graphql.NewObject(graphql.ObjectConfig{
+    Name: string(node_type),
+    Interfaces: interfaces,
+    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      node, ok := p.Value.(*Node)
+      if ok == false {
+        return false
+      }
+      return node.Type == node_type
+    },
+    Fields: graphql.Fields{},
+  })
+  gql.List = graphql.NewList(gql.Type)
+
+  init(&gql)
+  return &gql
 }
 
 func NewGQLInterface(if_name string, default_name string, interfaces []*graphql.Interface, extensions []ExtType, init_1 func(*GQLInterface), init_2 func(*GQLInterface)) *GQLInterface {

@@ -35,23 +35,11 @@ func AddNodeInterfaceFields(gql *GQLInterface) {
   })
 }
 
-func AddNodeFields(gql *GQLInterface) {
-  gql.Default.AddFieldConfig("ID", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLNodeID,
-  })
-
-  gql.Default.AddFieldConfig("TypeHash", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLNodeTypeHash,
-  })
+func AddLockableInterfaceFields(gql *GQLInterface) {
+  addLockableInterfaceFields(gql, GQLInterfaceLockable)
 }
 
-func LockableInterfaceFields(gql *GQLInterface) {
-  AddLockableInterfaceFields(gql, gql)
-}
-
-func AddLockableInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface) {
+func addLockableInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface) {
   AddNodeInterfaceFields(gql)
 
   gql.Interface.AddFieldConfig("Requirements", &graphql.Field{
@@ -67,35 +55,12 @@ func AddLockableInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface) {
   })
 }
 
-func LockableFields(gql *GQLInterface) {
-  AddLockableFields(gql, gql)
+func AddThreadInterfaceFields(gql *GQLInterface) {
+  addThreadInterfaceFields(gql, GQLInterfaceThread)
 }
 
-func AddLockableFields(gql *GQLInterface, gql_lockable *GQLInterface) {
-  AddNodeFields(gql)
-
-  gql.Default.AddFieldConfig("Requirements", &graphql.Field{
-    Type: gql_lockable.List,
-    Resolve: GQLLockableRequirements,
-  })
-
-  gql.Default.AddFieldConfig("Owner", &graphql.Field{
-    Type: gql_lockable.Interface,
-    Resolve: GQLLockableOwner,
-  })
-
-  gql.Default.AddFieldConfig("Dependencies", &graphql.Field{
-    Type: gql_lockable.List,
-    Resolve: GQLLockableDependencies,
-  })
-}
-
-func ThreadInterfaceFields(gql *GQLInterface) {
-  AddThreadInterfaceFields(gql, GQLInterfaceLockable, gql)
-}
-
-func AddThreadInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface, gql_thread *GQLInterface) {
-  AddLockableInterfaceFields(gql, gql_lockable)
+func addThreadInterfaceFields(gql *GQLInterface, gql_thread *GQLInterface) {
+  AddLockableInterfaceFields(gql)
 
   gql.Interface.AddFieldConfig("Children", &graphql.Field{
     Type: gql_thread.List,
@@ -103,29 +68,6 @@ func AddThreadInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface, gql
 
   gql.Interface.AddFieldConfig("Parent", &graphql.Field{
     Type: gql_thread.Interface,
-  })
-}
-
-func ThreadFields(gql *GQLInterface) {
-  AddThreadFields(gql, GQLInterfaceLockable, gql)
-}
-
-func AddThreadFields(gql *GQLInterface, gql_lockable *GQLInterface, gql_thread *GQLInterface) {
-  AddLockableFields(gql, gql_lockable)
-
-  gql.Default.AddFieldConfig("State", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLThreadState,
-  })
-
-  gql.Default.AddFieldConfig("Children", &graphql.Field{
-    Type: gql_thread.List,
-    Resolve: GQLThreadChildren,
-  })
-
-  gql.Default.AddFieldConfig("Parent", &graphql.Field{
-    Type: gql_thread.Interface,
-    Resolve: GQLThreadParent,
   })
 }
 
@@ -182,8 +124,20 @@ func NodeResolver(required_extensions []ExtType, default_type **graphql.Object)f
   }
 }
 
-var GQLInterfaceNode = NewGQLInterface("Node", "DefaultNode", []*graphql.Interface{}, []ExtType{}, AddNodeInterfaceFields, AddNodeFields)
+var GQLInterfaceNode = NewGQLInterface("Node", "DefaultNode", []*graphql.Interface{}, []ExtType{}, func(gql *GQLInterface) {
+  AddNodeInterfaceFields(gql)
+}, func(gql *GQLInterface) {
+  AddNodeFields(gql.Default)
+})
 
-var GQLInterfaceLockable = NewGQLInterface("Lockable", "DefaultLockable", []*graphql.Interface{GQLInterfaceNode.Interface}, []ExtType{LockableExtType}, LockableInterfaceFields, LockableFields)
+var GQLInterfaceLockable = NewGQLInterface("Lockable", "DefaultLockable", []*graphql.Interface{GQLInterfaceNode.Interface}, []ExtType{LockableExtType}, func(gql *GQLInterface) {
+  addLockableInterfaceFields(gql, gql)
+}, func(gql *GQLInterface) {
+  addLockableFields(gql.Default, gql.Interface, gql.List)
+})
 
-var GQLInterfaceThread = NewGQLInterface("Thread", "DefaultThread", []*graphql.Interface{GQLInterfaceNode.Interface, }, []ExtType{ThreadExtType, LockableExtType}, ThreadInterfaceFields, ThreadFields)
+var GQLInterfaceThread = NewGQLInterface("Thread", "DefaultThread", []*graphql.Interface{GQLInterfaceNode.Interface, }, []ExtType{ThreadExtType, LockableExtType}, func(gql *GQLInterface){
+  addThreadInterfaceFields(gql, gql)
+}, func(gql *GQLInterface) {
+  addThreadFields(gql.Default, gql.Interface, gql.List)
+})

@@ -123,11 +123,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(ThreadExtType, LoadThreadExt, NewThreadExtContext())
-  if err != nil {
-    return nil, err
-  }
-
   err = ctx.RegisterExtension(ECDHExtType, LoadECDHExt, nil)
   if err != nil {
     return nil, err
@@ -138,15 +133,39 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(GQLExtType, LoadGQLExt, NewGQLExtContext())
+  gql_ctx := NewGQLExtContext()
+  err = ctx.RegisterExtension(GQLExtType, LoadGQLExt, gql_ctx)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterGQLThread(ctx)
+  thread_ctx := NewThreadExtContext()
+  err = ctx.RegisterExtension(ThreadExtType, LoadThreadExt, thread_ctx)
   if err != nil {
     return nil, err
   }
+
+  err = thread_ctx.RegisterThreadType(GQLThreadType, gql_actions, gql_handlers)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, ACLPolicyExtType, GroupExtType, GQLExtType, ThreadExtType, LockableExtType})
+  if err != nil {
+    return nil, err
+  }
+
+  err = gql_ctx.RegisterNodeType(GQLNodeType, GQLTypeGQLNode.Type)
+  if err != nil {
+    return nil, err
+  }
+
+  schema, err := BuildSchema(gql_ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  gql_ctx.Schema = schema
 
   return ctx, nil
 }
