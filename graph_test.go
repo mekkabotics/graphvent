@@ -25,10 +25,10 @@ func (t * GraphTester) WaitForStatus(ctx * Context, listener chan Signal, status
       if signal.Type() == "status" {
         sig, ok := signal.(StatusSignal)
         if ok == true {
+          ctx.Log.Logf("test", "Status received: %s", sig.Status)
           if sig.Status == status {
             return signal
           }
-          ctx.Log.Logf("test", "Different status received: %s", sig.Status)
         } else {
           ctx.Log.Logf("test", "Failed to cast status to StatusSignal: %+v", signal)
         }
@@ -52,6 +52,21 @@ func (t * GraphTester) CheckForNone(listener chan Signal, str string) {
   }
 }
 
+const SimpleListenerNodeType = NodeType("SIMPLE_LISTENER")
+
+func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
+  listener := NewNode(ctx, RandID(), SimpleListenerNodeType)
+  policy := NewAllNodesPolicy([]string{"signal.status", "requirements.write", "requirements.read", "dependencies.write", "dependencies.read", "owner.read", "owner.write"})
+  listener_extension := NewListenerExt(buffer)
+  listener.Extensions[ListenerExtType] = listener_extension
+  listener.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
+    AllNodesPolicyType: &policy,
+  })
+  listener.Extensions[LockableExtType] = NewLockableExt(nil, nil, nil, nil)
+
+  return listener, listener_extension
+}
+
 func logTestContext(t * testing.T, components []string) *Context {
   db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
   if err != nil {
@@ -60,18 +75,15 @@ func logTestContext(t * testing.T, components []string) *Context {
 
   ctx, err := NewContext(db, NewConsoleLogger(components))
   fatalErr(t, err)
+
+  err = ctx.RegisterNodeType(SimpleListenerNodeType, []ExtType{ACLPolicyExtType, ListenerExtType, LockableExtType})
+  fatalErr(t, err)
+
   return ctx
 }
 
 func testContext(t * testing.T) * Context {
-  db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
-  if err != nil {
-    t.Fatal(err)
-  }
-
-  ctx, err := NewContext(db, NewConsoleLogger([]string{}))
-  fatalErr(t, err)
-  return ctx
+  return logTestContext(t, []string{})
 }
 
 func fatalErr(t * testing.T, err error) {

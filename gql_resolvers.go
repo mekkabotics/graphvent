@@ -88,7 +88,7 @@ func GQLNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
   return string(node.Type), nil
 }
 
-func GQLThreadListen(p graphql.ResolveParams) (interface{}, error) {
+func GQLNodeListen(p graphql.ResolveParams) (interface{}, error) {
   node, ctx, err := PrepResolve(p)
   if err != nil {
     return nil, err

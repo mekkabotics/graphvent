@@ -33,6 +33,7 @@ func (listener *ListenerExt) Type() ExtType {
 }
 
 func (ext *ListenerExt) Process(context *StateContext, node *Node, signal Signal) error {
+  context.Graph.Log.Logf("signal", "LISTENER_PROCESS: %s - %+v", node.ID, signal)
   select {
   case ext.Chan <- signal:
   default:

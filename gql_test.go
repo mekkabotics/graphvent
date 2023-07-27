@@ -10,8 +10,13 @@ import (
   "crypto/elliptic"
 )
 
-func TestGQL(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "db"})
+func TestGQL(t *testing.T) {
+
+
+}
+
+func TestGQLDB(t * testing.T) {
+  ctx := logTestContext(t, []string{"test", "signal"})
 
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLExtType, ACLPolicyExtType})
@@ -28,23 +33,7 @@ func TestGQL(t * testing.T) {
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
-  ListenerNodeType := NodeType("LISTENER")
-  err =  ctx.RegisterNodeType(ListenerNodeType, []ExtType{ACLExtType, ACLPolicyExtType, ListenerExtType, LockableExtType})
-  fatalErr(t, err)
-
-  l1 := NewNode(ctx, RandID(), ListenerNodeType)
-  l1_policy := NewRequirementOfPolicy(NodeActions{
-    l1.ID: Actions{"signal.status"},
-  })
-
-  l1.Extensions[ACLExtType] = NewACLExt(NodeList(u1))
-  listener_ext := NewListenerExt(10)
-  l1.Extensions[ListenerExtType] = listener_ext
-  l1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
-    RequirementOfPolicyType: &l1_policy,
-  })
-  l1.Extensions[LockableExtType] = NewLockableExt(nil, nil, nil, nil)
-
+  l1, listener_ext := NewSimpleListener(ctx, 10)
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID)
 
   TestThreadNodeType := NodeType("TEST_THREAD")

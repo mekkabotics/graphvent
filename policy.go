@@ -207,6 +207,33 @@ func (policy *PerNodePolicy) Allows(context *StateContext, principal *Node, acti
   return false
 }
 
+func NewAllNodesPolicy(actions Actions) AllNodesPolicy {
+  if actions == nil {
+    actions = Actions{}
+  }
+
+  return AllNodesPolicy{
+    Actions: actions,
+  }
+}
+
+type AllNodesPolicy struct {
+  Actions Actions `json:"actions"`
+}
+
+const AllNodesPolicyType = PolicyType("ALL_NODES")
+func (policy *AllNodesPolicy) Type() PolicyType {
+  return AllNodesPolicyType
+}
+
+func (policy *AllNodesPolicy) Serialize() ([]byte, error) {
+  return json.MarshalIndent(policy, "", "  ")
+}
+
+func (policy *AllNodesPolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
+  return policy.Actions.Allows(action)
+}
+
 
 // Extension to allow a node to hold ACL policies
 type ACLPolicyExt struct {
@@ -316,6 +343,16 @@ func NewACLPolicyExtContext() *ACLPolicyExtContext {
           return &policy, nil
         }),
       },
+      AllNodesPolicyType: PolicyInfo{
+        Load: func(ctx *Context, data []byte) (Policy, error) {
+          var policy AllNodesPolicy
+          err := json.Unmarshal(data, &policy)
+          if err != nil {
+            return nil, err
+          }
+          return &policy, nil
+        },
+      },
     },
   }
 }
@@ -344,6 +381,12 @@ func (ext *ACLPolicyExt) Process(context *StateContext, node *Node, signal Signa
 func NewACLPolicyExt(policies map[PolicyType]Policy) *ACLPolicyExt {
   if policies == nil {
     policies = map[PolicyType]Policy{}
+  }
+
+  for policy_type, policy := range(policies) {
+    if policy_type != policy.Type() {
+      panic("POLICY_TYPE_MISMATCH")
+    }
   }
 
   return &ACLPolicyExt{

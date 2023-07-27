@@ -67,6 +67,11 @@ var GQLThreadInterfaces = append(GQLLockableInterfaces, GQLInterfaceThread.Inter
 
 var GQLTypeGQLNode = NewGQLNodeType(GQLNodeType, GQLThreadInterfaces, func(gql *GQLType) {
   AddThreadFields(gql.Type)
+
+  gql.Type.AddFieldConfig("Listen", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLNodeListen,
+  })
 })
 
 var GQLTypeSignal = NewSingleton(func() *graphql.Object {
