@@ -141,19 +141,40 @@ func (node *Node) Serialize() ([]byte, error) {
   return node_db.Serialize(), nil
 }
 
-func NewNode(ctx *Context, id NodeID, node_type NodeType) *Node {
+func NewNode(ctx *Context, id NodeID, node_type NodeType, extensions ...Extension) *Node {
   _, exists := ctx.Nodes[id]
   if exists == true {
     panic("Attempted to create an existing node")
   }
 
+  def, exists := ctx.Types[node_type.Hash()]
+  if exists == false {
+    panic("Node type %s not registered in Context")
+  }
+
+  ext_map := map[ExtType]Extension{}
+  for _, ext := range(extensions) {
+    _, exists := ext_map[ext.Type()]
+    if exists == true {
+      panic("Cannot add the same extension to a node twice")
+    }
+    ext_map[ext.Type()] = ext
+  }
+
+  for _, required_ext := range(def.Extensions) {
+    _, exists := ext_map[required_ext]
+    if exists == false {
+      panic(fmt.Sprintf("%s requires %s", node_type, required_ext))
+    }
+  }
+
   node := &Node{
     ID: id,
     Type: node_type,
-    Extensions: map[ExtType]Extension{},
+    Extensions: ext_map,
   }
-
   ctx.Nodes[id] = node
+
   return node
 }
 
@@ -379,8 +400,12 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("Tried to load node %s of type 0x%x, which is not a known node type", id, node_db.Header.TypeHash)
   }
 
-  // Create the blank node with the ID, and add it to the context
-  node = NewNode(ctx, id, node_type.Type)
+  node = &Node{
+    ID: id,
+    Type: node_type.Type,
+    Extensions: map[ExtType]Extension{},
+  }
+  ctx.Nodes[id] = node
 
   found_extensions := []ExtType{}
   // Parse each of the extensions from the db

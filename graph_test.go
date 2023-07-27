@@ -55,14 +55,14 @@ func (t * GraphTester) CheckForNone(listener chan Signal, str string) {
 const SimpleListenerNodeType = NodeType("SIMPLE_LISTENER")
 
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
-  listener := NewNode(ctx, RandID(), SimpleListenerNodeType)
   policy := NewAllNodesPolicy([]string{"signal.status", "requirements.write", "requirements.read", "dependencies.write", "dependencies.read", "owner.read", "owner.write"})
   listener_extension := NewListenerExt(buffer)
-  listener.Extensions[ListenerExtType] = listener_extension
-  listener.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
-    AllNodesPolicyType: &policy,
-  })
-  listener.Extensions[LockableExtType] = NewLockableExt(nil, nil, nil, nil)
+  listener := NewNode(ctx,
+                      RandID(),
+                      SimpleListenerNodeType,
+                      listener_extension,
+                      NewACLExt(&policy),
+                      NewLockableExt(nil, nil, nil, nil))
 
   return listener, listener_extension
 }

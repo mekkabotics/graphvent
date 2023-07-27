@@ -311,19 +311,19 @@ func (ext *ACLExt) Process(context *StateContext, node *Node, signal Signal) err
   return nil
 }
 
-func NewACLExt(policies map[PolicyType]Policy) *ACLExt {
-  if policies == nil {
-    policies = map[PolicyType]Policy{}
-  }
-
-  for policy_type, policy := range(policies) {
-    if policy_type != policy.Type() {
-      panic("POLICY_TYPE_MISMATCH")
+func NewACLExt(policies ...Policy) *ACLExt {
+  policy_map := map[PolicyType]Policy{}
+  for _, policy := range(policies) {
+    _, exists := policy_map[policy.Type()]
+    if exists == true {
+      panic("Cannot add same policy type twice")
     }
+
+    policy_map[policy.Type()] = policy
   }
 
   return &ACLExt{
-    Policies: policies,
+    Policies: policy_map,
   }
 }
 
@@ -336,7 +336,8 @@ func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  policies := map[PolicyType]Policy{}
+  policies := make([]Policy, len(j.Policies))
+  i := 0
   acl_ctx := ctx.ExtByType(ACLExtType).Data.(*ACLExtContext)
   for name, ser := range(j.Policies) {
     policy_def, exists := acl_ctx.Types[PolicyType(name)]
@@ -348,13 +349,14 @@ func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
       return nil, err
     }
 
-    policies[PolicyType(name)] = policy
+    policies[i] = policy
+    i++
   }
 
-  return NewACLExt(policies), nil
+  return NewACLExt(policies...), nil
 }
 
-const ACLExtType = ExtType("ACL_POLICIES")
+const ACLExtType = ExtType("ACL")
 func (ext *ACLExt) Type() ExtType {
   return ACLExtType
 }

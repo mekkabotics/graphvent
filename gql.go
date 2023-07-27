@@ -33,21 +33,6 @@ import (
 const GQLThreadType = ThreadType("GQL")
 const GQLNodeType = NodeType("GQL")
 
-// Initializes a new GQL node without an ACLPolicyExt(which needs to be added)
-func NewGQLNode(ctx *Context, gql_ext *GQLExt) (*Node, error) {
-  node := NewNode(ctx, RandID(), GQLNodeType)
-  node.Extensions[GroupExtType] = NewGroupExt(nil)
-  var err error
-  node.Extensions[ThreadExtType], err = NewThreadExt(ctx, GQLThreadType, nil, nil, "init", nil)
-  if err != nil {
-    return nil, err
-  }
-  node.Extensions[LockableExtType] = NewLockableExt(nil, nil, nil, nil)
-  node.Extensions[GQLExtType] = gql_ext
-
-  return node, nil
-}
-
 type AuthReqJSON struct {
   Time time.Time `json:"time"`
   Pubkey []byte `json:"pubkey"`

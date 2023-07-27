@@ -10,8 +10,7 @@ func TestNodeDB(t *testing.T) {
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
 
-  node := NewNode(ctx, RandID(), node_type)
-  node.Extensions[GroupExtType] = NewGroupExt(nil)
+  node := NewNode(ctx, RandID(), node_type, NewGroupExt(nil))
 
   context := NewWriteContext(ctx)
   err = UpdateStates(context, node, NewACLInfo(node, []string{"test"}), func(context *StateContext) error {
