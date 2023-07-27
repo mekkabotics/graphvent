@@ -25,11 +25,8 @@ func TestGQLDB(t * testing.T) {
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
-  l1, listener_ext := NewSimpleListener(ctx, 10)
-  ctx.Log.Logf("test", "L1_ID: %s", l1.ID)
-
   TestThreadNodeType := NodeType("TEST_THREAD")
-  err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLExtType, ThreadExtType, LockableExtType})
+  err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLExtType, ThreadExtType})
   fatalErr(t, err)
 
   t1_policy_1 := NewParentOfPolicy(Actions{"signal.abort", "state.write"})
@@ -42,8 +39,7 @@ func TestGQLDB(t * testing.T) {
                 RandID(),
                 TestThreadNodeType,
                 NewACLExt(&t1_policy_1, &t1_policy_2),
-                t1_thread,
-                NewLockableExt(nil, nil, nil, nil))
+                t1_thread)
   ctx.Log.Logf("test", "T1_ID: %s", t1.ID)
 
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -58,24 +54,21 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
 
   gql_ext := NewGQLExt(":0", ecdh.P256(), key, nil, nil)
+  listener_ext := NewListenerExt(10)
   gql := NewNode(ctx, RandID(), GQLNodeType,
                  gql_thread,
                  gql_ext,
+                 listener_ext,
                  NewACLExt(&gql_p1, &gql_p2),
-                 NewGroupExt(nil),
-                 NewLockableExt(nil, nil, nil, nil))
+                 NewGroupExt(nil))
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
 
   info := ParentInfo{true, "start", "restore"}
   context := NewWriteContext(ctx)
   err = UpdateStates(context, u1, ACLMap{}, func(context *StateContext) error {
-    err := LinkThreads(context, u1, gql, ChildInfo{t1, map[InfoType]Info{
+    return LinkThreads(context, u1, gql, ChildInfo{t1, map[InfoType]Info{
       ParentInfoType: &info,
     }})
-    if err != nil {
-      return err
-    }
-    return LinkLockables(context, u1, l1, []*Node{gql})
   })
   fatalErr(t, err)
 
@@ -109,13 +102,8 @@ func TestGQLDB(t * testing.T) {
   context = NewReadContext(ctx)
   err = UseStates(context, gql_loaded, NewACLInfo(gql_loaded, []string{"users", "children", "requirements"}), func(context *StateContext) error {
     ser, err := gql_loaded.Serialize()
-    lockable_ext, err := GetExt[*LockableExt](gql_loaded)
-    if err != nil {
-      return err
-    }
     ctx.Log.Logf("test", "\n%s\n\n", ser)
-    dependency := lockable_ext.Dependencies[l1.ID]
-    listener_ext, err = GetExt[*ListenerExt](dependency)
+    listener_ext, err = GetExt[*ListenerExt](gql_loaded)
     if err != nil {
       return err
     }

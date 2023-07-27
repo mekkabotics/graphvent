@@ -60,7 +60,7 @@ func AddThreadInterfaceFields(gql *GQLInterface) {
 }
 
 func addThreadInterfaceFields(gql *GQLInterface, gql_thread *GQLInterface) {
-  AddLockableInterfaceFields(gql)
+  AddNodeInterfaceFields(gql)
 
   gql.Interface.AddFieldConfig("Children", &graphql.Field{
     Type: gql_thread.List,

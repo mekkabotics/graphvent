@@ -648,10 +648,6 @@ func ThreadRestore(ctx * Context, thread *Node, thread_ext *ThreadExt, start boo
 func ThreadStart(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
   context := NewWriteContext(ctx)
   err := UpdateStates(context, thread, NewACLInfo(thread, []string{"state"}), func(context *StateContext) error {
-    err := LockLockables(context, map[NodeID]*Node{thread.ID: thread}, thread)
-    if err != nil {
-      return err
-    }
     return thread_ext.SetState("started")
   })
   if err != nil {
@@ -695,11 +691,7 @@ func ThreadWait(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, err
 func ThreadFinish(ctx *Context, thread *Node, thread_ext *ThreadExt) (string, error) {
   context := NewWriteContext(ctx)
   return "", UpdateStates(context, thread, NewACLInfo(thread, []string{"state"}), func(context *StateContext) error {
-    err := thread_ext.SetState("finished")
-    if err != nil {
-      return err
-    }
-    return UnlockLockables(context, map[NodeID]*Node{thread.ID: thread}, thread)
+    return thread_ext.SetState("finished")
   })
 }
 

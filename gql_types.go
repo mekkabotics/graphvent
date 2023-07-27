@@ -43,7 +43,7 @@ func AddThreadFields(object *graphql.Object) {
 }
 
 func addThreadFields(object *graphql.Object, thread_interface *graphql.Interface, thread_list *graphql.List) {
-  AddLockableFields(object)
+  AddNodeFields(object)
 
   object.AddFieldConfig("State", &graphql.Field{
     Type: graphql.String,
@@ -63,7 +63,7 @@ func addThreadFields(object *graphql.Object, thread_interface *graphql.Interface
 
 var GQLNodeInterfaces = []*graphql.Interface{GQLInterfaceNode.Interface}
 var GQLLockableInterfaces = append(GQLNodeInterfaces, GQLInterfaceLockable.Interface)
-var GQLThreadInterfaces = append(GQLLockableInterfaces, GQLInterfaceThread.Interface)
+var GQLThreadInterfaces = append(GQLNodeInterfaces, GQLInterfaceThread.Interface)
 
 var GQLTypeGQLNode = NewGQLNodeType(GQLNodeType, GQLThreadInterfaces, func(gql *GQLType) {
   AddThreadFields(gql.Type)
