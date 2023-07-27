@@ -16,7 +16,7 @@ func TestGQL(t *testing.T) {
 }
 
 func TestGQLDB(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal"})
+  ctx := logTestContext(t, []string{"test", "signal", "policy"})
 
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLExtType})
@@ -40,9 +40,13 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
 
   t1 := NewNode(ctx, RandID(), TestThreadNodeType)
-  t1_policy := NewParentOfPolicy(Actions{"signal.abort", "state.write"})
+  t1_policy_1 := NewParentOfPolicy(Actions{"signal.abort", "state.write"})
+  t1_policy_2 := NewPerNodePolicy(NodeActions{
+    u1.ID: Actions{"parent.write"},
+  })
   t1.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
-    ParentOfPolicyType: &t1_policy,
+    ParentOfPolicyType: &t1_policy_1,
+    PerNodePolicyType: &t1_policy_2,
   })
   t1.Extensions[ThreadExtType], err = NewThreadExt(ctx, BaseThreadType, nil, nil, "init", nil)
   fatalErr(t, err)
@@ -55,9 +59,13 @@ func TestGQLDB(t * testing.T) {
 
   gql, err := NewGQLNode(ctx, NewGQLExt(":0", ecdh.P256(), key, nil, nil))
   fatalErr(t, err)
-  gql_policy := NewChildOfPolicy(Actions{"signal.status"})
+  gql_policy_1 := NewChildOfPolicy(Actions{"signal.status"})
+  gql_policy_2 := NewPerNodePolicy(NodeActions{
+    u1.ID: Actions{"parent.write", "children.write", "dependencies.write"},
+  })
   gql.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
-    ChildOfPolicyType: &gql_policy,
+    ChildOfPolicyType: &gql_policy_1,
+    PerNodePolicyType: &gql_policy_2,
   })
 
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
