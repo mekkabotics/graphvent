@@ -196,34 +196,6 @@ func AuthHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.Response
       ctx.Log.Logf("gql", "GQL_AUTH_RESP_BAD_LENGTH: %d/%d", wrote, len(ser))
       return
     }
-
-    /*if exists {
-      ctx.Log.Logf("gql", "REFRESHING AUTH FOR %s", key_id)
-    } else {
-      ctx.Log.Logf("gql", "AUTHORIZING NEW USER %s - %s", key_id, shared)
-
-      new_user := NewUser(fmt.Sprintf("GQL_USER %s", key_id.String()), time.Now(), remote_id, shared)
-      context := NewWriteContext(ctx)
-      err := UpdateStates(context, server, ACLMap{
-        server.ID: ACLInfo{
-          Node: server,
-          Resources: []string{"users"},
-        },
-        new_user.ID: ACLInfo{
-          Node: &new_user,
-          Resources: nil,
-        },
-      }, func(context *StateContext) error {
-        server.Users[key_id] = &new_user
-        return nil
-      })
-      if err != nil {
-        ctx.Log.Logf("gql", "GQL_AUTH_UPDATE_ERR: %s", err)
-        return
-      }
-    }*/
-
-  }
 }
 
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {

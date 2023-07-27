@@ -469,47 +469,6 @@ func WriteNode(ctx *Context, node *Node) error {
     return txn.Set(id_bytes, bytes)
   })
 }
-func WriteNodes(context *StateContext) error {
-  err := ValidateStateContext(context, "write", true)
-  if err != nil {
-    return err
-  }
-
-  context.Graph.Log.Logf("db", "DB_WRITES: %d", len(context.Locked))
-
-  serialized_bytes := make([][]byte, len(context.Locked))
-  serialized_ids := make([][]byte, len(context.Locked))
-  i := 0
-  // TODO, just write states from the context, and store the current states in the context
-  for id, _ := range(context.Locked) {
-    node, _ := context.Graph.Nodes[id]
-    if node == nil {
-      return fmt.Errorf("DB_SERIALIZE_ERROR: cannot serialize nil node(%s), maybe node isn't in the context", id)
-    }
-
-    ser, err := node.Serialize()
-    if err != nil {
-      return fmt.Errorf("DB_SERIALIZE_ERROR: %s", err)
-    }
-
-    id_ser := node.ID.Serialize()
-
-    serialized_bytes[i] = ser
-    serialized_ids[i] = id_ser
-
-    i++
-  }
-
-  return context.Graph.DB.Update(func(txn *badger.Txn) error {
-    for i, id := range(serialized_ids) {
-      err := txn.Set(id, serialized_bytes[i])
-      if err != nil {
-        return err
-      }
-    }
-    return nil
-  })
-}
 
 // Recursively load a node from the database.
 func LoadNode(ctx * Context, id NodeID) (*Node, error) {
