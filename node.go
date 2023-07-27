@@ -189,10 +189,6 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) {
   }
 }
 
-func (node *Node) Signal(ctx *Context, dest NodeID, signal Signal) error {
-  return ctx.Send(node.ID, dest, signal)
-}
-
 func GetCtx[T Extension, C any](ctx *Context) (C, error) {
   var zero T
   var zero_ctx C

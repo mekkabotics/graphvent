@@ -31,7 +31,7 @@ func TestGQLDB(t * testing.T) {
                  NewGroupExt(nil))
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
 
-  err = gql.Signal(ctx, gql.ID, StopSignal)
+  err = ctx.Send(gql.ID, gql.ID, StopSignal)
   fatalErr(t, err)
 
   (*GraphTester)(t).WaitForStatus(ctx, listener_ext.Chan, "stopped", 100*time.Millisecond, "Didn't receive stopped on listener")
@@ -47,7 +47,7 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
   listener_ext, err = GetExt[*ListenerExt](gql_loaded)
   fatalErr(t, err)
-  err = gql_loaded.Signal(ctx, gql_loaded.ID, StopSignal)
+  err = ctx.Send(gql_loaded.ID, gql_loaded.ID, StopSignal)
   fatalErr(t, err)
   (*GraphTester)(t).WaitForStatus(ctx, listener_ext.Chan, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
 

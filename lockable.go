@@ -93,7 +93,7 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
   case Up:
     owner_sent := false
     for _, dependency := range(ext.Dependencies) {
-      err := node.Signal(ctx, dependency, signal)
+      err := ctx.Send(node.ID, dependency, signal)
       if err != nil {
         ctx.Log.Logf("signal", "LOCKABLE_SIGNAL_ERR: %s->%s - %e", node.ID, dependency, err)
       }
@@ -107,7 +107,7 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
 
     if ext.Owner != nil && owner_sent == false {
       if *ext.Owner != node.ID {
-        err := node.Signal(ctx, *ext.Owner, signal)
+        err := ctx.Send(node.ID, *ext.Owner, signal)
         if err != nil {
           ctx.Log.Logf("signal", "LOCKABLE_SIGNAL_ERR: %s->%s - %e", node.ID, *ext.Owner, err)
         }
@@ -115,7 +115,7 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
     }
   case Down:
     for _, requirement := range(ext.Requirements) {
-      err := node.Signal(ctx, requirement, signal)
+      err := ctx.Send(node.ID, requirement, signal)
       if err != nil {
         ctx.Log.Logf("signal", "LOCKABLE_SIGNAL_ERR: %s->%s - %e", node.ID, requirement, err)
       }
