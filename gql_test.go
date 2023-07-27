@@ -47,7 +47,7 @@ func TestGQLDB(t * testing.T) {
 
   gql_p1 := NewChildOfPolicy(Actions{"signal.status"})
   gql_p2 := NewPerNodePolicy(NodeActions{
-    u1.ID: Actions{"parent.write", "children.write", "dependencies.write"},
+    u1.ID: Actions{"children.write", "dependencies.write"},
   })
 
   gql_thread, err := NewThreadExt(ctx, GQLThreadType, nil, nil, "init", nil)
