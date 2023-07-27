@@ -196,6 +196,7 @@ func AuthHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.Response
       ctx.Log.Logf("gql", "GQL_AUTH_RESP_BAD_LENGTH: %d/%d", wrote, len(ser))
       return
     }
+  }
 }
 
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {

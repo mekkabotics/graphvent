@@ -6,7 +6,6 @@ import (
   "reflect"
   "github.com/google/uuid"
   badger "github.com/dgraph-io/badger/v3"
-  "runtime"
   "fmt"
   "encoding/binary"
   "encoding/json"
@@ -188,19 +187,7 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) {
 }
 
 func (node *Node) Signal(ctx *Context, dest NodeID, signal Signal) error {
-  target, exists := ctx.Nodes[dest]
-  if exists == false {
-    return fmt.Errorf("%s does not exist, cannot signal it", dest)
-  }
-  select {
-  case target.MsgChan <- Msg{node.ID, signal}:
-  default:
-    buf := make([]byte, 4096)
-    n := runtime.Stack(buf, false)
-    stack_str := string(buf[:n])
-    return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", dest, stack_str)
-  }
-  return nil
+  return ctx.Send(node.ID, dest, signal)
 }
 
 func GetCtx[T Extension, C any](ctx *Context) (C, error) {
@@ -454,7 +441,7 @@ type ExtensionDB struct {
   Data []byte
 }
 
-// Write multiple nodes to the database in a single transaction
+// Write a node to the database
 func WriteNode(ctx *Context, node *Node) error {
   ctx.Log.Logf("db", "DB_WRITE: %s", node.ID)
 
@@ -470,7 +457,6 @@ func WriteNode(ctx *Context, node *Node) error {
   })
 }
 
-// Recursively load a node from the database.
 func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   ctx.Log.Logf("db", "LOOKING_FOR_NODE: %s", id)
   node, exists := ctx.Nodes[id]

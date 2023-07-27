@@ -3,6 +3,7 @@ package graphvent
 import (
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
+  "runtime"
 )
 
 //Function to load an extension from bytes
@@ -89,6 +90,22 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
     Load: load_fn,
     Type: ext_type,
     Data: data,
+  }
+  return nil
+}
+
+func (ctx *Context) Send(source NodeID, dest NodeID, signal Signal) error {
+  target, exists := ctx.Nodes[dest]
+  if exists == false {
+    return fmt.Errorf("%s does not exist, cannot signal it", dest)
+  }
+  select {
+  case target.MsgChan <- Msg{source, signal}:
+  default:
+    buf := make([]byte, 4096)
+    n := runtime.Stack(buf, false)
+    stack_str := string(buf[:n])
+    return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", dest, stack_str)
   }
   return nil
 }
