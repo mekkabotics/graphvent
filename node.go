@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "time"
+  "errors"
   "reflect"
   "github.com/google/uuid"
   badger "github.com/dgraph-io/badger/v3"
@@ -458,14 +459,7 @@ func WriteNode(ctx *Context, node *Node) error {
 }
 
 func LoadNode(ctx * Context, id NodeID) (*Node, error) {
-  ctx.Log.Logf("db", "LOOKING_FOR_NODE: %s", id)
-  node, exists := ctx.Nodes[id]
-  if exists == true {
-    ctx.Log.Logf("db", "NODE_ALREADY_LOADED: %s", id)
-    return node,nil
-  }
   ctx.Log.Logf("db", "LOADING_NODE: %s", id)
-
   var bytes []byte
   err := ctx.DB.View(func(txn *badger.Txn) error {
     item, err := txn.Get(id.Serialize())
@@ -478,7 +472,9 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
       return nil
     })
   })
-  if err != nil {
+  if errors.Is(err, badger.ErrKeyNotFound) {
+    return nil, NodeNotFoundError
+  }else if err != nil {
     return nil, err
   }
 
@@ -494,7 +490,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   }
 
   next_signal, timeout_chan := SoonestSignal(node_db.QueuedSignals)
-  node = &Node{
+  node := &Node{
     ID: id,
     Type: node_type.Type,
     Extensions: map[ExtType]Extension{},

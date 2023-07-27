@@ -34,7 +34,7 @@ func TestGQLDB(t * testing.T) {
   err = ctx.Send(gql.ID, gql.ID, StopSignal)
   fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForStatus(ctx, listener_ext.Chan, "stopped", 100*time.Millisecond, "Didn't receive stopped on listener")
+  (*GraphTester)(t).WaitForStatus(ctx, listener_ext, "stopped", 100*time.Millisecond, "Didn't receive stopped on listener")
 
   ser1, err := gql.Serialize()
   ser2, err := u1.Serialize()
@@ -49,7 +49,7 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
   err = ctx.Send(gql_loaded.ID, gql_loaded.ID, StopSignal)
   fatalErr(t, err)
-  (*GraphTester)(t).WaitForStatus(ctx, listener_ext.Chan, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
+  (*GraphTester)(t).WaitForStatus(ctx, listener_ext, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
 
 }
 

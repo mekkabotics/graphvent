@@ -13,11 +13,11 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForStatus(ctx * Context, listener chan Signal, status string, timeout time.Duration, str string) Signal {
+func (t * GraphTester) WaitForStatus(ctx * Context, listener *ListenerExt, status string, timeout time.Duration, str string) Signal {
   timeout_channel := time.After(timeout)
   for true {
     select {
-    case signal := <- listener:
+    case signal := <- listener.Chan:
       if signal == nil {
         ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
         t.Fatal(str)
@@ -25,6 +25,8 @@ func (t * GraphTester) WaitForStatus(ctx * Context, listener chan Signal, status
       if signal.Type() == "status" {
         sig, ok := signal.(StatusSignal)
         if ok == true {
+
+
           ctx.Log.Logf("test", "Status received: %s", sig.Status)
           if sig.Status == status {
             return signal
@@ -42,10 +44,10 @@ func (t * GraphTester) WaitForStatus(ctx * Context, listener chan Signal, status
   return nil
 }
 
-func (t * GraphTester) CheckForNone(listener chan Signal, str string) {
+func (t * GraphTester) CheckForNone(listener *ListenerExt, str string) {
   timeout := time.After(listner_timeout)
   select {
-  case sig := <- listener:
+  case sig := <- listener.Chan:
     pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
     t.Fatal(fmt.Sprintf("%s : %+v", str, sig))
   case <-timeout:

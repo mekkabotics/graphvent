@@ -3,6 +3,7 @@ package graphvent
 import (
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
+  "errors"
   "runtime"
 )
 
@@ -86,21 +87,38 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
   return nil
 }
 
+var NodeNotFoundError = errors.New("Node not found in DB")
+
+func (ctx *Context) GetNode(id NodeID) (*Node, error) {
+  target, exists := ctx.Nodes[id]
+  if exists == false {
+    var err error
+    target, err = LoadNode(ctx, id)
+    if err != nil {
+      return nil, err
+    }
+  }
+  return target, nil
+}
+
 // Route a Signal to dest. Currently only local context routing is supported
 func (ctx *Context) Send(source NodeID, dest NodeID, signal Signal) error {
-  target, exists := ctx.Nodes[dest]
-  if exists == false {
-    return fmt.Errorf("%s does not exist, cannot signal it", dest)
+  target, err := ctx.GetNode(dest)
+  if err == nil {
+    select {
+    case target.MsgChan <- Msg{source, signal}:
+    default:
+      buf := make([]byte, 4096)
+      n := runtime.Stack(buf, false)
+      stack_str := string(buf[:n])
+      return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", dest, stack_str)
+    }
+    return nil
+  } else if errors.Is(err, NodeNotFoundError) {
+    // TODO: Handle finding nodes in other contexts
+    return err
   }
-  select {
-  case target.MsgChan <- Msg{source, signal}:
-  default:
-    buf := make([]byte, 4096)
-    n := runtime.Stack(buf, false)
-    stack_str := string(buf[:n])
-    return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", dest, stack_str)
-  }
-  return nil
+  return err
 }
 
 // Create a new Context with the base library content added
