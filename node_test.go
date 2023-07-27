@@ -7,12 +7,11 @@ import (
 func TestNodeDB(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "db", "node", "policy"})
   node_type := NodeType("test")
-  err := ctx.RegisterNodeType(node_type, []ExtType{"ACL"})
+  err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
+
   node := NewNode(ctx, RandID(), node_type)
-  node.Extensions[ACLExtType] = &ACLExt{
-    Delegations: NodeMap{},
-  }
+  node.Extensions[GroupExtType] = NewGroupExt(nil)
 
   context := NewWriteContext(ctx)
   err = UpdateStates(context, node, NewACLInfo(node, []string{"test"}), func(context *StateContext) error {

@@ -7,7 +7,38 @@ import (
 
 type Policy interface {
   Serializable[PolicyType]
-  Allows(context *StateContext, principal *Node, action string, node *Node) bool
+  Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool
+}
+
+//TODO
+func (policy *AllNodesPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool {
+  return policy.Actions.Allows(action)
+}
+
+func (policy *RequirementOfPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool {
+  return false
+}
+
+func (policy *PerNodePolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool {
+  for id, actions := range(policy.NodeActions) {
+    if id != principal_id {
+      continue
+    }
+    for _, a := range(actions) {
+      if a == action {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+func (policy *ParentOfPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool {
+  return false
+}
+
+func (policy *ChildOfPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool {
+  return false
 }
 
 const RequirementOfPolicyType = PolicyType("REQUIREMENT_OF")
@@ -24,56 +55,12 @@ func NewRequirementOfPolicy(nodes NodeActions) RequirementOfPolicy {
   }
 }
 
-// Check if any of principals dependencies are in the policy
-func (policy *RequirementOfPolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
-  lockable_ext, err := GetExt[*LockableExt](principal)
-
-  if err != nil {
-    return false
-  }
-
-  for dep_id, _ := range(lockable_ext.Dependencies) {
-    for node_id, actions := range(policy.NodeActions) {
-      if node_id == dep_id {
-        if actions.Allows(action) == true {
-          return true
-        }
-        break
-      }
-    }
-  }
-  return false
-}
-
 const ChildOfPolicyType = PolicyType("CHILD_OF")
 type ChildOfPolicy struct {
   PerNodePolicy
 }
 func (policy *ChildOfPolicy) Type() PolicyType {
   return ChildOfPolicyType
-}
-
-func (policy *ChildOfPolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
-  context.Graph.Log.Logf("policy", "CHILD_OF_POLICY: %+v", policy)
-  thread_ext, err := GetExt[*ThreadExt](principal)
-  if err != nil {
-    return false
-  }
-
-  parent := thread_ext.Parent
-  if parent != nil {
-    actions, exists := policy.NodeActions[parent.ID]
-    if exists == false {
-      return false
-    }
-    for _, a := range(actions) {
-      if a == action {
-        return true
-      }
-    }
-  }
-
-  return false
 }
 
 type Actions []string
@@ -130,29 +117,6 @@ func (policy *ParentOfPolicy) Type() PolicyType {
   return ParentOfPolicyType
 }
 
-func (policy *ParentOfPolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
-  context.Graph.Log.Logf("policy", "PARENT_OF_POLICY: %+v", policy)
-  for id, actions := range(policy.NodeActions) {
-    thread_ext, err := GetExt[*ThreadExt](context.Graph.Nodes[id])
-    if err != nil {
-      continue
-    }
-
-      context.Graph.Log.Logf("policy", "PARENT_OF_PARENT: %s %+v", id, thread_ext.Parent)
-    if thread_ext.Parent != nil {
-      if thread_ext.Parent.ID == principal.ID {
-        for _, a := range(actions) {
-          if a == action {
-            return true
-          }
-        }
-      }
-    }
-  }
-
-  return false
-}
-
 func NewParentOfPolicy(node_actions NodeActions) ParentOfPolicy {
   return ParentOfPolicy{
     PerNodePolicy: NewPerNodePolicy(node_actions),
@@ -193,20 +157,6 @@ func (policy *PerNodePolicy) Serialize() ([]byte, error) {
   }, "", "  ")
 }
 
-func (policy *PerNodePolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
-  for id, actions := range(policy.NodeActions) {
-    if id != principal.ID {
-      continue
-    }
-    for _, a := range(actions) {
-      if a == action {
-        return true
-      }
-    }
-  }
-  return false
-}
-
 func NewAllNodesPolicy(actions Actions) AllNodesPolicy {
   if actions == nil {
     actions = Actions{}
@@ -230,44 +180,11 @@ func (policy *AllNodesPolicy) Serialize() ([]byte, error) {
   return json.MarshalIndent(policy, "", "  ")
 }
 
-func (policy *AllNodesPolicy) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
-  return policy.Actions.Allows(action)
-}
-
-
 // Extension to allow a node to hold ACL policies
 type ACLPolicyExt struct {
   Policies map[PolicyType]Policy
 }
 
-// The ACL extension stores a map of nodes to delegate ACL to, and a list of policies
-type ACLExt struct {
-  Delegations NodeMap
-}
-
-func (ext *ACLExt) Process(context *StateContext, node *Node, signal Signal) error {
-  return nil
-}
-
-func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
-  var j struct {
-    Delegations []string `json:"delegation"`
-  }
-
-  err := json.Unmarshal(data, &j)
-  if err != nil {
-    return nil, err
-  }
-
-  delegations, err := RestoreNodeList(ctx, j.Delegations)
-  if err != nil {
-    return nil, err
-  }
-
-  return &ACLExt{
-    Delegations: delegations,
-  }, nil
-}
 
 func NodeList(nodes ...*Node) NodeMap {
   m := NodeMap{}
@@ -275,36 +192,6 @@ func NodeList(nodes ...*Node) NodeMap {
     m[node.ID] = node
   }
   return m
-}
-
-func NewACLExt(delegations NodeMap) *ACLExt {
-  if delegations == nil {
-    delegations = NodeMap{}
-  }
-
-  return &ACLExt{
-    Delegations: delegations,
-  }
-}
-
-func (ext *ACLExt) Serialize() ([]byte, error) {
-  delegations := make([]string, len(ext.Delegations))
-  i := 0
-  for id, _ := range(ext.Delegations) {
-    delegations[i] = id.String()
-    i += 1
-  }
-
-  return json.MarshalIndent(&struct{
-    Delegations []string `json:"delegations"`
-  }{
-    Delegations: delegations,
-  }, "", "  ")
-}
-
-const ACLExtType = ExtType("ACL")
-func (ext *ACLExt) Type() ExtType {
-  return ACLExtType
 }
 
 type PolicyLoadFunc func(*Context, []byte) (Policy, error)
@@ -427,11 +314,11 @@ func (ext *ACLPolicyExt) Type() ExtType {
 }
 
 // Check if the extension allows the principal to perform action on node
-func (ext *ACLPolicyExt) Allows(context *StateContext, principal *Node, action string, node *Node) bool {
+func (ext *ACLPolicyExt) Allows(context *StateContext, principal_id NodeID, action string, node *Node) bool {
   context.Graph.Log.Logf("policy", "POLICY_EXT_ALLOWED: %+v", ext)
   for _, policy := range(ext.Policies) {
     context.Graph.Log.Logf("policy", "POLICY_CHECK_POLICY: %+v", policy)
-    if policy.Allows(context, principal, action, node) == true {
+    if policy.Allows(context, principal_id, action, node) == true {
       return true
     }
   }

@@ -157,62 +157,34 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType) *Node {
   return node
 }
 
-func Allowed(context *StateContext, principal *Node, action string, node *Node) error {
-  context.Graph.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal.ID, node.ID, action)
-  if principal == nil {
-    context.Graph.Log.Logf("policy", "POLICY_CHECK_ERR: %s %s.%s", principal.ID, node.ID, action)
-    return fmt.Errorf("nil is not allowed to perform any actions")
-  }
-
+func Allowed(context *StateContext, principal_id NodeID, action string, node *Node) error {
+  context.Graph.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal_id, node.ID, action)
   // Nodes are allowed to perform all actions on themselves regardless of whether or not they have an ACL extension
-  if principal.ID == node.ID {
+  if principal_id == node.ID {
     return nil
   }
 
   // Check if the node has a policy extension itself, and check against the policies in it
   policy_ext, err := GetExt[*ACLPolicyExt](node)
-  self_tried := false
-  if err == nil {
-    if policy_ext.Allows(context, principal, action, node) == true {
-      return nil
-    }
-    self_tried = true
-  }
-
-  acl_ext, err := GetExt[*ACLExt](node)
   if err != nil {
-    if self_tried == true {
-      return fmt.Errorf("POLICY_SELF: policies on %s do not allow %s to perform %s", node.ID, principal.ID, action)
-    } else {
-      return err
-    }
+    return err
   }
 
-  for _, policy_node := range(acl_ext.Delegations) {
-    context.Graph.Log.Logf("policy", "POLICY_DELEGATION_CHECK: %s->%s", node.ID, policy_node.ID)
-    policy_ext, err := GetExt[*ACLPolicyExt](policy_node)
-    if err != nil {
-      return err
-    }
-    if policy_ext.Allows(context, principal, action, node) == true {
-      context.Graph.Log.Logf("policy", "POLICY_CHECK_PASS: %s %s.%s", principal.ID, node.ID, action)
-      return nil
-    }
+  if policy_ext.Allows(context, principal_id, action, node) == true {
+    return nil
   }
-  context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.%s", principal.ID, node.ID, action)
-  return fmt.Errorf("%s is not allowed to perform %s on %s", principal.ID, action, node.ID)
+
+  context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.%s", principal_id, node.ID, action)
+  return fmt.Errorf("%s is not allowed to perform %s on %s", principal_id, action, node.ID)
 }
 
 // Check that princ is allowed to signal this action,
 // then send the signal to all the extensions of the node
-func (node *Node) Process(context *StateContext, princ *Node, signal Signal) error {
+func (node *Node) Process(context *StateContext, princ_id NodeID, signal Signal) error {
   ser, _ := signal.Serialize()
   context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID, string(ser))
 
-  err := UseStates(context, princ, NewACLInfo(node, []string{}), func(context *StateContext) error {
-    return Allowed(context, princ, fmt.Sprintf("signal.%s", signal.Type()), node)
-  })
-
+  err := Allowed(context, princ_id, fmt.Sprintf("signal.%s", signal.Type()), node)
   if err != nil {
     return err
   }
@@ -676,7 +648,7 @@ func UseStates(context *StateContext, principal *Node, new_nodes ACLMap, state_f
       }
 
       if already_granted == false {
-        err := Allowed(context, principal, fmt.Sprintf("%s.read", resource), node)
+        err := Allowed(context, principal.ID, fmt.Sprintf("%s.read", resource), node)
         if err != nil {
           for _, n := range(new_locks) {
             context.Graph.Log.Logf("mutex", "RUNLOCKING_ON_ERROR %s", id.String())
@@ -772,7 +744,7 @@ func UpdateStates(context *StateContext, principal *Node, new_nodes ACLMap, stat
       }
 
       if already_granted == false {
-        err := Allowed(context, principal, fmt.Sprintf("%s.write", resource), node)
+        err := Allowed(context, principal.ID, fmt.Sprintf("%s.write", resource), node)
         if err != nil {
           for _, n := range(new_locks) {
             context.Graph.Log.Logf("mutex", "UNLOCKING_ON_ERROR %s", id.String())

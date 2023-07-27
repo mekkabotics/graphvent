@@ -139,7 +139,7 @@ func (ext *LockableExt) Process(context *StateContext, node *Node, signal Signal
       owner_sent := false
       for _, dependency := range(ext.Dependencies) {
         context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", node.ID, dependency.ID)
-        dependency.Process(context, node, signal)
+        dependency.Process(context, node.ID, signal)
         if ext.Owner != nil {
           if dependency.ID == ext.Owner.ID {
             owner_sent = true
@@ -149,7 +149,7 @@ func (ext *LockableExt) Process(context *StateContext, node *Node, signal Signal
       if ext.Owner != nil && owner_sent == false {
         if ext.Owner.ID != node.ID {
           context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", node.ID, ext.Owner.ID)
-          return ext.Owner.Process(context, node, signal)
+          return ext.Owner.Process(context, node.ID, signal)
         }
       }
       return nil
@@ -157,7 +157,7 @@ func (ext *LockableExt) Process(context *StateContext, node *Node, signal Signal
   case Down:
     err = UseStates(context, node, NewACLInfo(node, []string{"requirements"}), func(context *StateContext) error {
       for _, requirement := range(ext.Requirements) {
-        err := requirement.Process(context, node, signal)
+        err := requirement.Process(context, node.ID, signal)
         if err != nil {
           return err
         }

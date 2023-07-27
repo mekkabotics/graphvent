@@ -1053,7 +1053,7 @@ var gql_actions ThreadActions = ThreadActions{
     }
 
     context = NewReadContext(ctx)
-    err = thread.Process(context, thread, NewStatusSignal("server_started", thread.ID))
+    err = thread.Process(context, thread.ID, NewStatusSignal("server_started", thread.ID))
     if err != nil {
       return "", err
     }

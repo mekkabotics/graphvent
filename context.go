@@ -103,11 +103,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Nodes: map[NodeID]*Node{},
   }
 
-  err := ctx.RegisterExtension(ACLExtType, LoadACLExt, nil)
-  if err != nil {
-    return nil, err
-  }
-
+  var err error
   err = ctx.RegisterExtension(ACLPolicyExtType, LoadACLPolicyExt, NewACLPolicyExtContext())
   if err != nil {
     return nil, err
@@ -150,7 +146,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, ACLPolicyExtType, GroupExtType, GQLExtType, ThreadExtType, LockableExtType})
+  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLPolicyExtType, GroupExtType, GQLExtType, ThreadExtType, LockableExtType})
   if err != nil {
     return nil, err
   }

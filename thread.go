@@ -306,7 +306,7 @@ func (ext *ThreadExt) Process(context *StateContext, node *Node, signal Signal) 
     err = UseStates(context, node, NewACLInfo(node, []string{"parent"}), func(context *StateContext) error {
       if ext.Parent != nil {
         if ext.Parent.ID != node.ID {
-          return ext.Parent.Process(context, node, signal)
+          return ext.Parent.Process(context, node.ID, signal)
         }
       }
       return nil
@@ -314,7 +314,7 @@ func (ext *ThreadExt) Process(context *StateContext, node *Node, signal Signal) 
   case Down:
     err = UseStates(context, node, NewACLInfo(node, []string{"children"}), func(context *StateContext) error {
       for _, info := range(ext.Children) {
-        err := info.Child.Process(context, node, signal)
+        err := info.Child.Process(context, node.ID, signal)
         if err != nil {
           return err
         }
@@ -659,7 +659,7 @@ func ThreadStart(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, er
   }
 
   context = NewReadContext(ctx)
-  return "wait", thread.Process(context, thread, NewStatusSignal("started", thread.ID))
+  return "wait", thread.Process(context, thread.ID, NewStatusSignal("started", thread.ID))
 }
 
 func ThreadWait(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
@@ -708,7 +708,7 @@ var ThreadAbortedError = errors.New("Thread aborted by signal")
 // Default thread action function for "abort", sends a signal and returns a ThreadAbortedError
 func ThreadAbort(ctx * Context, thread *Node, thread_ext *ThreadExt, signal Signal) (string, error) {
   context := NewReadContext(ctx)
-  err := thread.Process(context, thread, NewStatusSignal("aborted", thread.ID))
+  err := thread.Process(context, thread.ID, NewStatusSignal("aborted", thread.ID))
   if err != nil {
     return "", err
   }
@@ -718,7 +718,7 @@ func ThreadAbort(ctx * Context, thread *Node, thread_ext *ThreadExt, signal Sign
 // Default thread action for "stop", sends a signal and returns no error
 func ThreadStop(ctx * Context, thread *Node, thread_ext *ThreadExt, signal Signal) (string, error) {
   context := NewReadContext(ctx)
-  err := thread.Process(context, thread, NewStatusSignal("stopped", thread.ID))
+  err := thread.Process(context, thread.ID, NewStatusSignal("stopped", thread.ID))
   return "finish", err
 }
 

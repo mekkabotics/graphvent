@@ -35,7 +35,7 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
         if node == nil {
           return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
         }
-        return node.Process(context, ctx.User, AbortSignal)
+        return node.Process(context, ctx.User.ID, AbortSignal)
       })
       if err != nil {
         return nil, err
@@ -98,7 +98,7 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
         }
 
         signal = NewStartChildSignal(child_id, action)
-        return parent.Process(context, ctx.User, signal)
+        return parent.Process(context, ctx.User.ID, signal)
       })
       if err != nil {
         return nil, err

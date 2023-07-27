@@ -19,14 +19,13 @@ func TestGQLDB(t * testing.T) {
   ctx := logTestContext(t, []string{"test", "signal"})
 
   TestUserNodeType := NodeType("TEST_USER")
-  err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLExtType, ACLPolicyExtType})
+  err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLPolicyExtType})
   fatalErr(t, err)
 
   u1 := NewNode(ctx, RandID(), TestUserNodeType)
   u1_policy := NewPerNodePolicy(NodeActions{
     u1.ID: Actions{"users.write", "children.write", "parent.write", "dependencies.write", "requirements.write"},
   })
-  u1.Extensions[ACLExtType] = NewACLExt(nil)
   u1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
     PerNodePolicyType: &u1_policy,
   })
@@ -37,14 +36,13 @@ func TestGQLDB(t * testing.T) {
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID)
 
   TestThreadNodeType := NodeType("TEST_THREAD")
-  err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLExtType, ACLPolicyExtType, ThreadExtType, LockableExtType})
+  err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLPolicyExtType, ThreadExtType, LockableExtType})
   fatalErr(t, err)
 
   t1 := NewNode(ctx, RandID(), TestThreadNodeType)
   t1_policy := NewParentOfPolicy(NodeActions{
     t1.ID: Actions{"signal.abort", "state.write"},
   })
-  t1.Extensions[ACLExtType] = NewACLExt(NodeList(u1))
   t1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
     ParentOfPolicyType: &t1_policy,
   })
@@ -82,10 +80,10 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
 
   context = NewReadContext(ctx)
-  err = gql.Process(context, gql, NewStatusSignal("child_linked", t1.ID))
+  err = gql.Process(context, gql.ID, NewStatusSignal("child_linked", t1.ID))
   fatalErr(t, err)
   context = NewReadContext(ctx)
-  err = gql.Process(context, gql, AbortSignal)
+  err = gql.Process(context, gql.ID, AbortSignal)
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
@@ -121,7 +119,7 @@ func TestGQLDB(t * testing.T) {
     if err != nil {
       return err
     }
-    gql_loaded.Process(context, gql_loaded, StopSignal)
+    gql_loaded.Process(context, gql_loaded.ID, StopSignal)
     return err
   })
 
