@@ -165,17 +165,12 @@ func Allowed(context *StateContext, principal_id NodeID, action string, node *No
   }
 
   // Check if the node has a policy extension itself, and check against the policies in it
-  policy_ext, err := GetExt[*ACLPolicyExt](node)
+  policy_ext, err := GetExt[*ACLExt](node)
   if err != nil {
     return err
   }
 
-  if policy_ext.Allows(context, principal_id, action, node) == true {
-    return nil
-  }
-
-  context.Graph.Log.Logf("policy", "POLICY_CHECK_FAIL: %s %s.%s", principal_id, node.ID, action)
-  return fmt.Errorf("%s is not allowed to perform %s on %s", principal_id, action, node.ID)
+  return policy_ext.Allows(context, principal_id, action, node)
 }
 
 // Check that princ is allowed to signal this action,

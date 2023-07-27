@@ -59,7 +59,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
   policy := NewAllNodesPolicy([]string{"signal.status", "requirements.write", "requirements.read", "dependencies.write", "dependencies.read", "owner.read", "owner.write"})
   listener_extension := NewListenerExt(buffer)
   listener.Extensions[ListenerExtType] = listener_extension
-  listener.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
+  listener.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
     AllNodesPolicyType: &policy,
   })
   listener.Extensions[LockableExtType] = NewLockableExt(nil, nil, nil, nil)
@@ -76,7 +76,7 @@ func logTestContext(t * testing.T, components []string) *Context {
   ctx, err := NewContext(db, NewConsoleLogger(components))
   fatalErr(t, err)
 
-  err = ctx.RegisterNodeType(SimpleListenerNodeType, []ExtType{ACLPolicyExtType, ListenerExtType, LockableExtType})
+  err = ctx.RegisterNodeType(SimpleListenerNodeType, []ExtType{ACLExtType, ListenerExtType, LockableExtType})
   fatalErr(t, err)
 
   return ctx

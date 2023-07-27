@@ -104,7 +104,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   var err error
-  err = ctx.RegisterExtension(ACLPolicyExtType, LoadACLPolicyExt, NewACLPolicyExtContext())
+  err = ctx.RegisterExtension(ACLExtType, LoadACLExt, NewACLExtContext())
   if err != nil {
     return nil, err
   }
@@ -146,7 +146,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLPolicyExtType, GroupExtType, GQLExtType, ThreadExtType, LockableExtType})
+  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, GroupExtType, GQLExtType, ThreadExtType, LockableExtType})
   if err != nil {
     return nil, err
   }

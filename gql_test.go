@@ -19,14 +19,14 @@ func TestGQLDB(t * testing.T) {
   ctx := logTestContext(t, []string{"test", "signal"})
 
   TestUserNodeType := NodeType("TEST_USER")
-  err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLPolicyExtType})
+  err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{ACLExtType})
   fatalErr(t, err)
 
   u1 := NewNode(ctx, RandID(), TestUserNodeType)
   u1_policy := NewPerNodePolicy(NodeActions{
     u1.ID: Actions{"users.write", "children.write", "parent.write", "dependencies.write", "requirements.write"},
   })
-  u1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
+  u1.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
     PerNodePolicyType: &u1_policy,
   })
 
@@ -36,14 +36,12 @@ func TestGQLDB(t * testing.T) {
   ctx.Log.Logf("test", "L1_ID: %s", l1.ID)
 
   TestThreadNodeType := NodeType("TEST_THREAD")
-  err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLPolicyExtType, ThreadExtType, LockableExtType})
+  err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLExtType, ThreadExtType, LockableExtType})
   fatalErr(t, err)
 
   t1 := NewNode(ctx, RandID(), TestThreadNodeType)
-  t1_policy := NewParentOfPolicy(NodeActions{
-    t1.ID: Actions{"signal.abort", "state.write"},
-  })
-  t1.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
+  t1_policy := NewParentOfPolicy(Actions{"signal.abort", "state.write"})
+  t1.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
     ParentOfPolicyType: &t1_policy,
   })
   t1.Extensions[ThreadExtType], err = NewThreadExt(ctx, BaseThreadType, nil, nil, "init", nil)
@@ -57,10 +55,8 @@ func TestGQLDB(t * testing.T) {
 
   gql, err := NewGQLNode(ctx, NewGQLExt(":0", ecdh.P256(), key, nil, nil))
   fatalErr(t, err)
-  gql_policy := NewChildOfPolicy(NodeActions{
-    gql.ID: Actions{"signal.status"},
-  })
-  gql.Extensions[ACLPolicyExtType] = NewACLPolicyExt(map[PolicyType]Policy{
+  gql_policy := NewChildOfPolicy(Actions{"signal.status"})
+  gql.Extensions[ACLExtType] = NewACLExt(map[PolicyType]Policy{
     ChildOfPolicyType: &gql_policy,
   })
 
