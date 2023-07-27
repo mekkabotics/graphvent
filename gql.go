@@ -645,29 +645,92 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
   }
 }
 
-// Map of go types to graphql types
-type ObjTypeMap map[reflect.Type]*graphql.Object
+type GQLInterface struct {
+  Interface *graphql.Interface
+  Default *graphql.Object
+  List *graphql.List
+  Extensions []ExtType
+}
+
+func NewGQLInterface(if_name string, default_name string, interfaces []*graphql.Interface, extensions []ExtType, init_1 func(*GQLInterface), init_2 func(*GQLInterface)) *GQLInterface {
+  var gql GQLInterface
+  gql.Extensions = extensions
+  gql.Interface = graphql.NewInterface(graphql.InterfaceConfig{
+    Name: if_name,
+    ResolveType: NodeResolver([]ExtType{}, &gql.Default),
+    Fields: graphql.Fields{},
+  })
+  gql.List = graphql.NewList(gql.Interface)
+
+  init_1(&gql)
+
+  gql.Default = graphql.NewObject(graphql.ObjectConfig{
+    Name: default_name,
+    Interfaces: append(interfaces, gql.Interface),
+    IsTypeOf: GQLNodeHasExtensions([]ExtType{}),
+    Fields: graphql.Fields{},
+  })
+
+  init_2(&gql)
+
+  return &gql
+}
 
 // GQL Specific Context information
 type GQLExtContext struct {
   // Generated GQL schema
   Schema graphql.Schema
 
-  // List of GQL types
-  TypeList []graphql.Type
+  // Custom graphql types, mapped to NodeTypes
+  NodeTypes map[NodeType]*graphql.Object
+  Interfaces []*GQLInterface
 
-  // Interface type maps to map go types of specific interfaces to gql types
-  ValidNodes ObjTypeMap
-  ValidLockables ObjTypeMap
-  ValidThreads ObjTypeMap
-
-  BaseNodeType *graphql.Object
-  BaseLockableType *graphql.Object
-  BaseThreadType *graphql.Object
-
+  // Schema parameters
+  Types []graphql.Type
   Query *graphql.Object
   Mutation *graphql.Object
   Subscription *graphql.Object
+}
+
+func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
+  schemaConfig := graphql.SchemaConfig{
+    Types: ctx.Types,
+    Query: ctx.Query,
+    Mutation: ctx.Mutation,
+    Subscription: ctx.Subscription,
+  }
+
+  return graphql.NewSchema(schemaConfig)
+}
+
+func (ctx *GQLExtContext) AddInterface(i *GQLInterface) error {
+  if i == nil {
+    return fmt.Errorf("interface is nil")
+  }
+
+  if i.Interface == nil || i.Extensions == nil || i.Default == nil || i.List == nil {
+    return fmt.Errorf("invalid interface, contains nil")
+  }
+
+  ctx.Interfaces = append(ctx.Interfaces, i)
+  ctx.Types = append(ctx.Types, i.Default)
+
+  return nil
+}
+
+func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, gql_type *graphql.Object) error {
+  if gql_type == nil {
+    return fmt.Errorf("gql_type is nil")
+  }
+  _, exists := ctx.NodeTypes[node_type]
+  if exists == true {
+    return fmt.Errorf("%s already in GQLExtContext.NodeTypes", node_type)
+  }
+
+  ctx.NodeTypes[node_type] = gql_type
+  ctx.Types = append(ctx.Types, gql_type)
+
+  return nil
 }
 
 func NewGQLExtContext() *GQLExtContext {
@@ -676,29 +739,55 @@ func NewGQLExtContext() *GQLExtContext {
     Fields: graphql.Fields{},
   })
 
+  query.AddFieldConfig("Self", GQLQuerySelf)
+  query.AddFieldConfig("User", GQLQueryUser)
+
   mutation := graphql.NewObject(graphql.ObjectConfig{
     Name: "Mutation",
     Fields: graphql.Fields{},
   })
+
+  mutation.AddFieldConfig("abort", GQLMutationAbort)
+  mutation.AddFieldConfig("startChild", GQLMutationStartChild)
 
   subscription := graphql.NewObject(graphql.ObjectConfig{
     Name: "Subscription",
     Fields: graphql.Fields{},
   })
 
+  subscription.AddFieldConfig("Self", GQLSubscriptionSelf)
+  subscription.AddFieldConfig("Update", GQLSubscriptionUpdate)
+
   context := GQLExtContext{
     Schema: graphql.Schema{},
-    TypeList: []graphql.Type{},
-    ValidNodes: ObjTypeMap{},
-    ValidThreads: ObjTypeMap{},
-    ValidLockables: ObjTypeMap{},
+    Types: []graphql.Type{},
     Query: query,
     Mutation: mutation,
     Subscription: subscription,
-    BaseNodeType: GQLTypeBaseNode.Type,
-    BaseLockableType: GQLTypeBaseLockable.Type,
-    BaseThreadType: GQLTypeBaseThread.Type,
+    NodeTypes: map[NodeType]*graphql.Object{},
+    Interfaces: []*GQLInterface{},
   }
+
+  var err error
+  err = context.AddInterface(GQLInterfaceNode)
+  if err != nil {
+    panic(err)
+  }
+  err = context.AddInterface(GQLInterfaceLockable)
+  if err != nil {
+    panic(err)
+  }
+  err = context.AddInterface(GQLInterfaceThread)
+  if err != nil {
+    panic(err)
+  }
+
+  schema, err := BuildSchema(&context)
+  if err != nil {
+    panic(err)
+  }
+
+  context.Schema = schema
 
   return &context
 }

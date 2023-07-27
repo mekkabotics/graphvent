@@ -2,8 +2,6 @@ package graphvent
 
 import (
   "github.com/graphql-go/graphql"
-  "reflect"
-  "fmt"
 )
 
 func NewField(init func()*graphql.Field) *graphql.Field {
@@ -27,146 +25,165 @@ func NewSingleton[K graphql.Type](init func() K, post_init func(K, *graphql.List
   }
 }
 
-func AddNodeInterfaceFields(i *graphql.Interface) {
-  i.AddFieldConfig("ID", &graphql.Field{
+func AddNodeInterfaceFields(gql *GQLInterface) {
+  gql.Interface.AddFieldConfig("ID", &graphql.Field{
     Type: graphql.String,
   })
 
-  i.AddFieldConfig("TypeHash", &graphql.Field{
+  gql.Interface.AddFieldConfig("TypeHash", &graphql.Field{
     Type: graphql.String,
   })
 }
 
-func PrepTypeResolve(p graphql.ResolveTypeParams) (*ResolveContext, error) {
-  resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
-  if ok == false {
-    return nil, fmt.Errorf("Bad resolve in params context")
+func AddNodeFields(gql *GQLInterface) {
+  gql.Default.AddFieldConfig("ID", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLNodeID,
+  })
+
+  gql.Default.AddFieldConfig("TypeHash", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLNodeTypeHash,
+  })
+}
+
+func LockableInterfaceFields(gql *GQLInterface) {
+  AddLockableInterfaceFields(gql, gql)
+}
+
+func AddLockableInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface) {
+  AddNodeInterfaceFields(gql)
+
+  gql.Interface.AddFieldConfig("Requirements", &graphql.Field{
+    Type: gql_lockable.List,
+  })
+
+  gql.Interface.AddFieldConfig("Dependencies", &graphql.Field{
+    Type: gql_lockable.List,
+  })
+
+  gql.Interface.AddFieldConfig("Owner", &graphql.Field{
+    Type: gql_lockable.Interface,
+  })
+}
+
+func LockableFields(gql *GQLInterface) {
+  AddLockableFields(gql, gql)
+}
+
+func AddLockableFields(gql *GQLInterface, gql_lockable *GQLInterface) {
+  AddNodeFields(gql)
+
+  gql.Default.AddFieldConfig("Requirements", &graphql.Field{
+    Type: gql_lockable.List,
+    Resolve: GQLLockableRequirements,
+  })
+
+  gql.Default.AddFieldConfig("Owner", &graphql.Field{
+    Type: gql_lockable.Interface,
+    Resolve: GQLLockableOwner,
+  })
+
+  gql.Default.AddFieldConfig("Dependencies", &graphql.Field{
+    Type: gql_lockable.List,
+    Resolve: GQLLockableDependencies,
+  })
+}
+
+func ThreadInterfaceFields(gql *GQLInterface) {
+  AddThreadInterfaceFields(gql, GQLInterfaceLockable, gql)
+}
+
+func AddThreadInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface, gql_thread *GQLInterface) {
+  AddLockableInterfaceFields(gql, gql_lockable)
+
+  gql.Interface.AddFieldConfig("Children", &graphql.Field{
+    Type: gql_thread.List,
+  })
+
+  gql.Interface.AddFieldConfig("Parent", &graphql.Field{
+    Type: gql_thread.Interface,
+  })
+}
+
+func ThreadFields(gql *GQLInterface) {
+  AddThreadFields(gql, GQLInterfaceLockable, gql)
+}
+
+func AddThreadFields(gql *GQLInterface, gql_lockable *GQLInterface, gql_thread *GQLInterface) {
+  AddLockableFields(gql, gql_lockable)
+
+  gql.Default.AddFieldConfig("State", &graphql.Field{
+    Type: graphql.String,
+    Resolve: GQLThreadState,
+  })
+
+  gql.Default.AddFieldConfig("Children", &graphql.Field{
+    Type: gql_thread.List,
+    Resolve: GQLThreadChildren,
+  })
+
+  gql.Default.AddFieldConfig("Parent", &graphql.Field{
+    Type: gql_thread.Interface,
+    Resolve: GQLThreadParent,
+  })
+}
+
+func NodeHasExtensions(node *Node, extensions []ExtType) bool {
+  if node == nil {
+    return false
   }
-  return resolve_context, nil
+
+  for _, ext := range(extensions) {
+    _, has := node.Extensions[ext]
+    if has == false {
+      return false
+    }
+  }
+
+  return true
 }
 
-var GQLInterfaceNode = NewSingleton(func() *graphql.Interface {
-  i := graphql.NewInterface(graphql.InterfaceConfig{
-    Name: "Node",
-    ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, err := PrepTypeResolve(p)
-      if err != nil {
-        return nil
-      }
+func GQLNodeHasExtensions(extensions []ExtType) func(graphql.IsTypeOfParams) bool {
+  return func(p graphql.IsTypeOfParams) bool {
+    node, ok := p.Value.(*Node)
+    if ok == false {
+      return false
+    }
 
-      valid_nodes := ctx.GQLContext.ValidNodes
-      p_type := reflect.TypeOf(p.Value)
+    return NodeHasExtensions(node, extensions)
+  }
+}
 
-      for key, value := range(valid_nodes) {
-        if p_type == key {
-          return value
+func NodeResolver(required_extensions []ExtType, default_type **graphql.Object)func(graphql.ResolveTypeParams) *graphql.Object {
+  return func(p graphql.ResolveTypeParams) *graphql.Object {
+    ctx, ok := p.Context.Value("resolve").(*ResolveContext)
+    if ok == false {
+      return nil
+    }
+
+    node, ok := p.Value.(*Node)
+    if ok == false {
+      return nil
+    }
+
+    gql_type, exists := ctx.GQLContext.NodeTypes[node.Type]
+    if exists == false {
+      for _, ext := range(required_extensions) {
+        _, exists := node.Extensions[ext]
+        if exists == false {
+          return nil
         }
       }
+      return *default_type
+    }
 
-      _, ok := p.Value.(Node)
-      if ok == true {
-        return ctx.GQLContext.BaseNodeType
-      }
+    return gql_type
+  }
+}
 
-      return nil
-    },
-    Fields: graphql.Fields{},
-  })
+var GQLInterfaceNode = NewGQLInterface("Node", "DefaultNode", []*graphql.Interface{}, []ExtType{}, AddNodeInterfaceFields, AddNodeFields)
 
-  AddNodeInterfaceFields(i)
+var GQLInterfaceLockable = NewGQLInterface("Lockable", "DefaultLockable", []*graphql.Interface{GQLInterfaceNode.Interface}, []ExtType{LockableExtType}, LockableInterfaceFields, LockableFields)
 
-  return i
-}, nil)
-
-var GQLInterfaceLockable = NewSingleton(func() *graphql.Interface {
-  gql_interface_lockable := graphql.NewInterface(graphql.InterfaceConfig{
-    Name: "Lockable",
-    ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, err := PrepTypeResolve(p)
-      if err != nil {
-        return nil
-      }
-
-      valid_lockables := ctx.GQLContext.ValidLockables
-      p_type := reflect.TypeOf(p.Value)
-
-      for key, value := range(valid_lockables) {
-        if p_type == key {
-          return value
-        }
-      }
-
-      _, ok := p.Value.(*Node)
-      if ok == false {
-        return ctx.GQLContext.BaseLockableType
-      }
-      return nil
-    },
-    Fields: graphql.Fields{},
-  })
-
-  return gql_interface_lockable
-}, func(lockable *graphql.Interface, lockable_list *graphql.List) {
-  lockable.AddFieldConfig("Requirements", &graphql.Field{
-    Type: lockable_list,
-  })
-
-  lockable.AddFieldConfig("Dependencies", &graphql.Field{
-    Type: lockable_list,
-  })
-
-  lockable.AddFieldConfig("Owner", &graphql.Field{
-    Type: lockable,
-  })
-  AddNodeInterfaceFields(lockable)
-})
-
-var GQLInterfaceThread = NewSingleton(func() *graphql.Interface {
-  gql_interface_thread := graphql.NewInterface(graphql.InterfaceConfig{
-    Name: "Thread",
-    ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, err := PrepTypeResolve(p)
-      if err != nil {
-        return nil
-      }
-
-      valid_threads := ctx.GQLContext.ValidThreads
-      p_type := reflect.TypeOf(p.Value)
-
-      for key, value := range(valid_threads) {
-        if p_type == key {
-          return value
-        }
-      }
-
-      node, ok := p.Value.(*Node)
-      if ok == false {
-        return nil
-      }
-
-      _, err = GetExt[*ThreadExt](node)
-      if err == nil {
-        return ctx.GQLContext.BaseThreadType
-      }
-
-      return nil
-    },
-    Fields: graphql.Fields{},
-  })
-
-  return gql_interface_thread
-}, func(thread *graphql.Interface, thread_list *graphql.List) {
-  thread.AddFieldConfig("Children", &graphql.Field{
-    Type: thread_list,
-  })
-
-  thread.AddFieldConfig("Parent", &graphql.Field{
-    Type: thread,
-  })
-
-  thread.AddFieldConfig("State", &graphql.Field{
-    Type: graphql.String,
-  })
-
-  AddNodeInterfaceFields(thread)
-})
+var GQLInterfaceThread = NewGQLInterface("Thread", "DefaultThread", []*graphql.Interface{GQLInterfaceNode.Interface, }, []ExtType{ThreadExtType, LockableExtType}, ThreadInterfaceFields, ThreadFields)
