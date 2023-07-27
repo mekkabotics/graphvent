@@ -205,7 +205,7 @@ func Allowed(context *StateContext, principal *Node, action string, node *Node) 
 
 // Check that princ is allowed to signal this action,
 // then send the signal to all the extensions of the node
-func SendSignal(context *StateContext, node *Node, princ *Node, signal Signal) error {
+func (node *Node) Process(context *StateContext, princ *Node, signal Signal) error {
   ser, _ := signal.Serialize()
   context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID, string(ser))
 

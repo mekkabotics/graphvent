@@ -54,10 +54,6 @@ func TestGQLDB(t * testing.T) {
 
   ctx.Log.Logf("test", "T1_ID: %s", t1.ID)
 
-  TestGQLNodeType := NodeType("TEST_GQL")
-  err = ctx.RegisterNodeType(TestGQLNodeType, []ExtType{ACLExtType, ACLPolicyExtType, GroupExtType, GQLExtType, ThreadExtType, LockableExtType})
-  fatalErr(t, err)
-
   key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
   fatalErr(t, err)
 
@@ -86,10 +82,10 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
 
   context = NewReadContext(ctx)
-  err = SendSignal(context, gql, gql, NewStatusSignal("child_linked", t1.ID))
+  err = gql.Process(context, gql, NewStatusSignal("child_linked", t1.ID))
   fatalErr(t, err)
   context = NewReadContext(ctx)
-  err = SendSignal(context, gql, gql, AbortSignal)
+  err = gql.Process(context, gql, AbortSignal)
   fatalErr(t, err)
 
   err = ThreadLoop(ctx, gql, "start")
@@ -125,7 +121,7 @@ func TestGQLDB(t * testing.T) {
     if err != nil {
       return err
     }
-    SendSignal(context, gql_loaded, gql_loaded, StopSignal)
+    gql_loaded.Process(context, gql_loaded, StopSignal)
     return err
   })
 
