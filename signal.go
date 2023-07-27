@@ -98,6 +98,18 @@ func NewStatusSignal(status string, source NodeID) StatusSignal {
   }
 }
 
+type LinkSignal struct {
+  IDSignal
+  State string `json:"state"`
+}
+
+func NewLinkSignal(state string, source NodeID) LinkSignal {
+  return LinkSignal{
+    IDSignal: NewIDSignal("link", Direct, source),
+    State: state,
+  }
+}
+
 type StartChildSignal struct {
   IDSignal
   Action string `json:"action"`

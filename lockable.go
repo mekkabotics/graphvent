@@ -86,6 +86,12 @@ func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   return &ext, nil
 }
 
+
+
+func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal LinkSignal) {
+  ctx.Log.Logf("lockable", "LINK_SIGNAL: %+v", signal)
+}
+
 func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
   ctx.Log.Logf("signal", "LOCKABLE_PROCESS: %s", node.ID)
 
@@ -121,6 +127,11 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
       }
     }
   case Direct:
+    switch sig := signal.(type) {
+    case LinkSignal:
+      ext.HandleLinkSignal(ctx, source, node, sig)
+    default:
+    }
   default:
   }
 }
