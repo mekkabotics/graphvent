@@ -131,46 +131,40 @@ func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
 func (ext *LockableExt) Process(context *StateContext, node *Node, signal Signal) error {
   context.Graph.Log.Logf("signal", "LOCKABLE_PROCESS: %s", node.ID)
 
-  var err error
   switch signal.Direction() {
   case Up:
-    err = UseStates(context, node,
-      NewACLInfo(node, []string{"dependencies", "owner"}), func(context *StateContext) error {
-      owner_sent := false
-      for _, dependency := range(ext.Dependencies) {
-        context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", node.ID, dependency.ID)
-        dependency.Process(context, node.ID, signal)
-        if ext.Owner != nil {
-          if dependency.ID == ext.Owner.ID {
-            owner_sent = true
-          }
+    owner_sent := false
+    for _, dependency := range(ext.Dependencies) {
+      context.Graph.Log.Logf("signal", "SENDING_TO_DEPENDENCY: %s -> %s", node.ID, dependency.ID)
+      err := dependency.Process(context, node.ID, signal)
+      if err != nil {
+        return err
+      }
+      if ext.Owner != nil {
+        if dependency.ID == ext.Owner.ID {
+          owner_sent = true
         }
       }
-      if ext.Owner != nil && owner_sent == false {
-        if ext.Owner.ID != node.ID {
-          context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", node.ID, ext.Owner.ID)
-          return ext.Owner.Process(context, node.ID, signal)
-        }
-      }
-      return nil
-    })
-  case Down:
-    err = UseStates(context, node, NewACLInfo(node, []string{"requirements"}), func(context *StateContext) error {
-      for _, requirement := range(ext.Requirements) {
-        err := requirement.Process(context, node.ID, signal)
+    }
+    if ext.Owner != nil && owner_sent == false {
+      if ext.Owner.ID != node.ID {
+        context.Graph.Log.Logf("signal", "SENDING_TO_OWNER: %s -> %s", node.ID, ext.Owner.ID)
+        err := ext.Owner.Process(context, node.ID, signal)
         if err != nil {
           return err
         }
       }
-      return nil
-    })
+    }
+  case Down:
+    for _, requirement := range(ext.Requirements) {
+      err := requirement.Process(context, node.ID, signal)
+      if err != nil {
+        return err
+      }
+    }
   case Direct:
-    err = nil
   default:
-    err = fmt.Errorf("invalid signal direction %d", signal.Direction())
-  }
-  if err != nil {
-    return err
+    return fmt.Errorf("invalid signal direction %d", signal.Direction())
   }
   return nil
 }

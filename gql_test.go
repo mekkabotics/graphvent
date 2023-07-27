@@ -16,7 +16,7 @@ func TestGQL(t *testing.T) {
 }
 
 func TestGQLDB(t * testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal", "policy", "db"})
+  ctx := logTestContext(t, []string{"thread", "test", "signal", "policy", "db"})
 
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
@@ -29,8 +29,8 @@ func TestGQLDB(t * testing.T) {
   err = ctx.RegisterNodeType(TestThreadNodeType, []ExtType{ACLExtType, ThreadExtType})
   fatalErr(t, err)
 
-  t1_policy_1 := NewParentOfPolicy(Actions{"signal.abort", "state.write"})
-  t1_policy_2 := NewPerNodePolicy(NodeActions{
+  t1_p1 := NewParentOfPolicy(Actions{"signal.abort", "signal.stop", "state.write"})
+  t1_p2 := NewPerNodePolicy(NodeActions{
     u1.ID: Actions{"parent.write"},
   })
   t1_thread, err := NewThreadExt(ctx, BaseThreadType, nil,nil, "init", nil)
@@ -38,7 +38,7 @@ func TestGQLDB(t * testing.T) {
   t1 := NewNode(ctx,
                 RandID(),
                 TestThreadNodeType,
-                NewACLExt(&t1_policy_1, &t1_policy_2),
+                NewACLExt(&t1_p1, &t1_p2),
                 t1_thread)
   ctx.Log.Logf("test", "T1_ID: %s", t1.ID)
 
@@ -63,7 +63,7 @@ func TestGQLDB(t * testing.T) {
                  NewGroupExt(nil))
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
 
-  info := ParentInfo{true, "start", "restore"}
+  info := ParentInfo{true, "start", "start"}
   context := NewWriteContext(ctx)
   err = UpdateStates(context, u1, ACLMap{}, func(context *StateContext) error {
     return LinkThreads(context, u1, gql, ChildInfo{t1, map[InfoType]Info{
@@ -101,17 +101,16 @@ func TestGQLDB(t * testing.T) {
   fatalErr(t, err)
   context = NewReadContext(ctx)
   err = UseStates(context, gql_loaded, NewACLInfo(gql_loaded, []string{"users", "children", "requirements"}), func(context *StateContext) error {
-    ser, err := gql_loaded.Serialize()
-    ctx.Log.Logf("test", "\n%s\n\n", ser)
+    var err error
     listener_ext, err = GetExt[*ListenerExt](gql_loaded)
     if err != nil {
       return err
     }
-    gql_loaded.Process(context, gql_loaded.ID, StopSignal)
-    return err
+    return gql_loaded.Process(context, gql_loaded.ID, StopSignal)
   })
+  fatalErr(t, err)
 
-  err = ThreadLoop(ctx, gql_loaded, "start")
+  err = ThreadLoop(ctx, gql_loaded, "restore")
   fatalErr(t, err)
   (*GraphTester)(t).WaitForStatus(ctx, listener_ext.Chan, "stopped", 100*time.Millisecond, "Didn't receive stopped on update_channel_2")
 

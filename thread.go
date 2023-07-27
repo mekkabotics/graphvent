@@ -298,36 +298,31 @@ func (ext *ThreadExt) ChildList() []*Node {
 
 // Assumed that thread is already locked for signal
 func (ext *ThreadExt) Process(context *StateContext, node *Node, signal Signal) error {
-  context.Graph.Log.Logf("signal", "THREAD_PROCESS: %s", node.ID)
+  context.Graph.Log.Logf("signal", "THREAD_PROCESS: %s - %+v", node.ID, signal)
 
-  var err error
   switch signal.Direction() {
   case Up:
-    err = UseStates(context, node, NewACLInfo(node, []string{"parent"}), func(context *StateContext) error {
-      if ext.Parent != nil {
-        if ext.Parent.ID != node.ID {
-          return ext.Parent.Process(context, node.ID, signal)
-        }
-      }
-      return nil
-    })
-  case Down:
-    err = UseStates(context, node, NewACLInfo(node, []string{"children"}), func(context *StateContext) error {
-      for _, info := range(ext.Children) {
-        err := info.Child.Process(context, node.ID, signal)
+    if ext.Parent != nil {
+      if ext.Parent.ID != node.ID {
+        err := ext.Parent.Process(context, node.ID, signal)
         if err != nil {
           return err
         }
       }
-      return nil
-    })
+    }
+  case Down:
+    for _, info := range(ext.Children) {
+      err := info.Child.Process(context, node.ID, signal)
+      if err != nil {
+        return err
+      }
+    }
   case Direct:
-    err = nil
   default:
     return fmt.Errorf("Invalid signal direction %d", signal.Direction())
   }
   ext.SignalChan <- signal
-  return err
+  return nil
 }
 
 func UnlinkThreads(context *StateContext, principal *Node, thread *Node, child *Node) error {
