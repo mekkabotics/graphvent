@@ -46,7 +46,7 @@ func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *N
 
 var GQLSubscriptionSelf = NewField(func()*graphql.Field{
   gql_subscription_self := &graphql.Field{
-    Type: GQLInterfaceThread.Default,
+    Type: GQLInterfaceNode.Default,
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
       return p.Source, nil
     },

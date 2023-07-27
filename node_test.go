@@ -10,14 +10,10 @@ func TestNodeDB(t *testing.T) {
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
 
-  node := NewNode(ctx, RandID(), node_type, NewGroupExt(nil))
+  node := NewNode(ctx, RandID(), node_type, nil, NewGroupExt(nil))
 
-  context := NewWriteContext(ctx)
-  err = UpdateStates(context, node, NewACLInfo(node, []string{"test"}), func(context *StateContext) error {
-    ser, err := node.Serialize()
-    ctx.Log.Logf("test", "NODE_SER: %+v", ser)
-    return err
-  })
+  ser, err := node.Serialize()
+  ctx.Log.Logf("test", "NODE_SER: %+v", ser)
   fatalErr(t, err)
 
   ctx.Nodes = NodeMap{}

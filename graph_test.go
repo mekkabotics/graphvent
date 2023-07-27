@@ -60,6 +60,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
   listener := NewNode(ctx,
                       RandID(),
                       SimpleListenerNodeType,
+                      nil,
                       listener_extension,
                       NewACLExt(&policy),
                       NewLockableExt(nil, nil, nil, nil))

@@ -7,15 +7,15 @@ import (
 
 type Policy interface {
   Serializable[PolicyType]
-  Allows(context *StateContext, principal_id NodeID, action string, node *Node) error
+  Allows(principal_id NodeID, action string, node *Node) error
 }
 
 //TODO: Update with change from principal *Node to principal_id so sane policies can still be made
-func (policy *AllNodesPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) error {
+func (policy *AllNodesPolicy) Allows(principal_id NodeID, action string, node *Node) error {
   return policy.Actions.Allows(action)
 }
 
-func (policy *PerNodePolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) error {
+func (policy *PerNodePolicy) Allows(principal_id NodeID, action string, node *Node) error {
   for id, actions := range(policy.NodeActions) {
     if id != principal_id {
       continue
@@ -29,49 +29,19 @@ func (policy *PerNodePolicy) Allows(context *StateContext, principal_id NodeID, 
   return fmt.Errorf("%s is not in per node policy of %s", principal_id, node.ID)
 }
 
-func (policy *RequirementOfPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) error {
+func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action string, node *Node) error {
   lockable_ext, err := GetExt[*LockableExt](node)
   if err != nil {
     return err
   }
 
-  for id, _ := range(lockable_ext.Requirements) {
+  for _, id := range(lockable_ext.Requirements) {
     if id == principal_id {
       return policy.Actions.Allows(action)
     }
   }
 
   return fmt.Errorf("%s is not a requirement of %s", principal_id, node.ID)
-}
-
-func (policy *ParentOfPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) error {
-  thread_ext, err := GetExt[*ThreadExt](node)
-  if err != nil {
-    return err
-  }
-
-  if thread_ext.Parent != nil {
-    if thread_ext.Parent.ID == principal_id {
-      return policy.Actions.Allows(action)
-    }
-  }
-
-  return fmt.Errorf("%s is not a parent of %s", principal_id, node.ID)
-}
-
-func (policy *ChildOfPolicy) Allows(context *StateContext, principal_id NodeID, action string, node *Node) error {
-  thread_ext, err := GetExt[*ThreadExt](node)
-  if err != nil {
-    return err
-  }
-
-  for id, _ := range(thread_ext.Children) {
-    if id == principal_id {
-      return policy.Actions.Allows(action)
-    }
-  }
-
-  return fmt.Errorf("%s is not a child of %s", principal_id, node.ID)
 }
 
 const RequirementOfPolicyType = PolicyType("REQUIREMENT_OF")
@@ -86,14 +56,6 @@ func NewRequirementOfPolicy(actions Actions) RequirementOfPolicy {
   return RequirementOfPolicy{
     AllNodesPolicy: NewAllNodesPolicy(actions),
   }
-}
-
-const ChildOfPolicyType = PolicyType("CHILD_OF")
-type ChildOfPolicy struct {
-  AllNodesPolicy
-}
-func (policy *ChildOfPolicy) Type() PolicyType {
-  return ChildOfPolicyType
 }
 
 type Actions []string
@@ -150,26 +112,6 @@ func PerNodePolicyLoad(init_fn func(NodeActions)(Policy, error)) func(*Context, 
     }
 
     return init_fn(node_actions)
-  }
-}
-
-func NewChildOfPolicy(actions Actions) ChildOfPolicy {
-  return ChildOfPolicy{
-    AllNodesPolicy: NewAllNodesPolicy(actions),
-  }
-}
-
-const ParentOfPolicyType = PolicyType("PARENT_OF")
-type ParentOfPolicy struct {
-  AllNodesPolicy
-}
-func (policy *ParentOfPolicy) Type() PolicyType {
-  return ParentOfPolicyType
-}
-
-func NewParentOfPolicy(actions Actions) ParentOfPolicy {
-  return ParentOfPolicy{
-    AllNodesPolicy: NewAllNodesPolicy(actions),
   }
 }
 
@@ -268,18 +210,6 @@ func NewACLExtContext() *ACLExtContext {
           return &policy, nil
         }),
       },
-      ParentOfPolicyType: PolicyInfo{
-        Load: AllNodesPolicyLoad(func(actions Actions)(Policy, error){
-          policy := NewParentOfPolicy(actions)
-          return &policy, nil
-        }),
-      },
-      ChildOfPolicyType: PolicyInfo{
-        Load: AllNodesPolicyLoad(func(actions Actions)(Policy, error){
-          policy := NewChildOfPolicy(actions)
-          return &policy, nil
-        }),
-      },
       RequirementOfPolicyType: PolicyInfo{
         Load: AllNodesPolicyLoad(func(actions Actions)(Policy, error){
           policy := NewRequirementOfPolicy(actions)
@@ -307,8 +237,7 @@ func (ext *ACLExt) Serialize() ([]byte, error) {
   }, "", "  ")
 }
 
-func (ext *ACLExt) Process(context *StateContext, node *Node, signal Signal) error {
-  return nil
+func (ext *ACLExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
 }
 
 func NewACLExt(policies ...Policy) *ACLExt {
@@ -362,11 +291,11 @@ func (ext *ACLExt) Type() ExtType {
 }
 
 // Check if the extension allows the principal to perform action on node
-func (ext *ACLExt) Allows(context *StateContext, principal_id NodeID, action string, node *Node) error {
-  context.Graph.Log.Logf("policy", "POLICY_EXT_ALLOWED: %+v", ext)
+func (ext *ACLExt) Allows(ctx *Context, principal_id NodeID, action string, node *Node) error {
+  ctx.Log.Logf("policy", "POLICY_EXT_ALLOWED: %+v", ext)
   errs := []error{}
   for _, policy := range(ext.Policies) {
-    err := policy.Allows(context, principal_id, action, node)
+    err := policy.Allows(principal_id, action, node)
     if err == nil {
       return nil
     }

@@ -4,7 +4,7 @@ import (
 )
 
 var GQLQuerySelf = &graphql.Field{
-  Type: GQLInterfaceThread.Default,
+  Type: GQLInterfaceNode.Default,
   Resolve: func(p graphql.ResolveParams) (interface{}, error) {
     _, ctx, err := PrepResolve(p)
     if err != nil {

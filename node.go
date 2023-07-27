@@ -2,9 +2,11 @@ package graphvent
 
 import (
   "sync"
+  "time"
   "reflect"
   "github.com/google/uuid"
   badger "github.com/dgraph-io/badger/v3"
+  "runtime"
   "fmt"
   "encoding/binary"
   "encoding/json"
@@ -18,6 +20,17 @@ type NodeID uuid.UUID
 func (id NodeID) MarshalJSON() ([]byte, error) {
   str := id.String()
   return json.Marshal(&str)
+}
+
+func (id *NodeID) UnmarshalJSON(bytes []byte) error {
+  var id_str string
+  err := json.Unmarshal(bytes, &id_str)
+  if err != nil {
+    return err
+  }
+
+  *id, err = ParseID(id_str)
+  return err
 }
 
 var ZeroUUID = uuid.UUID{}
@@ -62,20 +75,132 @@ type Serializable[I comparable] interface {
   Serialize() ([]byte, error)
 }
 
-// NodeExtensions are additional data that can be attached to nodes, and used in node functions
 type Extension interface {
   Serializable[ExtType]
-  // Send a signal to this extension to process,
-  // this typically triggers signals to be sent to nodes linked in the extension
-  Process(context *StateContext, node *Node, signal Signal) error
+  Process(context *Context, source NodeID, node *Node, signal Signal)
 }
 
+type QueuedSignal struct {
+  Signal Signal
+  Time time.Time
+}
+
+const NODE_MSG_CHAN_DEFAULT = 1024
 // Nodes represent an addressible group of extensions
 type Node struct {
   ID NodeID
   Type NodeType
   Lock sync.RWMutex
   Extensions map[ExtType]Extension
+
+  MsgChan chan Msg
+  TimeoutChan <-chan time.Time
+
+  LoopLock sync.Mutex
+  Active bool
+
+  SignalQueue []QueuedSignal
+  NextSignal *QueuedSignal
+}
+
+func (node *Node) QueueSignal(time time.Time, signal Signal) {
+  node.SignalQueue = append(node.SignalQueue, QueuedSignal{signal, time})
+  node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+}
+
+func (node *Node) ClearSignalQueue() {
+  node.SignalQueue = []QueuedSignal{}
+  node.NextSignal = nil
+  node.TimeoutChan = nil
+}
+
+func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
+  var soonest_signal *QueuedSignal
+  var soonest_time time.Time
+  for _, signal := range(signals) {
+    if signal.Time.Compare(soonest_time) == -1 || soonest_signal == nil {
+      soonest_signal = &signal
+      soonest_time = signal.Time
+    }
+  }
+
+  if soonest_signal != nil {
+    return soonest_signal, time.After(time.Until(soonest_time))
+  } else {
+    return nil, nil
+  }
+}
+
+func RunNode(ctx *Context, node *Node) {
+  ctx.Log.Logf("node", "RUN_START: %s", node.ID)
+  err := NodeLoop(ctx, node)
+  if err != nil {
+    panic(err)
+  }
+  ctx.Log.Logf("node", "RUN_STOP: %s", node.ID)
+}
+
+type Msg struct {
+  Source NodeID
+  Signal Signal
+}
+
+// Main Loop for Threads, starts a write context, so cannot be called from a write or read context
+func NodeLoop(ctx *Context, node *Node) error {
+  node.LoopLock.Lock()
+  defer node.LoopLock.Unlock()
+
+  node.Active = true
+  for true {
+    var signal Signal
+    var source NodeID
+    select {
+    case msg := <- node.MsgChan:
+      signal = msg.Signal
+      source = msg.Source
+      err := Allowed(ctx, msg.Source, string(signal.Type()), node)
+      if err != nil {
+        ctx.Log.Logf("signal", "SIGNAL_POLICY_ERR: %s", err)
+        continue
+      }
+    case <-node.TimeoutChan:
+      signal = node.NextSignal.Signal
+      source = node.ID
+      node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+      ctx.Log.Logf("node", "NODE_TIMEOUT %s - NEXT_SIGNAL: %s", node.ID, signal)
+    }
+
+    // Handle special signal types
+    if signal.Type() == StopSignalType {
+      node.Process(ctx, node.ID, NewStatusSignal("stopped", node.ID))
+      break
+    }
+    node.Process(ctx, source, signal)
+  }
+  return nil
+}
+
+func (node *Node) Process(ctx *Context, source NodeID, signal Signal) {
+  for ext_type, ext := range(node.Extensions) {
+    ctx.Log.Logf("signal", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
+    ext.Process(ctx, source, node, signal)
+  }
+}
+
+func (node *Node) Signal(ctx *Context, dest NodeID, signal Signal) error {
+  target, exists := ctx.Nodes[dest]
+  if exists == false {
+    return fmt.Errorf("%s does not exist, cannot signal it", dest)
+  }
+  select {
+  case target.MsgChan <- Msg{node.ID, signal}:
+  default:
+    buf := make([]byte, 4096)
+    n := runtime.Stack(buf, false)
+    stack_str := string(buf[:n])
+    return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", dest, stack_str)
+  }
+  return nil
 }
 
 func GetCtx[T Extension, C any](ctx *Context) (C, error) {
@@ -118,8 +243,10 @@ func (node *Node) Serialize() ([]byte, error) {
       Magic: NODE_DB_MAGIC,
       TypeHash: node.Type.Hash(),
       NumExtensions: uint32(len(extensions)),
+      NumQueuedSignals: uint32(len(node.SignalQueue)),
     },
     Extensions: extensions,
+    QueuedSignals: node.SignalQueue,
   }
 
   i := 0
@@ -141,7 +268,8 @@ func (node *Node) Serialize() ([]byte, error) {
   return node_db.Serialize(), nil
 }
 
-func NewNode(ctx *Context, id NodeID, node_type NodeType, extensions ...Extension) *Node {
+// Create a new node in memory and start it's event loop
+func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []QueuedSignal, extensions ...Extension) *Node {
   _, exists := ctx.Nodes[id]
   if exists == true {
     panic("Attempted to create an existing node")
@@ -168,18 +296,31 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, extensions ...Extensio
     }
   }
 
+  if queued_signals == nil {
+    queued_signals = []QueuedSignal{}
+  }
+
+  next_signal, timeout_chan := SoonestSignal(queued_signals)
+
   node := &Node{
     ID: id,
     Type: node_type,
     Extensions: ext_map,
+    MsgChan: make(chan Msg, NODE_MSG_CHAN_DEFAULT),
+    TimeoutChan: timeout_chan,
+    SignalQueue: queued_signals,
+    NextSignal: next_signal,
   }
   ctx.Nodes[id] = node
+  WriteNode(ctx, node)
+
+  go RunNode(ctx, node)
 
   return node
 }
 
-func Allowed(context *StateContext, principal_id NodeID, action string, node *Node) error {
-  context.Graph.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal_id, node.ID, action)
+func Allowed(ctx *Context, principal_id NodeID, action string, node *Node) error {
+  ctx.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal_id, node.ID, action)
   // Nodes are allowed to perform all actions on themselves regardless of whether or not they have an ACL extension
   if principal_id == node.ID {
     return nil
@@ -191,43 +332,24 @@ func Allowed(context *StateContext, principal_id NodeID, action string, node *No
     return err
   }
 
-  return policy_ext.Allows(context, principal_id, action, node)
-}
-
-// Check that princ is allowed to signal this action,
-// then send the signal to all the extensions of the node
-func (node *Node) Process(context *StateContext, princ_id NodeID, signal Signal) error {
-  ser, _ := signal.Serialize()
-  context.Graph.Log.Logf("signal", "SIGNAL: %s - %s", node.ID, string(ser))
-
-  err := Allowed(context, princ_id, fmt.Sprintf("signal.%s", signal.Type()), node)
-  if err != nil {
-    return err
-  }
-
-  for ext_type, ext := range(node.Extensions) {
-    err = ext.Process(context, node, signal)
-    if err != nil {
-      context.Graph.Log.Logf("signal", "EXTENSION_SIGNAL_ERR: %s/%s - %s", node.ID, ext_type, err)
-    }
-  }
-
-  return nil
+  return policy_ext.Allows(ctx, principal_id, action, node)
 }
 
 // Magic first four bytes of serialized DB content, stored big endian
 const NODE_DB_MAGIC = 0x2491df14
 // Total length of the node database header, has magic to verify and type_hash to map to load function
-const NODE_DB_HEADER_LEN = 16
+const NODE_DB_HEADER_LEN = 20
 // A DBHeader is parsed from the first NODE_DB_HEADER_LEN bytes of a serialized DB node
 type NodeDBHeader struct {
   Magic uint32
   NumExtensions uint32
+  NumQueuedSignals uint32
   TypeHash uint64
 }
 
 type NodeDB struct {
   Header NodeDBHeader
+  QueuedSignals []QueuedSignal
   Extensions []ExtensionDB
 }
 
@@ -239,7 +361,8 @@ func NewNodeDB(data []byte) (NodeDB, error) {
 
   magic := binary.BigEndian.Uint32(data[0:4])
   num_extensions := binary.BigEndian.Uint32(data[4:8])
-  node_type_hash := binary.BigEndian.Uint64(data[8:16])
+  num_queued_signals := binary.BigEndian.Uint32(data[8:12])
+  node_type_hash := binary.BigEndian.Uint64(data[12:20])
 
   ptr += NODE_DB_HEADER_LEN
 
@@ -269,13 +392,20 @@ func NewNodeDB(data []byte) (NodeDB, error) {
     ptr += int(EXTENSION_DB_HEADER_LEN + length)
   }
 
+  queued_signals := make([]QueuedSignal, num_queued_signals)
+  for i, _ := range(queued_signals) {
+    queued_signals[i] = QueuedSignal{}
+  }
+
   return NodeDB{
     Header: NodeDBHeader{
       Magic: magic,
       TypeHash: node_type_hash,
       NumExtensions: num_extensions,
+      NumQueuedSignals: num_queued_signals,
     },
     Extensions: extensions,
+    QueuedSignals: queued_signals,
   }, nil
 }
 
@@ -287,7 +417,8 @@ func (header NodeDBHeader) Serialize() []byte {
   ret := make([]byte, NODE_DB_HEADER_LEN)
   binary.BigEndian.PutUint32(ret[0:4], header.Magic)
   binary.BigEndian.PutUint32(ret[4:8], header.NumExtensions)
-  binary.BigEndian.PutUint64(ret[8:16], header.TypeHash)
+  binary.BigEndian.PutUint32(ret[8:12], header.NumQueuedSignals)
+  binary.BigEndian.PutUint64(ret[12:20], header.TypeHash)
   return ret
 }
 
@@ -324,6 +455,20 @@ type ExtensionDB struct {
 }
 
 // Write multiple nodes to the database in a single transaction
+func WriteNode(ctx *Context, node *Node) error {
+  ctx.Log.Logf("db", "DB_WRITE: %s", node.ID)
+
+  bytes, err := node.Serialize()
+  if err != nil {
+    return err
+  }
+
+  id_bytes := node.ID.Serialize()
+
+  return ctx.DB.Update(func(txn *badger.Txn) error {
+    return txn.Set(id_bytes, bytes)
+  })
+}
 func WriteNodes(context *StateContext) error {
   err := ValidateStateContext(context, "write", true)
   if err != nil {
@@ -368,10 +513,13 @@ func WriteNodes(context *StateContext) error {
 
 // Recursively load a node from the database.
 func LoadNode(ctx * Context, id NodeID) (*Node, error) {
+  ctx.Log.Logf("db", "LOOKING_FOR_NODE: %s", id)
   node, exists := ctx.Nodes[id]
   if exists == true {
+    ctx.Log.Logf("db", "NODE_ALREADY_LOADED: %s", id)
     return node,nil
   }
+  ctx.Log.Logf("db", "LOADING_NODE: %s", id)
 
   var bytes []byte
   err := ctx.DB.View(func(txn *badger.Txn) error {
@@ -400,10 +548,15 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("Tried to load node %s of type 0x%x, which is not a known node type", id, node_db.Header.TypeHash)
   }
 
+  next_signal, timeout_chan := SoonestSignal(node_db.QueuedSignals)
   node = &Node{
     ID: id,
     Type: node_type.Type,
     Extensions: map[ExtType]Extension{},
+    MsgChan: make(chan Msg, NODE_MSG_CHAN_DEFAULT),
+    TimeoutChan: timeout_chan,
+    SignalQueue: node_db.QueuedSignals,
+    NextSignal: next_signal,
   }
   ctx.Nodes[id] = node
 
@@ -462,6 +615,9 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   }
 
   ctx.Log.Logf("db", "DB_NODE_LOADED: %s", id)
+
+  go RunNode(ctx, node)
+
   return node, nil
 }
 
@@ -605,197 +761,3 @@ func del[K comparable](list []K, val K) []K {
   list[idx] = list[len(list)-1]
   return list[:len(list)-1]
 }
-
-// Add nodes to an existing read context and call nodes_fn with new_nodes locked for read
-// Check that the node has read permissions for the nodes, then add them to the read context and call nodes_fn with the nodes locked for read
-func UseStates(context *StateContext, principal *Node, new_nodes ACLMap, state_fn StateFn) error {
-  if principal == nil || new_nodes == nil || state_fn == nil {
-    return fmt.Errorf("nil passed to UseStates")
-  }
-
-  err := ValidateStateContext(context, "read", false)
-  if err != nil {
-    return err
-  }
-
-  if context.Started == false {
-    context.Started = true
-  }
-
-  new_locks := []*Node{}
-  _, princ_locked := context.Locked[principal.ID]
-  if princ_locked == false {
-    new_locks = append(new_locks, principal)
-    context.Graph.Log.Logf("mutex", "RLOCKING_PRINC %s", principal.ID.String())
-    principal.Lock.RLock()
-  }
-
-  princ_permissions, princ_exists := context.Permissions[principal.ID]
-  new_permissions := ACLMap{}
-  if princ_exists == true {
-    for id, info := range(princ_permissions) {
-      new_permissions[id] = info
-    }
-  }
-
-  for _, request := range(new_nodes) {
-    node := request.Node
-    if node == nil {
-      return fmt.Errorf("node in request list is nil")
-    }
-    id := node.ID
-
-    if id != principal.ID {
-      _, locked := context.Locked[id]
-      if locked == false {
-        new_locks = append(new_locks, node)
-        context.Graph.Log.Logf("mutex", "RLOCKING %s", id.String())
-        node.Lock.RLock()
-      }
-    }
-
-    node_permissions, node_exists := new_permissions[id]
-    if node_exists == false {
-      node_permissions = ACLInfo{Node: node, Resources: []string{}}
-    }
-
-    for _, resource := range(request.Resources) {
-      already_granted := false
-      for _, granted := range(node_permissions.Resources) {
-        if resource == granted {
-          already_granted = true
-        }
-      }
-
-      if already_granted == false {
-        err := Allowed(context, principal.ID, fmt.Sprintf("%s.read", resource), node)
-        if err != nil {
-          for _, n := range(new_locks) {
-            context.Graph.Log.Logf("mutex", "RUNLOCKING_ON_ERROR %s", id.String())
-            n.Lock.RUnlock()
-          }
-          return err
-        }
-      }
-    }
-    new_permissions[id] = node_permissions
-  }
-
-  for _, node := range(new_locks) {
-    context.Locked[node.ID] = node
-  }
-
-  context.Permissions[principal.ID] = new_permissions
-
-  err = state_fn(context)
-
-  context.Permissions[principal.ID] = princ_permissions
-
-  for _, node := range(new_locks) {
-    context.Graph.Log.Logf("mutex", "RUNLOCKING %s", node.ID.String())
-    delete(context.Locked, node.ID)
-    node.Lock.RUnlock()
-  }
-
-  return err
-}
-
-// Add nodes to an existing write context and call nodes_fn with nodes locked for read
-// If context is nil
-func UpdateStates(context *StateContext, principal *Node, new_nodes ACLMap, state_fn StateFn) error {
-  if principal == nil || new_nodes == nil || state_fn == nil {
-    return fmt.Errorf("nil passed to UpdateStates")
-  }
-
-  err := ValidateStateContext(context, "write", false)
-  if err != nil {
-    return err
-  }
-
-  final := false
-  if context.Started == false {
-    context.Started = true
-    final = true
-  }
-
-  new_locks := []*Node{}
-  _, princ_locked := context.Locked[principal.ID]
-  if princ_locked == false {
-    new_locks = append(new_locks, principal)
-    context.Graph.Log.Logf("mutex", "LOCKING_PRINC %s", principal.ID.String())
-    principal.Lock.Lock()
-  }
-
-  princ_permissions, princ_exists := context.Permissions[principal.ID]
-  new_permissions := ACLMap{}
-  if princ_exists == true {
-    for id, info := range(princ_permissions) {
-      new_permissions[id] = info
-    }
-  }
-
-  for _, request := range(new_nodes) {
-    node := request.Node
-    if node == nil {
-      return fmt.Errorf("node in request list is nil")
-    }
-    id := node.ID
-
-    if id != principal.ID {
-      _, locked := context.Locked[id]
-      if locked == false {
-        new_locks = append(new_locks, node)
-        context.Graph.Log.Logf("mutex", "LOCKING %s", id.String())
-        node.Lock.Lock()
-      }
-    }
-
-    node_permissions, node_exists := new_permissions[id]
-    if node_exists == false {
-      node_permissions = ACLInfo{Node: node, Resources: []string{}}
-    }
-
-    for _, resource := range(request.Resources) {
-      already_granted := false
-      for _, granted := range(node_permissions.Resources) {
-        if resource == granted {
-          already_granted = true
-        }
-      }
-
-      if already_granted == false {
-        err := Allowed(context, principal.ID, fmt.Sprintf("%s.write", resource), node)
-        if err != nil {
-          for _, n := range(new_locks) {
-            context.Graph.Log.Logf("mutex", "UNLOCKING_ON_ERROR %s", id.String())
-            n.Lock.Unlock()
-          }
-          return err
-        }
-      }
-    }
-    new_permissions[id] = node_permissions
-  }
-
-  for _, node := range(new_locks) {
-    context.Locked[node.ID] = node
-  }
-
-  context.Permissions[principal.ID] = new_permissions
-
-  err = state_fn(context)
-
-  if final == true {
-    context.Finished = true
-    if err == nil {
-      err = WriteNodes(context)
-    }
-    for id, node := range(context.Locked) {
-      context.Graph.Log.Logf("mutex", "UNLOCKING %s", id.String())
-      node.Lock.Unlock()
-    }
-  }
-
-  return err
-}
-

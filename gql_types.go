@@ -38,35 +38,11 @@ func addLockableFields(object *graphql.Object, lockable_interface *graphql.Inter
   })
 }
 
-func AddThreadFields(object *graphql.Object) {
-  addThreadFields(object, GQLInterfaceThread.Interface, GQLInterfaceThread.List)
-}
-
-func addThreadFields(object *graphql.Object, thread_interface *graphql.Interface, thread_list *graphql.List) {
-  AddNodeFields(object)
-
-  object.AddFieldConfig("State", &graphql.Field{
-    Type: graphql.String,
-    Resolve: GQLThreadState,
-  })
-
-  object.AddFieldConfig("Children", &graphql.Field{
-    Type: thread_list,
-    Resolve: GQLThreadChildren,
-  })
-
-  object.AddFieldConfig("Parent", &graphql.Field{
-    Type: thread_interface,
-    Resolve: GQLThreadParent,
-  })
-}
-
 var GQLNodeInterfaces = []*graphql.Interface{GQLInterfaceNode.Interface}
 var GQLLockableInterfaces = append(GQLNodeInterfaces, GQLInterfaceLockable.Interface)
-var GQLThreadInterfaces = append(GQLNodeInterfaces, GQLInterfaceThread.Interface)
 
-var GQLTypeGQLNode = NewGQLNodeType(GQLNodeType, GQLThreadInterfaces, func(gql *GQLType) {
-  AddThreadFields(gql.Type)
+var GQLTypeGQLNode = NewGQLNodeType(GQLNodeType, GQLNodeInterfaces, func(gql *GQLType) {
+  AddNodeFields(gql.Type)
 
   gql.Type.AddFieldConfig("Listen", &graphql.Field{
     Type: graphql.String,

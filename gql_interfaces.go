@@ -55,22 +55,6 @@ func addLockableInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface) {
   })
 }
 
-func AddThreadInterfaceFields(gql *GQLInterface) {
-  addThreadInterfaceFields(gql, GQLInterfaceThread)
-}
-
-func addThreadInterfaceFields(gql *GQLInterface, gql_thread *GQLInterface) {
-  AddNodeInterfaceFields(gql)
-
-  gql.Interface.AddFieldConfig("Children", &graphql.Field{
-    Type: gql_thread.List,
-  })
-
-  gql.Interface.AddFieldConfig("Parent", &graphql.Field{
-    Type: gql_thread.Interface,
-  })
-}
-
 func NodeHasExtensions(node *Node, extensions []ExtType) bool {
   if node == nil {
     return false
@@ -136,8 +120,3 @@ var GQLInterfaceLockable = NewGQLInterface("Lockable", "DefaultLockable", []*gra
   addLockableFields(gql.Default, gql.Interface, gql.List)
 })
 
-var GQLInterfaceThread = NewGQLInterface("Thread", "DefaultThread", []*graphql.Interface{GQLInterfaceNode.Interface, }, []ExtType{ThreadExtType, LockableExtType}, func(gql *GQLInterface){
-  addThreadInterfaceFields(gql, gql)
-}, func(gql *GQLInterface) {
-  addThreadFields(gql.Default, gql.Interface, gql.List)
-})

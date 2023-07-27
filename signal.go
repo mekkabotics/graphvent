@@ -55,8 +55,8 @@ func NewDirectSignal(signal_type SignalType) BaseSignal {
   return NewBaseSignal(signal_type, Direct)
 }
 
-var AbortSignal = NewBaseSignal("abort", Down)
-var StopSignal = NewBaseSignal("stop", Down)
+const StopSignalType = SignalType("STOP")
+var StopSignal = NewDownSignal(StopSignalType)
 
 type IDSignal struct {
   BaseSignal

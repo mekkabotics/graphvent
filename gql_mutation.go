@@ -1,11 +1,10 @@
 package graphvent
 import (
-  "fmt"
   "github.com/graphql-go/graphql"
 )
 
-var GQLMutationAbort = NewField(func()*graphql.Field {
-  gql_mutation_abort := &graphql.Field{
+var GQLMutationStop = NewField(func()*graphql.Field {
+  gql_mutation_stop := &graphql.Field{
     Type: GQLTypeSignal.Type,
     Args: graphql.FieldConfigArgument{
       "id": &graphql.ArgumentConfig{
@@ -13,39 +12,11 @@ var GQLMutationAbort = NewField(func()*graphql.Field {
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      _, ctx, err := PrepResolve(p)
-      if err != nil {
-        return nil, err
-      }
-
-      id, err := ExtractID(p, "id")
-      if err != nil {
-        return nil, err
-      }
-
-      var node *Node = nil
-      context := NewReadContext(ctx.Context)
-      err = UseStates(context, ctx.User, NewACLMap(
-        NewACLInfo(ctx.Server, []string{"children"}),
-      ), func(context *StateContext) (error){
-        node, err = FindChild(context, ctx.User, ctx.Server, id)
-        if err != nil {
-          return err
-        }
-        if node == nil {
-          return fmt.Errorf("Failed to find ID: %s as child of server thread", id)
-        }
-        return node.Process(context, ctx.User.ID, AbortSignal)
-      })
-      if err != nil {
-        return nil, err
-      }
-
-      return AbortSignal, nil
+      return StopSignal, nil
     },
   }
 
-  return gql_mutation_abort
+  return gql_mutation_stop
 })
 
 var GQLMutationStartChild = NewField(func()*graphql.Field{
@@ -64,7 +35,7 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       },
     },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      _, ctx, err := PrepResolve(p)
+      /*_, ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
       }
@@ -102,10 +73,10 @@ var GQLMutationStartChild = NewField(func()*graphql.Field{
       })
       if err != nil {
         return nil, err
-      }
+      }*/
 
       // TODO: wait for the result of the signal to send back instead of just the signal
-      return signal, nil
+      return nil, nil
     },
   }
 

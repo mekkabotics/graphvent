@@ -20,8 +20,8 @@ type ECDHExtJSON struct {
   Shared []byte `json:"shared"`
 }
 
-func (ext *ECDHExt) Process(context *StateContext, node *Node, signal Signal) error {
-  return nil
+func (ext *ECDHExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
+  return
 }
 
 const ECDHExtType = ExtType("ECDH")
@@ -115,6 +115,6 @@ func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
   return NewGroupExt(members), nil
 }
 
-func (ext *GroupExt) Process(context *StateContext, node *Node, signal Signal) error {
-  return nil
+func (ext *GroupExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
+  return
 }

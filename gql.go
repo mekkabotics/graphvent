@@ -30,7 +30,6 @@ import (
   "encoding/pem"
 )
 
-const GQLThreadType = ThreadType("GQL")
 const GQLNodeType = NodeType("GQL")
 
 type AuthReqJSON struct {
@@ -760,7 +759,7 @@ func NewGQLExtContext() *GQLExtContext {
     Fields: graphql.Fields{},
   })
 
-  mutation.AddFieldConfig("abort", GQLMutationAbort)
+  mutation.AddFieldConfig("stop", GQLMutationStop)
   mutation.AddFieldConfig("startChild", GQLMutationStartChild)
 
   subscription := graphql.NewObject(graphql.ObjectConfig{
@@ -787,10 +786,6 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
   err = context.AddInterface(GQLInterfaceLockable)
-  if err != nil {
-    panic(err)
-  }
-  err = context.AddInterface(GQLInterfaceThread)
   if err != nil {
     panic(err)
   }
@@ -829,7 +824,7 @@ func (ext *GQLExt) NewSubscriptionChannel(buffer int) chan Signal {
   return new_listener
 }
 
-func (ext *GQLExt) Process(context *StateContext, node *Node, signal Signal) error {
+func (ext *GQLExt) Process(context *Context, princ_id NodeID, node *Node, signal Signal) {
   ext.SubscribeLock.Lock()
   defer ext.SubscribeLock.Unlock()
 
@@ -846,7 +841,7 @@ func (ext *GQLExt) Process(context *StateContext, node *Node, signal Signal) err
     }
   }
   ext.SubscribeListeners = active_listeners
-  return nil
+  return
 }
 
 const GQLExtType = ExtType("gql_thread")
@@ -963,104 +958,58 @@ func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_
   }
 }
 
-var gql_actions ThreadActions = ThreadActions{
-  "wait": ThreadWait,
-  "restore": func(ctx *Context, thread *Node, thread_ext *ThreadExt) (string, error) {
-    return "start_server", ThreadRestore(ctx, thread, thread_ext, false)
-  },
-  "start": func(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
-    _, err := ThreadStart(ctx, thread, thread_ext)
-    if err != nil {
-      return "", err
+func StartGQLServer(ctx *Context, node *Node, gql_ext *GQLExt) error {
+  mux := http.NewServeMux()
+  mux.HandleFunc("/auth", AuthHandler(ctx, node, gql_ext))
+  mux.HandleFunc("/gql", GQLHandler(ctx, node, gql_ext))
+  mux.HandleFunc("/gqlws", GQLWSHandler(ctx, node, gql_ext))
+
+  // Server a graphiql interface(TODO make configurable whether to start this)
+  mux.HandleFunc("/graphiql", GraphiQLHandler())
+
+  // Server the ./site directory to /site (TODO make configurable with better defaults)
+  fs := http.FileServer(http.Dir("./site"))
+  mux.Handle("/site/", http.StripPrefix("/site", fs))
+
+  http_server := &http.Server{
+    Addr: gql_ext.Listen,
+    Handler: mux,
+  }
+
+  l, err := net.Listen("tcp", http_server.Addr)
+  if err != nil {
+    return fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
+  }
+
+  cert, err := tls.X509KeyPair(gql_ext.tls_cert, gql_ext.tls_key)
+  if err != nil {
+    return err
+  }
+
+  config := tls.Config{
+    Certificates: []tls.Certificate{cert},
+    NextProtos: []string{"http/1.1"},
+  }
+
+  listener := tls.NewListener(l, &config)
+
+  gql_ext.http_done.Add(1)
+  go func(qql_ext *GQLExt) {
+    defer gql_ext.http_done.Done()
+
+    err := http_server.Serve(listener)
+    if err != http.ErrServerClosed {
+        panic(fmt.Sprintf("Failed to start gql server: %s", err))
     }
-    return "start_server", ThreadRestore(ctx, thread, thread_ext, true)
-  },
-  "start_server": func(ctx * Context, thread *Node, thread_ext *ThreadExt) (string, error) {
-    gql_ext, err := GetExt[*GQLExt](thread)
-    if err != nil {
-      return "", err
-    }
-
-    mux := http.NewServeMux()
-    mux.HandleFunc("/auth", AuthHandler(ctx, thread, gql_ext))
-    mux.HandleFunc("/gql", GQLHandler(ctx, thread, gql_ext))
-    mux.HandleFunc("/gqlws", GQLWSHandler(ctx, thread, gql_ext))
-
-    // Server a graphiql interface(TODO make configurable whether to start this)
-    mux.HandleFunc("/graphiql", GraphiQLHandler())
-
-    // Server the ./site directory to /site (TODO make configurable with better defaults)
-    fs := http.FileServer(http.Dir("./site"))
-    mux.Handle("/site/", http.StripPrefix("/site", fs))
-
-    http_server := &http.Server{
-      Addr: gql_ext.Listen,
-      Handler: mux,
-    }
-
-    l, err := net.Listen("tcp", http_server.Addr)
-    if err != nil {
-      return "", fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
-    }
-
-    cert, err := tls.X509KeyPair(gql_ext.tls_cert, gql_ext.tls_key)
-    if err != nil {
-      return "", err
-    }
-
-    config := tls.Config{
-      Certificates: []tls.Certificate{cert},
-      NextProtos: []string{"http/1.1"},
-    }
-
-    listener := tls.NewListener(l, &config)
-
-    gql_ext.http_done.Add(1)
-    go func(qql_ext *GQLExt) {
-      defer gql_ext.http_done.Done()
-
-      err := http_server.Serve(listener)
-      if err != http.ErrServerClosed {
-          panic(fmt.Sprintf("Failed to start gql server: %s", err))
-      }
-    }(gql_ext)
+  }(gql_ext)
 
 
-    context := NewWriteContext(ctx)
-    err = UpdateStates(context, thread, NewACLInfo(thread, []string{"http_server"}),  func(context *StateContext) error {
-      gql_ext.tcp_listener = listener
-      gql_ext.http_server = http_server
-      return nil
-    })
-
-    if err != nil {
-      return "", err
-    }
-
-    context = NewReadContext(ctx)
-    err = thread.Process(context, thread.ID, NewStatusSignal("server_started", thread.ID))
-    if err != nil {
-      return "", err
-    }
-
-    return "wait", nil
-  },
-  "finish": func(ctx *Context, thread *Node, thread_ext *ThreadExt) (string, error) {
-    gql_ext, err := GetExt[*GQLExt](thread)
-    if err != nil {
-      return "", err
-    }
-
-    gql_ext.http_server.Shutdown(context.TODO())
-    gql_ext.http_done.Wait()
-    return ThreadFinish(ctx, thread, thread_ext)
-  },
+  gql_ext.tcp_listener = listener
+  gql_ext.http_server = http_server
+  return nil
 }
 
-var gql_handlers ThreadHandlers = ThreadHandlers{
-  "child_linked": ThreadChildLinked,
-  "start_child": ThreadStartChild,
-  "abort": ThreadAbort,
-  "stop": ThreadStop,
+func StopGQLServer(gql_ext *GQLExt) {
+  gql_ext.http_server.Shutdown(context.TODO())
+  gql_ext.http_done.Wait()
 }
-

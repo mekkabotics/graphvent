@@ -135,18 +135,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  thread_ctx := NewThreadExtContext()
-  err = ctx.RegisterExtension(ThreadExtType, LoadThreadExt, thread_ctx)
-  if err != nil {
-    return nil, err
-  }
-
-  err = thread_ctx.RegisterThreadType(GQLThreadType, gql_actions, gql_handlers)
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, GroupExtType, GQLExtType, ThreadExtType})
+  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, GroupExtType, GQLExtType})
   if err != nil {
     return nil, err
   }
