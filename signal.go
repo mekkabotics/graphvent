@@ -91,9 +91,10 @@ func (signal StatusSignal) String() string {
   return string(ser)
 }
 
+const StatusSignalType = SignalType("STATUS")
 func NewStatusSignal(status string, source NodeID) StatusSignal {
   return StatusSignal{
-    IDSignal: NewIDSignal("status", Up, source),
+    IDSignal: NewIDSignal(StatusSignalType, Up, source),
     Status: status,
   }
 }

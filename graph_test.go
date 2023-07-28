@@ -51,7 +51,7 @@ func (t * GraphTester) WaitForStatus(ctx * Context, listener *ListenerExt, statu
         ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
         t.Fatal(str)
       }
-      if signal.Type() == "status" {
+      if signal.Type() == StatusSignalType {
         sig, ok := signal.(StatusSignal)
         if ok == true {
 

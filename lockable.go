@@ -156,8 +156,20 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node
     ctx.Log.Logf("lockable", "%s reset %s requirement state", node.ID, source)
   case "dep_linked":
     ctx.Log.Logf("lockable", "%s is a dependency of %s", node.ID, source)
+    req_state, exists := ext.Requirements[source]
+    if exists == true && req_state == "start" {
+      ext.Requirements[source] = "linked"
+      ctx.Send(node.ID, source, NewLinkSignal("req_linked"))
+    }
+
   case "req_linked":
     ctx.Log.Logf("lockable", "%s is a requirement of %s", node.ID, source)
+    dep_state, exists := ext.Dependencies[source]
+    if exists == true && dep_state == "start" {
+      ext.Dependencies[source] = "linked"
+      ctx.Send(node.ID, source, NewLinkSignal("dep_linked"))
+    }
+
   default:
     ctx.Log.Logf("lockable", "LINK_ERROR: unknown state %s", state)
   }

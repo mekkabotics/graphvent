@@ -16,7 +16,7 @@ func lockableTestContext(t *testing.T) *Context {
 }
 
 
-var link_policy = NewAllNodesPolicy([]SignalType{LinkSignalType})
+var link_policy = NewAllNodesPolicy([]SignalType{LinkSignalType, StatusSignalType})
 
 func TestLinkStatus(t *testing.T) {
   ctx := lockableTestContext(t)
@@ -38,6 +38,12 @@ func TestLinkStatus(t *testing.T) {
   err := LinkRequirement(ctx, l1, l2.ID)
   fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForLinkState(ctx, l1_listener, "dep_link", time.Millisecond*100, "No dep_link")
+  (*GraphTester)(t).WaitForLinkState(ctx, l1_listener, "dep_linked", time.Millisecond*100, "No dep_link")
   (*GraphTester)(t).WaitForLinkState(ctx, l2_listener, "req_linked", time.Millisecond*100, "No req_linked")
+
+  err = ctx.Send(l2.ID, l2.ID, NewStatusSignal("TEST", l2.ID))
+  fatalErr(t, err)
+
+  (*GraphTester)(t).WaitForStatus(ctx, l1_listener, "TEST", time.Millisecond*100, "No TEST on l1")
+  (*GraphTester)(t).WaitForStatus(ctx, l2_listener, "TEST", time.Millisecond*100, "No TEST on l2")
 }
