@@ -12,6 +12,22 @@ import (
   "sync/atomic"
 )
 
+const (
+  // Size of node message channels
+  NODE_MSG_CHAN_DEFAULT = 1024
+  // Magic first four bytes of serialized DB content, stored big endian
+  NODE_DB_MAGIC = 0x2491df14
+  // Total length of the node database header, has magic to verify and type_hash to map to load function
+  NODE_DB_HEADER_LEN = 20
+  EXTENSION_DB_HEADER_LEN = 16
+)
+
+var (
+  // Base NodeID, used as a special value
+  ZeroUUID = uuid.UUID{}
+  ZeroID = NodeID(ZeroUUID)
+)
+
 // A NodeID uniquely identifies a Node
 type NodeID uuid.UUID
 func (id NodeID) MarshalJSON() ([]byte, error) {
@@ -28,10 +44,6 @@ func (id *NodeID) UnmarshalJSON(bytes []byte) error {
   *id, err = ParseID(id_str)
   return err
 }
-
-// Base NodeID, used as a special value
-var ZeroUUID = uuid.UUID{}
-var ZeroID = NodeID(ZeroUUID)
 
 func (id NodeID) Serialize() []byte {
   ser, _ := (uuid.UUID)(id).MarshalBinary()
@@ -83,7 +95,6 @@ type QueuedSignal struct {
 }
 
 // Default message channel size for nodes
-const NODE_MSG_CHAN_DEFAULT = 1024
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
   ID NodeID
@@ -365,10 +376,6 @@ func Allowed(ctx *Context, principal_id NodeID, action Action, node *Node) error
   return err
 }
 
-// Magic first four bytes of serialized DB content, stored big endian
-const NODE_DB_MAGIC = 0x2491df14
-// Total length of the node database header, has magic to verify and type_hash to map to load function
-const NODE_DB_HEADER_LEN = 20
 // A DBHeader is parsed from the first NODE_DB_HEADER_LEN bytes of a serialized DB node
 type NodeDBHeader struct {
   Magic uint32
@@ -473,7 +480,6 @@ func (extension ExtensionDB) Serialize() []byte {
   return append(header_bytes, extension.Data...)
 }
 
-const EXTENSION_DB_HEADER_LEN = 16
 type ExtensionDBHeader struct {
   TypeHash uint64
   Length uint64

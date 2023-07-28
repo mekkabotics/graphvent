@@ -10,7 +10,7 @@ const TestLockableType = NodeType("TEST_LOCKABLE")
 func lockableTestContext(t *testing.T, logs []string) *Context {
   ctx := logTestContext(t, logs)
 
-  err := ctx.RegisterNodeType(TestLockableType, []ExtType{ACLExtType, LockableExtType, ListenerExtType})
+  err := ctx.RegisterNodeType(TestLockableType, []ExtType{ACLExtType, LockableExtType})
   fatalErr(t, err)
 
   return ctx
@@ -54,7 +54,15 @@ func TestLink(t *testing.T) {
 func TestLink10K(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test"})
 
-  NewLockable := func()(*Node, *ListenerExt) {
+  NewLockable := func()(*Node) {
+    l := NewNode(ctx, RandID(), TestLockableType, nil,
+                  NewACLExt(lock_policy, link_policy),
+                  NewLockableExt(),
+                )
+    return l
+  }
+
+  NewListener := func()(*Node, *ListenerExt) {
     listener := NewListenerExt(100000)
     l := NewNode(ctx, RandID(), TestLockableType, nil,
                   listener,
@@ -63,21 +71,22 @@ func TestLink10K(t *testing.T) {
                 )
     return l, listener
   }
-  l0, l0_listener := NewLockable()
+
+  l0, l0_listener := NewListener()
   lockables := make([]*Node, 10000)
   for i, _ := range(lockables) {
-    lockables[i], _ = NewLockable()
+    lockables[i] = NewLockable()
     LinkRequirement(ctx, l0.ID, lockables[i].ID)
   }
 
-  ctx.Log.Logf("test", "CREATED_10K %d")
+  ctx.Log.Logf("test", "CREATED_10K")
 
 
   for i, _ := range(lockables) {
     (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*1000, fmt.Sprintf("No linked_as_req for %d", i))
   }
 
-  ctx.Log.Logf("test", "LINKED_10K: %d")
+  ctx.Log.Logf("test", "LINKED_10K")
 }
 
 func TestLock(t *testing.T) {
