@@ -16,8 +16,9 @@ func lockableTestContext(t *testing.T, logs []string) *Context {
 }
 
 
-var link_policy = NewAllNodesPolicy([]Action{Action(LinkSignalType), Action(StatusSignalType)})
-var lock_policy = NewAllNodesPolicy([]Action{Action(LockSignalType)})
+//TODO: add new finer grained signals, and probably add wildcards to not have to deal with annoying acl policies
+var link_policy = NewAllNodesPolicy(Actions{MakeAction(LinkSignalType, "*"), MakeAction(StatusSignalType, "+")})
+var lock_policy = NewAllNodesPolicy(Actions{MakeAction(LockSignalType, "*")})
 
 func TestLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"lockable"})

@@ -4,6 +4,13 @@ import (
   "encoding/json"
 )
 
+const (
+  StopSignalType = SignalType("STOP")
+  StatusSignalType = SignalType("STATUS")
+  LinkSignalType = SignalType("LINK")
+  LockSignalType = SignalType("LOCK")
+)
+
 type SignalDirection int
 const (
   Up SignalDirection = iota
@@ -12,6 +19,9 @@ const (
 )
 
 type SignalType string
+func (signal_type SignalType) String() string {
+  return string(signal_type)
+}
 
 type Signal interface {
   Serializable[SignalType]
@@ -29,7 +39,7 @@ func (signal BaseSignal) Type() SignalType {
 }
 
 func (signal BaseSignal) Permission() Action {
-  return Action(signal.Type())
+  return MakeAction(signal.Type())
 }
 
 func (signal BaseSignal) Direction() SignalDirection {
@@ -60,7 +70,6 @@ func NewDirectSignal(signal_type SignalType) BaseSignal {
   return NewBaseSignal(signal_type, Direct)
 }
 
-const StopSignalType = SignalType("STOP")
 var StopSignal = NewDownSignal(StopSignalType)
 
 type IDSignal struct {
@@ -96,7 +105,6 @@ func (signal StatusSignal) String() string {
   return string(ser)
 }
 
-const StatusSignalType = SignalType("STATUS")
 func NewStatusSignal(status string, source NodeID) StatusSignal {
   return StatusSignal{
     IDSignal: NewIDSignal(StatusSignalType, Up, source),
@@ -104,8 +112,6 @@ func NewStatusSignal(status string, source NodeID) StatusSignal {
   }
 }
 
-const LinkSignalType = SignalType("LINK")
-const LockSignalType = SignalType("LOCK")
 type StateSignal struct {
   BaseSignal
   State string `json:"state"`
@@ -132,6 +138,10 @@ func NewLockSignal(state string) StateSignal {
     BaseSignal: NewDirectSignal(LockSignalType),
     State: state,
   }
+}
+
+func (signal StateSignal) Permission() Action {
+  return MakeAction(signal.Type(), signal.State)
 }
 
 type StartChildSignal struct {

@@ -22,7 +22,6 @@ type Policy interface {
   Merge(Policy) Policy
 }
 
-//TODO: Update with change from principal *Node to principal_id so sane policies can still be made
 func (policy *AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   return policy.Actions.Allows(action)
 }
@@ -32,11 +31,7 @@ func (policy *PerNodePolicy) Allows(principal_id NodeID, action Action, node *No
     if id != principal_id {
       continue
     }
-    for _, a := range(actions) {
-      if a == action {
-        return nil
-      }
-    }
+    return actions.Allows(action)
   }
   return fmt.Errorf("%s is not in per node policy of %s", principal_id, node.ID)
 }
@@ -72,15 +67,7 @@ func NewRequirementOfPolicy(actions Actions) RequirementOfPolicy {
 func MergeActions(first Actions, second Actions) Actions {
   ret := second
   for _, action := range(first) {
-    found := false
-    for _, a := range(second) {
-      if a == action {
-        break
-      }
-    }
-    if found == false {
-      ret = append(ret, action)
-    }
+    ret = append(ret, action)
   }
   return ret
 }
@@ -114,12 +101,45 @@ func (policy *RequirementOfPolicy) Merge(p Policy) Policy {
   return policy
 }
 
-type Action string
+type Action []string
+
+func MakeAction(parts ...interface{}) Action {
+  action := make(Action, len(parts))
+  for i, part := range(parts) {
+    stringer, ok := part.(fmt.Stringer)
+    if ok == false {
+      switch p := part.(type) {
+      case string:
+        action[i] = p
+      default:
+        panic("%s can not be part of an action")
+      }
+    } else {
+      action[i] = stringer.String()
+    }
+  }
+  return action
+}
+
+func (action Action) Allows(test Action) bool {
+  for i, part := range(test) {
+    if action[i] == part || action[i] == "*" {
+      continue
+    } else if action[i] == "+" {
+      break
+    } else {
+      return false
+    }
+  }
+
+  return true
+}
+
 type Actions []Action
 
 func (actions Actions) Allows(action Action) error {
   for _, a := range(actions) {
-    if a == action {
+    if a.Allows(action) == true {
       return nil
     }
   }

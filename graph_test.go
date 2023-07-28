@@ -84,7 +84,7 @@ func (t * GraphTester) CheckForNone(listener *ListenerExt, str string) {
 const SimpleListenerNodeType = NodeType("SIMPLE_LISTENER")
 
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
-  policy := NewAllNodesPolicy([]Action{Action("status")})
+  policy := NewAllNodesPolicy(Actions{MakeAction("status")})
   listener_extension := NewListenerExt(buffer)
   listener := NewNode(ctx,
                       RandID(),
