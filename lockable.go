@@ -2,7 +2,6 @@ package graphvent
 
 import (
   "encoding/json"
-  "fmt"
 )
 
 // A Listener extension provides a channel that can receive signals on a different thread
@@ -156,24 +155,8 @@ func LockLockable(ctx *Context, node *Node) error {
 }
 
 // Setup a node to send the initial requirement link signal, then send the signal
-func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
-  dep_ext, err := GetExt[*LockableExt](dependency)
-  if err != nil {
-    return err
-  }
-
-  _, exists := dep_ext.Requirements[requirement]
-  if exists == true {
-    return fmt.Errorf("%s is already a requirement of %s", requirement, dependency.ID)
-  }
-
-  _, exists = dep_ext.Dependencies[requirement]
-  if exists == true {
-    return fmt.Errorf("%s is a dependency of %s, cannot link as requirement", requirement, dependency.ID)
-  }
-
-  dep_ext.Requirements[requirement] = ReqState{"linking", "unlocked"}
-  return ctx.Send(dependency.ID, requirement, NewLinkSignal("link_as_req"))
+func LinkRequirement(ctx *Context, dependency NodeID, requirement NodeID) error {
+  return ctx.Send(dependency, dependency, NewLinkStartSignal("req", requirement))
 }
 
 // Handle a LockSignal and update the extensions owner/requirement states
@@ -332,6 +315,38 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   }
 }
 
+func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node *Node, signal LinkStartSignal) {
+  ctx.Log.Logf("lockable", "LINK__START_SIGNAL: %s->%s %+v", source, node.ID, signal)
+  link_type := signal.LinkType
+  target := signal.ID
+  switch link_type {
+  case "req":
+    state, exists := ext.Requirements[target]
+    _, dep_exists := ext.Dependencies[target]
+    if ext.Owner != nil {
+      ctx.Send(node.ID, source, NewLinkStartSignal("locked", target))
+    } else if ext.Owner != ext.PendingOwner {
+      if ext.PendingOwner == nil {
+        ctx.Send(node.ID, source, NewLinkStartSignal("unlocking", target))
+      } else {
+        ctx.Send(node.ID, source, NewLinkStartSignal("locking", target))
+      }
+    } else if exists == true {
+      if state.Link == "linking" {
+        ctx.Send(node.ID, source, NewLinkStartSignal("already_linking_req", target))
+      } else if state.Link == "linked" {
+        ctx.Send(node.ID, source, NewLinkStartSignal("already_req", target))
+      }
+    } else if dep_exists == true {
+      ctx.Send(node.ID, source, NewLinkStartSignal("already_dep", target))
+    } else {
+      ext.Requirements[target] = ReqState{"linking", "unlocked"}
+      ctx.Send(node.ID, target, NewLinkSignal("link_as_req"))
+      ctx.Send(node.ID, source, NewLinkStartSignal("linking_req", target))
+    }
+  }
+}
+
 // Handle LinkSignal, updating the extensions requirements and dependencies as necessary
 // TODO: Add unlink
 func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
@@ -448,6 +463,8 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
       ext.HandleLinkSignal(ctx, source, node, signal.(StateSignal))
     case LockSignalType:
       ext.HandleLockSignal(ctx, source, node, signal.(StateSignal))
+    case LinkStartSignalType:
+      ext.HandleLinkStartSignal(ctx, source, node, signal.(LinkStartSignal))
     default:
     }
   default:

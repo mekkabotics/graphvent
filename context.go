@@ -3,6 +3,7 @@ package graphvent
 import (
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
+  "sync"
   "errors"
   "runtime"
   "crypto/sha512"
@@ -77,6 +78,7 @@ type Context struct {
   // Map between database type hashes and the registered info
   Types map[uint64]NodeInfo
   // Routing map to all the nodes local to this context
+  NodesLock sync.RWMutex
   Nodes map[NodeID]*Node
 }
 
@@ -130,9 +132,23 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
   return nil
 }
 
+func (ctx *Context) AddNode(id NodeID, node *Node) {
+  ctx.NodesLock.Lock()
+  ctx.Nodes[id] = node
+  ctx.NodesLock.Unlock()
+}
+
+func (ctx *Context) Node(id NodeID) (*Node, bool) {
+  ctx.NodesLock.RLock()
+  node, exists := ctx.Nodes[id]
+  ctx.NodesLock.RUnlock()
+  return node, exists
+}
+
 // Get a node from the context, or load from the database if not loaded
 func (ctx *Context) GetNode(id NodeID) (*Node, error) {
-  target, exists := ctx.Nodes[id]
+  target, exists := ctx.Node(id)
+
   if exists == false {
     var err error
     target, err = LoadNode(ctx, id)

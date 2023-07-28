@@ -289,7 +289,7 @@ func (node *Node) Serialize() ([]byte, error) {
 
 // Create a new node in memory and start it's event loop
 func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []QueuedSignal, extensions ...Extension) *Node {
-  _, exists := ctx.Nodes[id]
+  _, exists := ctx.Node(id)
   if exists == true {
     panic("Attempted to create an existing node")
   }
@@ -330,7 +330,7 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
     SignalQueue: queued_signals,
     NextSignal: next_signal,
   }
-  ctx.Nodes[id] = node
+  ctx.AddNode(id, node)
   err := WriteNode(ctx, node)
   if err != nil {
     panic(err)
@@ -544,7 +544,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     SignalQueue: node_db.QueuedSignals,
     NextSignal: next_signal,
   }
-  ctx.Nodes[id] = node
+  ctx.AddNode(id, node)
 
   found_extensions := []ExtType{}
   // Parse each of the extensions from the db

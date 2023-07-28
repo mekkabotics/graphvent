@@ -3,6 +3,7 @@ package graphvent
 import (
   "testing"
   "time"
+  "fmt"
 )
 
 const TestLockableType = NodeType("TEST_LOCKABLE")
@@ -37,7 +38,7 @@ func TestLink(t *testing.T) {
                )
 
   // Link l2 as a requirement of l1
-  err := LinkRequirement(ctx, l1, l2.ID)
+  err := LinkRequirement(ctx, l1.ID, l2.ID)
   fatalErr(t, err)
 
   (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
@@ -50,11 +51,40 @@ func TestLink(t *testing.T) {
   (*GraphTester)(t).WaitForStatus(ctx, l2_listener, "TEST", time.Millisecond*10, "No TEST on l2")
 }
 
-func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{})
+func TestLink10K(t *testing.T) {
+  ctx := lockableTestContext(t, []string{"test"})
 
   NewLockable := func()(*Node, *ListenerExt) {
-    listener := NewListenerExt(10)
+    listener := NewListenerExt(100000)
+    l := NewNode(ctx, RandID(), TestLockableType, nil,
+                  listener,
+                  NewACLExt(lock_policy, link_policy),
+                  NewLockableExt(),
+                )
+    return l, listener
+  }
+  l0, l0_listener := NewLockable()
+  lockables := make([]*Node, 10000)
+  for i, _ := range(lockables) {
+    lockables[i], _ = NewLockable()
+    LinkRequirement(ctx, l0.ID, lockables[i].ID)
+  }
+
+  ctx.Log.Logf("test", "CREATED_10K %d")
+
+
+  for i, _ := range(lockables) {
+    (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*1000, fmt.Sprintf("No linked_as_req for %d", i))
+  }
+
+  ctx.Log.Logf("test", "LINKED_10K: %d")
+}
+
+func TestLock(t *testing.T) {
+  ctx := lockableTestContext(t, []string{"lockable"})
+
+  NewLockable := func()(*Node, *ListenerExt) {
+    listener := NewListenerExt(100)
     l := NewNode(ctx, RandID(), TestLockableType, nil,
                   listener,
                   NewACLExt(lock_policy, link_policy),
@@ -72,33 +102,33 @@ func TestLock(t *testing.T) {
 
 
   var err error
-  err = LinkRequirement(ctx, l1, l2.ID)
+  err = LinkRequirement(ctx, l1.ID, l2.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l1, l3.ID)
+  err = LinkRequirement(ctx, l1.ID, l3.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l1, l4.ID)
+  err = LinkRequirement(ctx, l1.ID, l4.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l1, l5.ID)
-  fatalErr(t, err)
-
-  err = LinkRequirement(ctx, l0, l2.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l0, l3.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l0, l4.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l0, l5.ID)
+  err = LinkRequirement(ctx, l1.ID, l5.ID)
   fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
-  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
-  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
-  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
+  err = LinkRequirement(ctx, l0.ID, l2.ID)
+  fatalErr(t, err)
+  err = LinkRequirement(ctx, l0.ID, l3.ID)
+  fatalErr(t, err)
+  err = LinkRequirement(ctx, l0.ID, l4.ID)
+  fatalErr(t, err)
+  err = LinkRequirement(ctx, l0.ID, l5.ID)
+  fatalErr(t, err)
 
-  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
-  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
-  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
-  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*10, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+
+  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
+  (*GraphTester)(t).WaitForState(ctx, l0_listener, LinkSignalType, "linked_as_req", time.Millisecond*100, "No linked_as_req")
 
   err = LockLockable(ctx, l1)
   fatalErr(t, err)
