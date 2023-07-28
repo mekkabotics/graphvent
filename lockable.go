@@ -66,7 +66,6 @@ type LockableExtJSON struct {
   Dependencies map[string]string `json:"dependencies"`
 }
 
-// Simple json load function: TODO: make these a generic function as before
 func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   var j LockableExtJSON
   err := json.Unmarshal(data, &j)

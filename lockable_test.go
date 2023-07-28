@@ -17,7 +17,7 @@ func lockableTestContext(t *testing.T, logs []string) *Context {
 
 
 var link_policy = NewAllNodesPolicy([]SignalType{LinkSignalType, StatusSignalType})
-var lock_policy = NewAllNodesPolicy([]SignalType{LinkSignalType, LockSignalType, StatusSignalType})
+var lock_policy = NewAllNodesPolicy([]SignalType{LockSignalType})
 
 func TestLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"lockable"})
@@ -50,13 +50,13 @@ func TestLink(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{})
+  ctx := lockableTestContext(t, []string{"policy"})
 
   NewLockable := func()(*Node, *ListenerExt) {
     listener := NewListenerExt(10)
     l := NewNode(ctx, RandID(), TestLockableType, nil,
                   listener,
-                  NewACLExt(&lock_policy),
+                  NewACLExt(&lock_policy, &link_policy),
                   NewLockableExt(),
                 )
     return l, listener

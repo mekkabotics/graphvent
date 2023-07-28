@@ -18,6 +18,8 @@ const (
 type Policy interface {
   Serializable[PolicyType]
   Allows(principal_id NodeID, action SignalType, node *Node) error
+  // Merge with another policy of the same underlying type
+  Merge(Policy) Policy
 }
 
 //TODO: Update with change from principal *Node to principal_id so sane policies can still be made
@@ -65,6 +67,51 @@ func NewRequirementOfPolicy(actions Actions) RequirementOfPolicy {
   return RequirementOfPolicy{
     AllNodesPolicy: NewAllNodesPolicy(actions),
   }
+}
+
+func MergeActions(first Actions, second Actions) Actions {
+  ret := second
+  for _, action := range(first) {
+    found := false
+    for _, a := range(second) {
+      if a == action {
+        break
+      }
+    }
+    if found == false {
+      ret = append(ret, action)
+    }
+  }
+  return ret
+}
+
+func MergeNodeActions(modified NodeActions, read NodeActions) {
+  for id, actions := range(read) {
+    existing, exists := modified[id]
+    if exists {
+      modified[id] = MergeActions(existing, actions)
+    } else {
+      modified[id] = actions
+    }
+  }
+}
+
+func (policy *PerNodePolicy) Merge(p Policy) Policy {
+  other := p.(*PerNodePolicy)
+  MergeNodeActions(policy.NodeActions, other.NodeActions)
+  return policy
+}
+
+func (policy *AllNodesPolicy) Merge(p Policy) Policy {
+  other := p.(*AllNodesPolicy)
+  policy.Actions = MergeActions(policy.Actions, other.Actions)
+  return policy
+}
+
+func (policy *RequirementOfPolicy) Merge(p Policy) Policy {
+  other := p.(*RequirementOfPolicy)
+  policy.Actions = MergeActions(policy.Actions, other.Actions)
+  return policy
 }
 
 type Actions []SignalType
@@ -223,9 +270,9 @@ func (ext *ACLExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Sig
 func NewACLExt(policies ...Policy) *ACLExt {
   policy_map := map[PolicyType]Policy{}
   for _, policy := range(policies) {
-    _, exists := policy_map[policy.Type()]
+    existing, exists := policy_map[policy.Type()]
     if exists == true {
-      panic("Cannot add same policy type twice")
+      policy = existing.Merge(policy)
     }
 
     policy_map[policy.Type()] = policy
