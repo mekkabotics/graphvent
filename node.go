@@ -10,13 +10,18 @@ import (
   "encoding/binary"
   "encoding/json"
   "sync/atomic"
+  "crypto/ecdsa"
+  "crypto/elliptic"
+  "crypto/sha512"
+  "crypto/rand"
+  "crypto/x509"
 )
 
 const (
   // Magic first four bytes of serialized DB content, stored big endian
   NODE_DB_MAGIC = 0x2491df14
   // Total length of the node database header, has magic to verify and type_hash to map to load function
-  NODE_DB_HEADER_LEN = 24
+  NODE_DB_HEADER_LEN = 28
   EXTENSION_DB_HEADER_LEN = 16
 )
 
@@ -32,6 +37,7 @@ func (id NodeID) MarshalJSON() ([]byte, error) {
   str := id.String()
   return json.Marshal(&str)
 }
+
 func (id *NodeID) UnmarshalJSON(bytes []byte) error {
   var id_str string
   err := json.Unmarshal(bytes, &id_str)
@@ -95,6 +101,7 @@ type QueuedSignal struct {
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
+  Key *ecdsa.PrivateKey
   ID NodeID
   Type NodeType
   Extensions map[ExtType]Extension
@@ -268,16 +275,24 @@ func GetExt[T Extension](node *Node) (T, error) {
 
 func (node *Node) Serialize() ([]byte, error) {
   extensions := make([]ExtensionDB, len(node.Extensions))
+
+  key_bytes, err := x509.MarshalECPrivateKey(node.Key)
+  if err != nil {
+    return nil, err
+  }
+
   node_db := NodeDB{
     Header: NodeDBHeader{
       Magic: NODE_DB_MAGIC,
       TypeHash: Hash(node.Type),
+      KeyLength: uint32(len(key_bytes)),
       BufferSize: node.BufferSize,
       NumExtensions: uint32(len(extensions)),
       NumQueuedSignals: uint32(len(node.SignalQueue)),
     },
     Extensions: extensions,
     QueuedSignals: node.SignalQueue,
+    KeyBytes: key_bytes,
   }
 
   i := 0
@@ -299,8 +314,23 @@ func (node *Node) Serialize() ([]byte, error) {
   return node_db.Serialize(), nil
 }
 
+func KeyID(pub *ecdsa.PublicKey) NodeID {
+  ser := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
+  str := uuid.NewHash(sha512.New(), ZeroUUID, ser, 3)
+  return NodeID(str)
+}
+
 // Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, id NodeID, node_type NodeType, buffer_size uint32, queued_signals []QueuedSignal, extensions ...Extension) *Node {
+// TODO: Change panics to errors
+func NewNode(ctx *Context, key *ecdsa.PrivateKey, node_type NodeType, buffer_size uint32, queued_signals []QueuedSignal, extensions ...Extension) *Node {
+  var err error
+  if key == nil {
+    key, err = ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
+    if err != nil {
+      panic(err)
+    }
+  }
+  id := KeyID(&key.PublicKey)
   _, exists := ctx.Node(id)
   if exists == true {
     panic("Attempted to create an existing node")
@@ -334,6 +364,7 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, buffer_size uint32, qu
   next_signal, timeout_chan := SoonestSignal(queued_signals)
 
   node := &Node{
+    Key: key,
     ID: id,
     Type: node_type,
     Extensions: ext_map,
@@ -344,7 +375,7 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, buffer_size uint32, qu
     NextSignal: next_signal,
   }
   ctx.AddNode(id, node)
-  err := WriteNode(ctx, node)
+  err = WriteNode(ctx, node)
   if err != nil {
     panic(err)
   }
@@ -384,6 +415,7 @@ type NodeDBHeader struct {
   NumExtensions uint32
   NumQueuedSignals uint32
   BufferSize uint32
+  KeyLength uint32
   TypeHash uint64
 }
 
@@ -391,6 +423,7 @@ type NodeDB struct {
   Header NodeDBHeader
   QueuedSignals []QueuedSignal
   Extensions []ExtensionDB
+  KeyBytes []byte
 }
 
 //TODO: add size safety checks
@@ -403,13 +436,22 @@ func NewNodeDB(data []byte) (NodeDB, error) {
   num_extensions := binary.BigEndian.Uint32(data[4:8])
   num_queued_signals := binary.BigEndian.Uint32(data[8:12])
   buffer_size := binary.BigEndian.Uint32(data[12:16])
-  node_type_hash := binary.BigEndian.Uint64(data[16:24])
+  key_length := binary.BigEndian.Uint32(data[16:20])
+  node_type_hash := binary.BigEndian.Uint64(data[20:28])
 
   ptr += NODE_DB_HEADER_LEN
 
   if magic != NODE_DB_MAGIC {
     return zero, fmt.Errorf("header has incorrect magic 0x%x", magic)
   }
+
+  key_bytes := make([]byte, key_length)
+  n := copy(key_bytes, data[ptr:(ptr+int(key_length))])
+  if n != int(key_length) {
+    return zero, fmt.Errorf("not enough key bytes: %d", n)
+  }
+
+  ptr += int(key_length)
 
   extensions := make([]ExtensionDB, num_extensions)
   for i, _ := range(extensions) {
@@ -443,9 +485,11 @@ func NewNodeDB(data []byte) (NodeDB, error) {
       Magic: magic,
       TypeHash: node_type_hash,
       BufferSize: buffer_size,
+      KeyLength: key_length,
       NumExtensions: num_extensions,
       NumQueuedSignals: num_queued_signals,
     },
+    KeyBytes: key_bytes,
     Extensions: extensions,
     QueuedSignals: queued_signals,
   }, nil
@@ -461,12 +505,14 @@ func (header NodeDBHeader) Serialize() []byte {
   binary.BigEndian.PutUint32(ret[4:8], header.NumExtensions)
   binary.BigEndian.PutUint32(ret[8:12], header.NumQueuedSignals)
   binary.BigEndian.PutUint32(ret[12:16], header.BufferSize)
-  binary.BigEndian.PutUint64(ret[16:24], header.TypeHash)
+  binary.BigEndian.PutUint32(ret[16:20], header.KeyLength)
+  binary.BigEndian.PutUint64(ret[20:28], header.TypeHash)
   return ret
 }
 
 func (node NodeDB) Serialize() []byte {
   ser := node.Header.Serialize()
+  ser = append(ser, node.KeyBytes...)
   for _, extension := range(node.Extensions) {
     ser = append(ser, extension.Serialize()...)
   }
@@ -541,6 +587,20 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
+  key, err := x509.ParseECPrivateKey(node_db.KeyBytes)
+  if err != nil {
+    return nil, err
+  }
+
+  if key.PublicKey.Curve != ctx.ECDSA {
+    return nil, fmt.Errorf("%s - wrong ec curve for private key: %+v, expected %+v", id, key.PublicKey.Curve, ctx.ECDSA)
+  }
+
+  key_id := KeyID(&key.PublicKey)
+  if key_id != id {
+    return nil, fmt.Errorf("KeyID(%s) != %s", key_id, id)
+  }
+
   node_type, known := ctx.Types[node_db.Header.TypeHash]
   if known == false {
     return nil, fmt.Errorf("Tried to load node %s of type 0x%x, which is not a known node type", id, node_db.Header.TypeHash)
@@ -548,7 +608,8 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
 
   next_signal, timeout_chan := SoonestSignal(node_db.QueuedSignals)
   node := &Node{
-    ID: id,
+    Key: key,
+    ID: key_id,
     Type: node_type.Type,
     Extensions: map[ExtType]Extension{},
     MsgChan: make(chan Msg, node_db.Header.BufferSize),

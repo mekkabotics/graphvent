@@ -29,6 +29,7 @@ func (signal_type SignalType) String() string {
 type Signal interface {
   Serializable[SignalType]
   Direction() SignalDirection
+  MarshalJSON() ([]byte, error)
   Permission() Action
 }
 
@@ -49,8 +50,12 @@ func (signal BaseSignal) Direction() SignalDirection {
   return signal.SignalDirection
 }
 
+func (signal BaseSignal) MarshalJSON() ([]byte, error) {
+  return json.Marshal(signal)
+}
+
 func (signal BaseSignal) Serialize() ([]byte, error) {
-  return json.MarshalIndent(signal, "", "  ")
+  return signal.MarshalJSON()
 }
 
 func NewBaseSignal(signal_type SignalType, direction SignalDirection) BaseSignal {
@@ -182,4 +187,5 @@ func NewReadResultSignal(exts map[ExtType]map[string]interface{}) ReadResultSign
     Extensions: exts,
   }
 }
+
 

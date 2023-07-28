@@ -7,6 +7,7 @@ import (
   "errors"
   "runtime"
   "crypto/sha512"
+  "crypto/elliptic"
   "encoding/binary"
 )
 
@@ -77,6 +78,8 @@ type Context struct {
   Extensions map[uint64]ExtensionInfo
   // Map between database type hashes and the registered info
   Types map[uint64]*NodeInfo
+  // Curve used for signature operations
+  ECDSA elliptic.Curve
   // Routing map to all the nodes local to this context
   NodesLock sync.RWMutex
   Nodes map[NodeID]*Node
@@ -194,6 +197,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Extensions: map[uint64]ExtensionInfo{},
     Types: map[uint64]*NodeInfo{},
     Nodes: map[NodeID]*Node{},
+    ECDSA: elliptic.P256(),
   }
 
   var err error

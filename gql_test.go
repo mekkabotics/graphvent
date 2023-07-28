@@ -15,7 +15,7 @@ func TestGQLDB(t * testing.T) {
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
   fatalErr(t, err)
-  u1 := NewNode(ctx, RandID(), TestUserNodeType, 10, nil)
+  u1 := NewNode(ctx, nil, TestUserNodeType, 10, nil)
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
@@ -24,7 +24,7 @@ func TestGQLDB(t * testing.T) {
 
   gql_ext := NewGQLExt(":0", ecdh.P256(), key, nil, nil)
   listener_ext := NewListenerExt(10)
-  gql := NewNode(ctx, RandID(), GQLNodeType, 10, nil,
+  gql := NewNode(ctx, nil, GQLNodeType, 10, nil,
                  gql_ext,
                  listener_ext,
                  NewACLExt(),

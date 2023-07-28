@@ -113,7 +113,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
   policy := NewAllNodesPolicy(Actions{MakeAction("status")})
   listener_extension := NewListenerExt(buffer)
   listener := NewNode(ctx,
-                      RandID(),
+                      nil,
                       SimpleListenerNodeType,
                       10,
                       nil,
