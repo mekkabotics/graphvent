@@ -81,7 +81,7 @@ func TestLink10K(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"lockable"})
+  ctx := lockableTestContext(t, []string{})
 
   NewLockable := func()(*Node, *ListenerExt) {
     listener := NewListenerExt(100)
