@@ -3,15 +3,11 @@ package graphvent
 import (
   "encoding/json"
   "fmt"
-  "crypto/sha512"
-  "encoding/binary"
 )
 
 type PolicyType string
-func (policy PolicyType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("POLICY: %s", string(policy))))
-  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
-}
+func (policy PolicyType) Prefix() string { return "POLICY: " }
+func (policy PolicyType) String() string { return string(policy) }
 
 const (
   RequirementOfPolicyType = PolicyType("REQUIREMENT_OF")

@@ -9,17 +9,24 @@ import (
   "encoding/binary"
 )
 
-type NodeType string
-func (node NodeType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("NODE: %s", string(node))))
+type Type interface {
+  String() string
+  Prefix() string
+}
+
+func Hash(t Type) uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("%s%s", t.Prefix(), t.String())))
   return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
+
+type NodeType string
+func (node NodeType) Prefix() string { return "NODE: " }
+func (node NodeType) String() string { return string(node) }
+
 type ExtType string
-func (ext ExtType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("EXTENSION: %s", string(ext))))
-  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
-}
+func (ext ExtType) Prefix() string { return "EXTENSION: " }
+func (ext ExtType) String() string { return string(ext) }
 
 //Function to load an extension from bytes
 type ExtensionLoadFunc func(*Context, []byte) (Extension, error)
@@ -64,7 +71,7 @@ type Context struct {
 
 // Register a NodeType to the context, with the list of extensions it requires
 func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) error {
-  type_hash := node_type.Hash()
+  type_hash := Hash(node_type)
   _, exists := ctx.Types[type_hash]
   if exists == true {
     return fmt.Errorf("Cannot register node type %s, type already exists in context", node_type)
@@ -72,7 +79,7 @@ func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) e
 
   ext_found := map[ExtType]bool{}
   for _, extension := range(extensions) {
-    _, in_ctx := ctx.Extensions[extension.Hash()]
+    _, in_ctx := ctx.Extensions[Hash(extension)]
     if in_ctx == false {
       return fmt.Errorf("Cannot register node type %s, required extension %s not in context", node_type, extension)
     }
@@ -98,7 +105,7 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
     return fmt.Errorf("def has no load function")
   }
 
-  type_hash := ext_type.Hash()
+  type_hash := Hash(ext_type)
   _, exists := ctx.Extensions[type_hash]
   if exists == true {
     return fmt.Errorf("Cannot register extension of type %s, type already exists in context", ext_type)

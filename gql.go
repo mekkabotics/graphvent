@@ -367,7 +367,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
 
   return &ResolveContext{
     Context: ctx,
-    GQLContext: ctx.Extensions[GQLExtType.Hash()].Data.(*GQLExtContext),
+    GQLContext: ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext),
     Server: server,
     User: user,
   }, nil
@@ -402,7 +402,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     query := GQLPayload{}
     json.Unmarshal(str, &query)
 
-    gql_context := ctx.Extensions[GQLExtType.Hash()].Data.(*GQLExtContext)
+    gql_context := ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext)
 
     params := graphql.Params{
       Schema: gql_context.Schema,
@@ -532,7 +532,7 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
           }
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
-          gql_context := ctx.Extensions[GQLExtType.Hash()].Data.(*GQLExtContext)
+          gql_context := ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext)
           params := graphql.Params{
             Schema: gql_context.Schema,
             Context: req_ctx,

@@ -193,7 +193,7 @@ func GetCtx[T Extension, C any](ctx *Context) (C, error) {
   var zero T
   var zero_ctx C
   ext_type := zero.Type()
-  type_hash := ext_type.Hash()
+  type_hash := Hash(ext_type)
   ext_info, ok := ctx.Extensions[type_hash]
   if ok == false {
     return zero_ctx, fmt.Errorf("%s is not an extension in ctx", ext_type)
@@ -228,7 +228,7 @@ func (node *Node) Serialize() ([]byte, error) {
   node_db := NodeDB{
     Header: NodeDBHeader{
       Magic: NODE_DB_MAGIC,
-      TypeHash: node.Type.Hash(),
+      TypeHash: Hash(node.Type),
       NumExtensions: uint32(len(extensions)),
       NumQueuedSignals: uint32(len(node.SignalQueue)),
     },
@@ -244,7 +244,7 @@ func (node *Node) Serialize() ([]byte, error) {
     }
     node_db.Extensions[i] = ExtensionDB{
       Header: ExtensionDBHeader{
-        TypeHash: ext_type.Hash(),
+        TypeHash: Hash(ext_type),
         Length: uint64(len(ser)),
       },
       Data: ser,
@@ -262,7 +262,7 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
     panic("Attempted to create an existing node")
   }
 
-  def, exists := ctx.Types[node_type.Hash()]
+  def, exists := ctx.Types[Hash(node_type)]
   if exists == false {
     panic("Node type %s not registered in Context")
   }
