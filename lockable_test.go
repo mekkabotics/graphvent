@@ -26,13 +26,13 @@ func TestLink(t *testing.T) {
   l1_listener := NewListenerExt(10)
   l1 := NewNode(ctx, RandID(), TestLockableType, nil,
                  l1_listener,
-                 NewACLExt(&link_policy),
+                 NewACLExt(link_policy),
                  NewLockableExt(),
                )
   l2_listener := NewListenerExt(10)
   l2 := NewNode(ctx, RandID(), TestLockableType, nil,
                  l2_listener,
-                 NewACLExt(&link_policy),
+                 NewACLExt(link_policy),
                  NewLockableExt(),
                )
 
@@ -57,7 +57,7 @@ func TestLock(t *testing.T) {
     listener := NewListenerExt(10)
     l := NewNode(ctx, RandID(), TestLockableType, nil,
                   listener,
-                  NewACLExt(&lock_policy, &link_policy),
+                  NewACLExt(lock_policy, link_policy),
                   NewLockableExt(),
                 )
     return l, listener

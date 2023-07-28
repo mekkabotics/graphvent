@@ -785,6 +785,14 @@ type GQLExt struct {
   SubscribeListeners []chan Signal
 }
 
+func (ext *GQLExt) Field(name string) interface{} {
+  return ResolveFields(ext, name, map[string]func(*GQLExt)interface{}{
+    "listen": func(ext *GQLExt) interface{} {
+      return ext.Listen
+    },
+  })
+}
+
 func (ext *GQLExt) NewSubscriptionChannel(buffer int) chan Signal {
   ext.SubscribeLock.Lock()
   defer ext.SubscribeLock.Unlock()

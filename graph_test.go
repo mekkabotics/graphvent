@@ -91,7 +91,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
                       SimpleListenerNodeType,
                       nil,
                       listener_extension,
-                      NewACLExt(&policy),
+                      NewACLExt(policy),
                       NewLockableExt())
 
   return listener, listener_extension

@@ -9,6 +9,7 @@ const (
   StatusSignalType = SignalType("STATUS")
   LinkSignalType = SignalType("LINK")
   LockSignalType = SignalType("LOCK")
+  ReadSignalType = SignalType("READ")
 )
 
 type SignalDirection int
@@ -144,14 +145,14 @@ func (signal StateSignal) Permission() Action {
   return MakeAction(signal.Type(), signal.State)
 }
 
-type StartChildSignal struct {
-  IDSignal
-  Action string `json:"action"`
+type ReadSignal struct {
+  BaseSignal
+  Extensions map[ExtType][]string `json:"extensions"`
 }
 
-func NewStartChildSignal(child_id NodeID, action string) StartChildSignal {
-  return StartChildSignal{
-    IDSignal: NewIDSignal("start_child", Direct, child_id),
-    Action: action,
+func NewReadSignal(exts map[ExtType][]string) ReadSignal {
+  return ReadSignal{
+    BaseSignal: NewDirectSignal(ReadSignalType),
+    Extensions: exts,
   }
 }

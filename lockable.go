@@ -19,6 +19,17 @@ func NewListenerExt(buffer int) *ListenerExt {
   }
 }
 
+func (ext *ListenerExt) Field(name string) interface{} {
+  return ResolveFields(ext, name, map[string]func(*ListenerExt)interface{}{
+    "buffer": func(ext *ListenerExt) interface{} {
+      return ext.Buffer
+    },
+    "chan": func(ext *ListenerExt) interface{} {
+      return ext.Chan
+    },
+  })
+}
+
 // Simple load function, unmarshal the buffer int from json
 func LoadListenerExt(ctx *Context, data []byte) (Extension, error) {
   var j int
@@ -64,6 +75,23 @@ type LockableExtJSON struct {
   PendingOwner *NodeID `json:"pending_owner"`
   Requirements map[string]ReqState `json:"requirements"`
   Dependencies map[string]string `json:"dependencies"`
+}
+
+func (ext *LockableExt) Field(name string) interface{} {
+  return ResolveFields(ext, name, map[string]func(*LockableExt)interface{}{
+    "owner": func(ext *LockableExt) interface{} {
+      return ext.Owner
+    },
+    "pending_owner": func(ext *LockableExt) interface{} {
+      return ext.PendingOwner
+    },
+    "requirements": func(ext *LockableExt) interface{} {
+      return ext.Requirements
+    },
+    "dependencies": func(ext *LockableExt) interface{} {
+      return ext.Dependencies
+    },
+  })
 }
 
 func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {

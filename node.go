@@ -72,6 +72,7 @@ type Serializable[I comparable] interface {
 // Extensions are data attached to nodes that process signals
 type Extension interface {
   Serializable[ExtType]
+  Field(string)interface{}
   Process(context *Context, source NodeID, node *Node, signal Signal)
 }
 
@@ -142,6 +143,27 @@ type Msg struct {
   Signal Signal
 }
 
+func ReadNodeFields(ctx *Context, self *Node, princ NodeID, reqs map[ExtType][]string)map[ExtType]map[string]interface{} {
+  exts := map[ExtType]map[string]interface{}{}
+  for ext_type, field_reqs := range(reqs) {
+    fields := map[string]interface{}{}
+    for _, req := range(field_reqs) {
+      err := Allowed(ctx, princ, MakeAction(ReadSignalType, ext_type, req), self)
+      if err != nil {
+        fields[req] = err
+      } else {
+        ext, exists := self.Extensions[ext_type]
+        if exists == false {
+          fields[req] = fmt.Errorf("%s does not have %s extension", self.ID, ext_type)
+        } else {
+          fields[req] = ext.Field(req)
+        }
+      }
+    }
+  }
+  return exts
+}
+
 // Main Loop for Threads, starts a write context, so cannot be called from a write or read context
 func nodeLoop(ctx *Context, node *Node) error {
   started := node.Active.CompareAndSwap(false, true)
@@ -171,7 +193,16 @@ func nodeLoop(ctx *Context, node *Node) error {
     if signal.Type() == StopSignalType {
       node.Process(ctx, node.ID, NewStatusSignal("stopped", node.ID))
       break
+    } else if signal.Type() == ReadSignalType {
+      read_signal, ok := signal.(ReadSignal)
+      if ok == false {
+        ctx.Log.Logf("signal", "READ_SIGNAL: bad cast %+v", signal)
+      } else {
+        fields := ReadNodeFields(ctx, node, source, read_signal.Extensions)
+        ctx.Log.Logf("test", "READ_RESULT: %+v", fields)
+      }
     }
+
     node.Process(ctx, source, signal)
   }
 

@@ -22,11 +22,11 @@ type Policy interface {
   Merge(Policy) Policy
 }
 
-func (policy *AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
+func (policy AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   return policy.Actions.Allows(action)
 }
 
-func (policy *PerNodePolicy) Allows(principal_id NodeID, action Action, node *Node) error {
+func (policy PerNodePolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   for id, actions := range(policy.NodeActions) {
     if id != principal_id {
       continue
@@ -36,7 +36,7 @@ func (policy *PerNodePolicy) Allows(principal_id NodeID, action Action, node *No
   return fmt.Errorf("%s is not in per node policy of %s", principal_id, node.ID)
 }
 
-func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
+func (policy RequirementOfPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   lockable_ext, err := GetExt[*LockableExt](node)
   if err != nil {
     return err
@@ -54,7 +54,7 @@ func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action Action, no
 type RequirementOfPolicy struct {
   AllNodesPolicy
 }
-func (policy *RequirementOfPolicy) Type() PolicyType {
+func (policy RequirementOfPolicy) Type() PolicyType {
   return RequirementOfPolicyType
 }
 
@@ -83,20 +83,20 @@ func MergeNodeActions(modified NodeActions, read NodeActions) {
   }
 }
 
-func (policy *PerNodePolicy) Merge(p Policy) Policy {
-  other := p.(*PerNodePolicy)
+func (policy PerNodePolicy) Merge(p Policy) Policy {
+  other := p.(PerNodePolicy)
   MergeNodeActions(policy.NodeActions, other.NodeActions)
   return policy
 }
 
-func (policy *AllNodesPolicy) Merge(p Policy) Policy {
-  other := p.(*AllNodesPolicy)
+func (policy AllNodesPolicy) Merge(p Policy) Policy {
+  other := p.(AllNodesPolicy)
   policy.Actions = MergeActions(policy.Actions, other.Actions)
   return policy
 }
 
-func (policy *RequirementOfPolicy) Merge(p Policy) Policy {
-  other := p.(*RequirementOfPolicy)
+func (policy RequirementOfPolicy) Merge(p Policy) Policy {
+  other := p.(RequirementOfPolicy)
   policy.Actions = MergeActions(policy.Actions, other.Actions)
   return policy
 }
@@ -190,11 +190,11 @@ type PerNodePolicy struct {
   NodeActions NodeActions `json:"node_actions"`
 }
 
-func (policy *PerNodePolicy) Type() PolicyType {
+func (policy PerNodePolicy) Type() PolicyType {
   return PerNodePolicyType
 }
 
-func (policy *PerNodePolicy) Serialize() ([]byte, error) {
+func (policy PerNodePolicy) Serialize() ([]byte, error) {
   return json.MarshalIndent(policy, "", "  ")
 }
 
@@ -212,11 +212,11 @@ type AllNodesPolicy struct {
   Actions Actions
 }
 
-func (policy *AllNodesPolicy) Type() PolicyType {
+func (policy AllNodesPolicy) Type() PolicyType {
   return AllNodesPolicyType
 }
 
-func (policy *AllNodesPolicy) Serialize() ([]byte, error) {
+func (policy AllNodesPolicy) Serialize() ([]byte, error) {
   return json.MarshalIndent(policy, "", "  ")
 }
 
@@ -286,6 +286,14 @@ func (ext *ACLExt) Serialize() ([]byte, error) {
 }
 
 func (ext *ACLExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
+}
+
+func (ext *ACLExt) Field(name string) interface{} {
+  return ResolveFields(ext, name, map[string]func(*ACLExt)interface{}{
+    "policies": func(ext *ACLExt) interface{} {
+      return ext.Policies
+    },
+  })
 }
 
 func NewACLExt(policies ...Policy) *ACLExt {
