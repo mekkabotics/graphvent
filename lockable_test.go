@@ -2,11 +2,12 @@ package graphvent
 
 import (
   "testing"
+  "time"
 )
 
 const TestLockableType = NodeType("TEST_LOCKABLE")
 func lockableTestContext(t *testing.T) *Context {
-  ctx := logTestContext(t, []string{"lockable", "signal"})
+  ctx := logTestContext(t, []string{"lockable", "test"})
 
   err := ctx.RegisterNodeType(TestLockableType, []ExtType{ACLExtType, LockableExtType, ListenerExtType})
   fatalErr(t, err)
@@ -15,9 +16,9 @@ func lockableTestContext(t *testing.T) *Context {
 }
 
 
-var link_policy = NewAllNodesPolicy([]string{"link", "status"})
+var link_policy = NewAllNodesPolicy([]SignalType{LinkSignalType})
 
-func Test(t *testing.T) {
+func TestLinkStatus(t *testing.T) {
   ctx := lockableTestContext(t)
 
   l1_listener := NewListenerExt(10)
@@ -33,6 +34,10 @@ func Test(t *testing.T) {
                  NewLockableExt(nil, nil, nil, nil),
                )
 
-  ctx.Send(l1.ID, l2.ID, NewLinkSignal("start", l1.ID))
-}
+  // Link l2 as a requirement of l1
+  err := LinkRequirement(ctx, l1, l2.ID)
+  fatalErr(t, err)
 
+  (*GraphTester)(t).WaitForLinkState(ctx, l1_listener, "dep_link", time.Millisecond*100, "No dep_link")
+  (*GraphTester)(t).WaitForLinkState(ctx, l2_listener, "req_linked", time.Millisecond*100, "No req_linked")
+}

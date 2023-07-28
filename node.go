@@ -156,7 +156,7 @@ func NodeLoop(ctx *Context, node *Node) error {
     case msg := <- node.MsgChan:
       signal = msg.Signal
       source = msg.Source
-      err := Allowed(ctx, msg.Source, string(signal.Type()), node)
+      err := Allowed(ctx, msg.Source, signal.Type(), node)
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_POLICY_ERR: %s", err)
         continue
@@ -307,7 +307,7 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
   return node
 }
 
-func Allowed(ctx *Context, principal_id NodeID, action string, node *Node) error {
+func Allowed(ctx *Context, principal_id NodeID, action SignalType, node *Node) error {
   ctx.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal_id, node.ID, action)
   // Nodes are allowed to perform all actions on themselves regardless of whether or not they have an ACL extension
   if principal_id == node.ID {

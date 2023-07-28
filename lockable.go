@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "encoding/json"
+  "fmt"
 )
 
 type ListenerExt struct {
@@ -41,39 +42,6 @@ func (ext *ListenerExt) Process(ctx *Context, princ_id NodeID, node *Node, signa
   return
 }
 
-func (ext *ListenerExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(ext.Buffer, "", "  ")
-}
-
-type LockableExt struct {
-  Owner *NodeID `json:"owner"`
-  Requirements []NodeID `json:"requirements"`
-  Dependencies []NodeID `json:"dependencies"`
-  LocksHeld map[NodeID]*NodeID `json:"locks_held"`
-}
-
-const LockableExtType = ExtType("LOCKABLE")
-func (ext *LockableExt) Type() ExtType {
-  return LockableExtType
-}
-
-func (ext *LockableExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(ext, "", "  ")
-}
-
-func NewLockableExt(owner *NodeID, requirements []NodeID, dependencies []NodeID, locks_held map[NodeID]*NodeID) *LockableExt {
-  if locks_held == nil {
-    locks_held = map[NodeID]*NodeID{}
-  }
-
-  return &LockableExt{
-    Owner: owner,
-    Requirements: requirements,
-    Dependencies: dependencies,
-    LocksHeld: locks_held,
-  }
-}
-
 func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   var ext LockableExt
   err := json.Unmarshal(data, &ext)
@@ -86,10 +54,113 @@ func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
   return &ext, nil
 }
 
+func (ext *ListenerExt) Serialize() ([]byte, error) {
+  return json.MarshalIndent(ext.Buffer, "", "  ")
+}
 
+const LockableExtType = ExtType("LOCKABLE")
+func (ext *LockableExt) Type() ExtType {
+  return LockableExtType
+}
+
+func (ext *LockableExt) Serialize() ([]byte, error) {
+  return json.MarshalIndent(ext, "", "  ")
+}
+
+func NewLockableExt(owner *NodeID, requirements map[NodeID]string, dependencies map[NodeID]string, locks_held map[NodeID]*NodeID) *LockableExt {
+  if requirements == nil {
+    requirements = map[NodeID]string{}
+  }
+
+  if dependencies == nil {
+    dependencies = map[NodeID]string{}
+  }
+
+  if locks_held == nil {
+    locks_held = map[NodeID]*NodeID{}
+  }
+
+  return &LockableExt{
+    Owner: owner,
+    Requirements: requirements,
+    Dependencies: dependencies,
+    LocksHeld: locks_held,
+  }
+}
+
+type LockableExt struct {
+  Owner *NodeID `json:"owner"`
+  Requirements map[NodeID]string `json:"requirements"`
+  Dependencies map[NodeID]string `json:"dependencies"`
+  LocksHeld map[NodeID]*NodeID `json:"locks_held"`
+}
+
+func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
+  dep_ext, err := GetExt[*LockableExt](dependency)
+  if err != nil {
+    return err
+  }
+
+  _, exists := dep_ext.Requirements[requirement]
+  if exists == true {
+    return fmt.Errorf("%s is already a requirement of %s", requirement, dependency.ID)
+  }
+
+  _, exists = dep_ext.Dependencies[requirement]
+  if exists == true {
+    return fmt.Errorf("%s is a dependency of %s, cannot link as requirement", requirement, dependency.ID)
+  }
+
+  dep_ext.Requirements[requirement] = "start"
+  return ctx.Send(dependency.ID, requirement, NewLinkSignal("req_link"))
+}
 
 func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal LinkSignal) {
-  ctx.Log.Logf("lockable", "LINK_SIGNAL: %+v", signal)
+  ctx.Log.Logf("lockable", "LINK_SIGNAL: %s->%s %+v", source, node.ID, signal)
+  state := signal.State
+  switch state {
+  // sent by a node to link this node as a requirement
+  case "req_link":
+    _, exists := ext.Requirements[source]
+    if exists == false {
+      dep_state, exists := ext.Dependencies[source]
+      if exists == false {
+        ext.Dependencies[source] = "start"
+        ctx.Send(node.ID, source, NewLinkSignal("dep_link"))
+      } else if dep_state == "start" {
+        ext.Dependencies[source] = "linked"
+        ctx.Send(node.ID, source, NewLinkSignal("dep_linked"))
+      }
+    } else {
+      delete(ext.Requirements, source)
+      ctx.Send(node.ID, source, NewLinkSignal("req_reset"))
+    }
+  case "dep_link":
+    _, exists := ext.Dependencies[source]
+    if exists == false {
+      req_state, exists := ext.Requirements[source]
+      if exists == false {
+        ext.Requirements[source] = "start"
+        ctx.Send(node.ID, source, NewLinkSignal("req_link"))
+      } else if req_state == "start" {
+        ext.Requirements[source] = "linked"
+        ctx.Send(node.ID, source, NewLinkSignal("req_linked"))
+      }
+    } else {
+      delete(ext.Dependencies, source)
+      ctx.Send(node.ID, source, NewLinkSignal("dep_reset"))
+    }
+  case "dep_reset":
+    ctx.Log.Logf("lockable", "%s reset %s dependency state", node.ID, source)
+  case "req_reset":
+    ctx.Log.Logf("lockable", "%s reset %s requirement state", node.ID, source)
+  case "dep_linked":
+    ctx.Log.Logf("lockable", "%s is a dependency of %s", node.ID, source)
+  case "req_linked":
+    ctx.Log.Logf("lockable", "%s is a requirement of %s", node.ID, source)
+  default:
+    ctx.Log.Logf("lockable", "LINK_ERROR: unknown state %s", state)
+  }
 }
 
 func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
@@ -98,7 +169,7 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
   switch signal.Direction() {
   case Up:
     owner_sent := false
-    for _, dependency := range(ext.Dependencies) {
+    for dependency, _ := range(ext.Dependencies) {
       err := ctx.Send(node.ID, dependency, signal)
       if err != nil {
         ctx.Log.Logf("signal", "LOCKABLE_SIGNAL_ERR: %s->%s - %e", node.ID, dependency, err)
@@ -120,16 +191,16 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
       }
     }
   case Down:
-    for _, requirement := range(ext.Requirements) {
+    for requirement, _ := range(ext.Requirements) {
       err := ctx.Send(node.ID, requirement, signal)
       if err != nil {
         ctx.Log.Logf("signal", "LOCKABLE_SIGNAL_ERR: %s->%s - %e", node.ID, requirement, err)
       }
     }
   case Direct:
-    switch sig := signal.(type) {
-    case LinkSignal:
-      ext.HandleLinkSignal(ctx, source, node, sig)
+    switch signal.Type() {
+    case LinkSignalType:
+      ext.HandleLinkSignal(ctx, source, node, signal.(LinkSignal))
     default:
     }
   default:

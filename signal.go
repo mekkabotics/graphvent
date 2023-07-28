@@ -98,14 +98,24 @@ func NewStatusSignal(status string, source NodeID) StatusSignal {
   }
 }
 
+const LinkSignalType = SignalType("LINK")
 type LinkSignal struct {
-  IDSignal
+  BaseSignal
   State string `json:"state"`
 }
 
-func NewLinkSignal(state string, source NodeID) LinkSignal {
+func (signal LinkSignal) Serialize() ([]byte, error) {
+  return json.MarshalIndent(signal, "", "  ")
+}
+
+func (signal LinkSignal) String() string {
+  ser, _ := signal.Serialize()
+  return string(ser)
+}
+
+func NewLinkSignal(state string) LinkSignal {
   return LinkSignal{
-    IDSignal: NewIDSignal("link", Direct, source),
+    BaseSignal: NewDirectSignal(LinkSignalType),
     State: state,
   }
 }

@@ -10,7 +10,7 @@ import (
 )
 
 func TestGQLDB(t * testing.T) {
-  ctx := logTestContext(t, []string{"loop", "node", "thread", "test", "signal", "policy", "db"})
+  ctx := logTestContext(t, []string{})
 
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})

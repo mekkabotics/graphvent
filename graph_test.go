@@ -13,6 +13,35 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
+func (t * GraphTester) WaitForLinkState(ctx * Context, listener *ListenerExt, state string, timeout time.Duration, str string) Signal {
+  timeout_channel := time.After(timeout)
+  for true {
+    select {
+    case signal := <- listener.Chan:
+      if signal == nil {
+        ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
+        t.Fatal(str)
+      }
+      if signal.Type() == LinkSignalType {
+        sig, ok := signal.(LinkSignal)
+        if ok == true {
+          ctx.Log.Logf("test", "Link state received: %s", sig.State)
+          if sig.State == state {
+            return signal
+          }
+        } else {
+          ctx.Log.Logf("test", "Failed to cast signal to LinkSignal: %+v", signal)
+        }
+      }
+    case <-timeout_channel:
+      pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
+      t.Fatal(str)
+      return nil
+    }
+  }
+  return nil
+}
+
 func (t * GraphTester) WaitForStatus(ctx * Context, listener *ListenerExt, status string, timeout time.Duration, str string) Signal {
   timeout_channel := time.After(timeout)
   for true {
@@ -57,7 +86,7 @@ func (t * GraphTester) CheckForNone(listener *ListenerExt, str string) {
 const SimpleListenerNodeType = NodeType("SIMPLE_LISTENER")
 
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
-  policy := NewAllNodesPolicy([]string{"signal.status", "requirements.write", "requirements.read", "dependencies.write", "dependencies.read", "owner.read", "owner.write"})
+  policy := NewAllNodesPolicy([]SignalType{SignalType("status")})
   listener_extension := NewListenerExt(buffer)
   listener := NewNode(ctx,
                       RandID(),
