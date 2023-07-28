@@ -67,24 +67,13 @@ func (ext *LockableExt) Serialize() ([]byte, error) {
   return json.MarshalIndent(ext, "", "  ")
 }
 
-func NewLockableExt(owner *NodeID, requirements map[NodeID]string, dependencies map[NodeID]string, locks_held map[NodeID]*NodeID) *LockableExt {
-  if requirements == nil {
-    requirements = map[NodeID]string{}
-  }
-
-  if dependencies == nil {
-    dependencies = map[NodeID]string{}
-  }
-
-  if locks_held == nil {
-    locks_held = map[NodeID]*NodeID{}
-  }
-
+func NewLockableExt() *LockableExt {
   return &LockableExt{
-    Owner: owner,
-    Requirements: requirements,
-    Dependencies: dependencies,
-    LocksHeld: locks_held,
+    Owner: nil,
+    Requirements: map[NodeID]string{},
+    Dependencies: map[NodeID]string{},
+    LocksHeld: map[NodeID]*NodeID{},
+    LockStates: map[NodeID]string{},
   }
 }
 
@@ -92,7 +81,23 @@ type LockableExt struct {
   Owner *NodeID `json:"owner"`
   Requirements map[NodeID]string `json:"requirements"`
   Dependencies map[NodeID]string `json:"dependencies"`
+  LockStates map[NodeID]string `json:"lock_states"`
   LocksHeld map[NodeID]*NodeID `json:"locks_held"`
+}
+
+func LockLockable(ctx *Context, node *Node) error {
+  ext, err := GetExt[*LockableExt](node)
+  if err != nil {
+    return err
+  }
+
+  _, exists := ext.LockStates[node.ID]
+  if exists == true {
+    return fmt.Errorf("%s is already being locked, cannot lock again", node.ID)
+  }
+
+  ext.LockStates[node.ID] = "start"
+  return ctx.Send(node.ID, node.ID, NewLockSignal("lock"))
 }
 
 func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
@@ -115,7 +120,16 @@ func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
   return ctx.Send(dependency.ID, requirement, NewLinkSignal("req_link"))
 }
 
-func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal LinkSignal) {
+func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
+  ctx.Log.Logf("lockable", "LOCK_SIGNAL: %s->%s %+v", source, node.ID, signal)
+  state := signal.State
+  switch state {
+  default:
+    ctx.Log.Logf("lockable", "LOCK_ERR: unkown state %s", state)
+  }
+}
+
+func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
   ctx.Log.Logf("lockable", "LINK_SIGNAL: %s->%s %+v", source, node.ID, signal)
   state := signal.State
   switch state {
@@ -212,7 +226,9 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
   case Direct:
     switch signal.Type() {
     case LinkSignalType:
-      ext.HandleLinkSignal(ctx, source, node, signal.(LinkSignal))
+      ext.HandleLinkSignal(ctx, source, node, signal.(StateSignal))
+    case LockSignalType:
+      ext.HandleLockSignal(ctx, source, node, signal.(StateSignal))
     default:
     }
   default:

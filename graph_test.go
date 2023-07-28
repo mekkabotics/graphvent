@@ -13,7 +13,7 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForLinkState(ctx * Context, listener *ListenerExt, state string, timeout time.Duration, str string) Signal {
+func (t * GraphTester) WaitForState(ctx * Context, listener *ListenerExt, stype SignalType, state string, timeout time.Duration, str string) Signal {
   timeout_channel := time.After(timeout)
   for true {
     select {
@@ -22,15 +22,13 @@ func (t * GraphTester) WaitForLinkState(ctx * Context, listener *ListenerExt, st
         ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
         t.Fatal(str)
       }
-      if signal.Type() == LinkSignalType {
-        sig, ok := signal.(LinkSignal)
+      if signal.Type() == stype {
+        sig, ok := signal.(StateSignal)
         if ok == true {
-          ctx.Log.Logf("test", "Link state received: %s", sig.State)
+          ctx.Log.Logf("test", "%s state received: %s", stype, sig.State)
           if sig.State == state {
             return signal
           }
-        } else {
-          ctx.Log.Logf("test", "Failed to cast signal to LinkSignal: %+v", signal)
         }
       }
     case <-timeout_channel:
@@ -94,7 +92,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
                       nil,
                       listener_extension,
                       NewACLExt(&policy),
-                      NewLockableExt(nil, nil, nil, nil))
+                      NewLockableExt())
 
   return listener, listener_extension
 }
