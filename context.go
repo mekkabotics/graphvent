@@ -9,21 +9,24 @@ import (
   "encoding/binary"
 )
 
+// A Type can be Hashed by Hash
 type Type interface {
   String() string
   Prefix() string
 }
 
+// Hashed a Type to a uint64
 func Hash(t Type) uint64 {
   hash := sha512.Sum512([]byte(fmt.Sprintf("%s%s", t.Prefix(), t.String())))
   return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
-
+// NodeType identifies the 'class' of a node
 type NodeType string
 func (node NodeType) Prefix() string { return "NODE: " }
 func (node NodeType) String() string { return string(node) }
 
+// ExtType identifies an extension on a node
 type ExtType string
 func (ext ExtType) Prefix() string { return "EXTENSION: " }
 func (ext ExtType) String() string { return string(ext) }
@@ -31,6 +34,7 @@ func (ext ExtType) String() string { return string(ext) }
 //Function to load an extension from bytes
 type ExtensionLoadFunc func(*Context, []byte) (Extension, error)
 
+// ExtType and NodeType constants
 const (
   ACLExtType = ExtType("ACL")
   ListenerExtType = ExtType("LISTENER")
@@ -42,16 +46,23 @@ const (
   GQLNodeType = NodeType("GQL")
 )
 
+var (
+  NodeNotFoundError = errors.New("Node not found in DB")
+)
+
 // Information about a registered extension
 type ExtensionInfo struct {
+  // Function used to load extensions of this type from the database
   Load ExtensionLoadFunc
   Type ExtType
+  // Extra context data shared between nodes of this class
   Data interface{}
 }
 
 // Information about a registered node type
 type NodeInfo struct {
   Type NodeType
+  // Required extensions to be a valid node of this class
   Extensions []ExtType
 }
 
@@ -119,8 +130,7 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
   return nil
 }
 
-var NodeNotFoundError = errors.New("Node not found in DB")
-
+// Get a node from the context, or load from the database if not loaded
 func (ctx *Context) GetNode(id NodeID) (*Node, error) {
   target, exists := ctx.Nodes[id]
   if exists == false {

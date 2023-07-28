@@ -5,11 +5,13 @@ import (
   "fmt"
 )
 
+// A Listener extension provides a channel that can receive signals on a different thread
 type ListenerExt struct {
   Buffer int
   Chan chan Signal
 }
 
+// Create a new listener extension with a given buffer size
 func NewListenerExt(buffer int) *ListenerExt {
   return &ListenerExt{
     Buffer: buffer,
@@ -17,6 +19,7 @@ func NewListenerExt(buffer int) *ListenerExt {
   }
 }
 
+// Simple load function, unmarshal the buffer int from json
 func LoadListenerExt(ctx *Context, data []byte) (Extension, error) {
   var j int
   err := json.Unmarshal(data, &j)
@@ -31,6 +34,7 @@ func (listener *ListenerExt) Type() ExtType {
   return ListenerExtType
 }
 
+// Send the signal to the channel, logging an overflow if it occurs
 func (ext *ListenerExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
   ctx.Log.Logf("signal", "LISTENER_PROCESS: %s - %+v", node.ID, signal)
   select {
@@ -41,16 +45,51 @@ func (ext *ListenerExt) Process(ctx *Context, princ_id NodeID, node *Node, signa
   return
 }
 
+// ReqState holds the multiple states of a requirement
+type ReqState struct {
+  Link string `json:"link"`
+  Lock string `json:"lock"`
+}
+
+// A LockableExt allows a node to be linked to other nodes(via LinkSignal) and locked/unlocked(via LockSignal)
+type LockableExt struct {
+  Owner *NodeID
+  PendingOwner *NodeID
+  Requirements map[NodeID]ReqState
+  Dependencies map[NodeID]string
+}
+
+type LockableExtJSON struct {
+  Owner *NodeID `json:"owner"`
+  PendingOwner *NodeID `json:"pending_owner"`
+  Requirements map[string]ReqState `json:"requirements"`
+  Dependencies map[string]string `json:"dependencies"`
+}
+
+// Simple json load function: TODO: make these a generic function as before
 func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
-  var ext LockableExt
-  err := json.Unmarshal(data, &ext)
+  var j LockableExtJSON
+  err := json.Unmarshal(data, &j)
   if err != nil {
     return nil, err
   }
 
-  ctx.Log.Logf("db", "DB_LOADING_LOCKABLE_EXT_JSON: %+v", ext)
+  requirements, err := LoadIDMap(j.Requirements)
+  if err != nil {
+    return nil, err
+  }
 
-  return &ext, nil
+  dependencies, err := LoadIDMap(j.Dependencies)
+  if err != nil {
+    return nil, err
+  }
+
+  return &LockableExt{
+    Owner: j.Owner,
+    PendingOwner: j.PendingOwner,
+    Requirements: requirements,
+    Dependencies: dependencies,
+  }, nil
 }
 
 func (ext *ListenerExt) Serialize() ([]byte, error) {
@@ -62,7 +101,12 @@ func (ext *LockableExt) Type() ExtType {
 }
 
 func (ext *LockableExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(ext, "", "  ")
+  return json.MarshalIndent(&LockableExtJSON{
+    Owner: ext.Owner,
+    PendingOwner: ext.PendingOwner,
+    Requirements: IDMap(ext.Requirements),
+    Dependencies: IDMap(ext.Dependencies),
+  }, "", "  ")
 }
 
 func NewLockableExt() *LockableExt {
@@ -74,26 +118,17 @@ func NewLockableExt() *LockableExt {
   }
 }
 
-type ReqState struct {
-  Link string `json:"link"`
-  Lock string `json:"lock"`
-}
-
-type LockableExt struct {
-  Owner *NodeID `json:"owner"`
-  PendingOwner *NodeID `json:"pending_owner"`
-  Requirements map[NodeID]ReqState `json:"requirements"`
-  Dependencies map[NodeID]string `json:"dependencies"`
-}
-
+// Send the signal to unlock a node from itself
 func UnlockLockable(ctx *Context, node *Node) error {
   return ctx.Send(node.ID, node.ID, NewLockSignal("unlock"))
 }
 
+// Send the signal to lock a node from itself
 func LockLockable(ctx *Context, node *Node) error {
   return ctx.Send(node.ID, node.ID, NewLockSignal("lock"))
 }
 
+// Setup a node to send the initial requirement link signal, then send the signal
 func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
   dep_ext, err := GetExt[*LockableExt](dependency)
   if err != nil {
@@ -114,6 +149,7 @@ func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
   return ctx.Send(dependency.ID, requirement, NewLinkSignal("link_as_req"))
 }
 
+// Handle a LockSignal and update the extensions owner/requirement states
 func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
   ctx.Log.Logf("lockable", "LOCK_SIGNAL: %s->%s %+v", source, node.ID, signal)
   state := signal.State
@@ -269,8 +305,8 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   }
 }
 
-// TODO: don't allow changes to requirements or dependencies while being locked or locked
-// TODO: add unlink
+// Handle LinkSignal, updating the extensions requirements and dependencies as necessary
+// TODO: Add unlink
 func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
   ctx.Log.Logf("lockable", "LINK_SIGNAL: %s->%s %+v", source, node.ID, signal)
   state := signal.State
@@ -339,6 +375,8 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node
   }
 }
 
+// LockableExts process Up/Down signals by forwarding them to owner, dependency, and requirement nodes
+// LockSignal and LinkSignal Direct signals are processed to update the requirement/dependency/lock state
 func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
   ctx.Log.Logf("signal", "LOCKABLE_PROCESS: %s", node.ID)
 
@@ -387,90 +425,5 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
     }
   default:
   }
-}
-
-func SaveNode(node *Node) string {
-  str := ""
-  if node != nil {
-    str = node.ID.String()
-  }
-  return str
-}
-
-func RestoreNode(ctx *Context, id_str string) (*Node, error) {
-  if id_str == "" {
-    return nil, nil
-  }
-  id, err := ParseID(id_str)
-  if err != nil {
-    return nil, err
-  }
-
-  return LoadNode(ctx, id)
-}
-
-func SaveNodeMap(nodes NodeMap) map[string]string {
-  m := map[string]string{}
-  for id, node := range(nodes) {
-    m[id.String()] = SaveNode(node)
-  }
-  return m
-}
-
-func RestoreNodeMap(ctx *Context, ids map[string]string) (NodeMap, error) {
-  nodes := NodeMap{}
-  for id_str_1, id_str_2 := range(ids) {
-    id_1, err := ParseID(id_str_1)
-    if err != nil {
-      return nil, err
-    }
-
-    node_1, err := LoadNode(ctx, id_1)
-    if err != nil {
-      return nil, err
-    }
-
-
-    var node_2 *Node = nil
-    if id_str_2 != "" {
-      id_2, err := ParseID(id_str_2)
-      if err != nil {
-        return nil, err
-      }
-      node_2, err = LoadNode(ctx, id_2)
-      if err != nil {
-        return nil, err
-      }
-    }
-
-    nodes[node_1.ID] = node_2
-  }
-
-  return nodes, nil
-}
-
-func SaveNodeList(nodes NodeMap) []string {
-  ids := make([]string, len(nodes))
-  i := 0
-  for id, _ := range(nodes) {
-    ids[i] = id.String()
-    i += 1
-  }
-
-  return ids
-}
-
-func RestoreNodeList(ctx *Context, ids []string) (NodeMap, error) {
-  nodes := NodeMap{}
-
-  for _, id_str := range(ids) {
-    node, err := RestoreNode(ctx, id_str)
-    if err != nil {
-      return nil, err
-    }
-    nodes[node.ID] = node
-  }
-
-  return nodes, nil
 }
 

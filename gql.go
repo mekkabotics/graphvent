@@ -30,7 +30,6 @@ import (
   "encoding/pem"
 )
 
-
 type AuthReqJSON struct {
   Time time.Time `json:"time"`
   Pubkey []byte `json:"pubkey"`

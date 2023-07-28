@@ -71,7 +71,11 @@ func LoadECDHExt(ctx *Context, data []byte) (Extension, error) {
 }
 
 type GroupExt struct {
-  Members NodeMap
+  Members map[NodeID]string
+}
+
+type GroupExtJSON struct {
+  Members map[string]string `json:"members"`
 }
 
 func (ext *GroupExt) Type() ExtType {
@@ -79,40 +83,36 @@ func (ext *GroupExt) Type() ExtType {
 }
 
 func (ext *GroupExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(&struct{
-    Members []string `json:"members"`
-  }{
-    Members: SaveNodeList(ext.Members),
+  return json.MarshalIndent(&GroupExtJSON{
+    Members: IDMap(ext.Members),
   }, "", "  ")
 }
 
-func NewGroupExt(members NodeMap) *GroupExt {
+func NewGroupExt(members map[NodeID]string) *GroupExt {
   if members == nil {
-    members = NodeMap{}
+    members = map[NodeID]string{}
   }
+
   return &GroupExt{
     Members: members,
   }
 }
 
 func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
-  var j struct {
-    Members []string `json:"members"`
-  }
-
+  var j GroupExtJSON
   err := json.Unmarshal(data, &j)
+
+  members, err := LoadIDMap(j.Members)
   if err != nil {
     return nil, err
   }
 
-  members, err := RestoreNodeList(ctx, j.Members)
-  if err != nil {
-    return nil, err
-  }
-
-  return NewGroupExt(members), nil
+  return &GroupExt{
+    Members: members,
+  }, nil
 }
 
 func (ext *GroupExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
   return
 }
+

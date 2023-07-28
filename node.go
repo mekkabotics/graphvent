@@ -299,7 +299,10 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
     NextSignal: next_signal,
   }
   ctx.Nodes[id] = node
-  WriteNode(ctx, node)
+  err := WriteNode(ctx, node)
+  if err != nil {
+    panic(err)
+  }
 
   go runNode(ctx, node)
 
@@ -451,6 +454,7 @@ func WriteNode(ctx *Context, node *Node) error {
   }
 
   id_bytes := node.ID.Serialize()
+  ctx.Log.Logf("db", "DB_WRITE_ID: %+v", id_bytes)
 
   return ctx.DB.Update(func(txn *badger.Txn) error {
     return txn.Set(id_bytes, bytes)
@@ -461,7 +465,9 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   ctx.Log.Logf("db", "LOADING_NODE: %s", id)
   var bytes []byte
   err := ctx.DB.View(func(txn *badger.Txn) error {
-    item, err := txn.Get(id.Serialize())
+    id_bytes := id.Serialize()
+    ctx.Log.Logf("db", "DB_READ_ID: %+v", id_bytes)
+    item, err := txn.Get(id_bytes)
     if err != nil {
       return err
     }
@@ -682,4 +688,24 @@ func del[K comparable](list []K, val K) []K {
 
   list[idx] = list[len(list)-1]
   return list[:len(list)-1]
+}
+
+func IDMap[S any, T map[NodeID]S](m T)map[string]S {
+  ret := map[string]S{}
+  for id, val := range(m) {
+    ret[id.String()] = val
+  }
+  return ret
+}
+
+func LoadIDMap[S any, T map[string]S](m T)(map[NodeID]S, error) {
+  ret := map[NodeID]S{}
+  for str, val := range(m) {
+    id, err := ParseID(str)
+    if err != nil {
+      return nil, err
+    }
+    ret[id] = val
+  }
+  return ret, nil
 }
