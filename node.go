@@ -129,9 +129,9 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   }
 }
 
-func RunNode(ctx *Context, node *Node) {
+func runNode(ctx *Context, node *Node) {
   ctx.Log.Logf("node", "RUN_START: %s", node.ID)
-  err := NodeLoop(ctx, node)
+  err := nodeLoop(ctx, node)
   if err != nil {
     panic(err)
   }
@@ -144,7 +144,7 @@ type Msg struct {
 }
 
 // Main Loop for Threads, starts a write context, so cannot be called from a write or read context
-func NodeLoop(ctx *Context, node *Node) error {
+func nodeLoop(ctx *Context, node *Node) error {
   started := node.Active.CompareAndSwap(false, true)
   if started == false {
     return fmt.Errorf("%s is already started, will not start again", node.ID)
@@ -302,7 +302,7 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
   ctx.Nodes[id] = node
   WriteNode(ctx, node)
 
-  go RunNode(ctx, node)
+  go runNode(ctx, node)
 
   return node
 }
@@ -557,7 +557,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
 
   ctx.Log.Logf("db", "DB_NODE_LOADED: %s", id)
 
-  go RunNode(ctx, node)
+  go runNode(ctx, node)
 
   return node, nil
 }
@@ -601,24 +601,6 @@ func ACLList(list []*Node, resources []string) ACLMap {
     }
   }
   return reqs
-}
-
-type NodeType string
-func (node NodeType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("NODE: %s", string(node))))
-  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
-}
-
-type PolicyType string
-func (policy PolicyType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("POLICY: %s", string(policy))))
-  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
-}
-
-type ExtType string
-func (ext ExtType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("EXTENSION: %s", string(ext))))
-  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
 type NodeMap map[NodeID]*Node

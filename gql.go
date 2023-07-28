@@ -30,7 +30,6 @@ import (
   "encoding/pem"
 )
 
-const GQLNodeType = NodeType("GQL")
 
 type AuthReqJSON struct {
   Time time.Time `json:"time"`
@@ -817,7 +816,6 @@ func (ext *GQLExt) Process(context *Context, princ_id NodeID, node *Node, signal
   return
 }
 
-const GQLExtType = ExtType("gql_thread")
 func (ext *GQLExt) Type() ExtType {
   return GQLExtType
 }

@@ -5,6 +5,18 @@ import (
   "fmt"
 )
 
+type PolicyType string
+func (policy PolicyType) Hash() uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("POLICY: %s", string(policy))))
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
+}
+
+const (
+  RequirementOfPolicyType = PolicyType("REQUIREMENT_OF")
+  PerNodePolicyType = PolicyType("PER_NODE")
+  AllNodesPolicyType = PolicyType("ALL_NODES")
+)
+
 type Policy interface {
   Serializable[PolicyType]
   Allows(principal_id NodeID, action SignalType, node *Node) error
@@ -44,7 +56,6 @@ func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action SignalType
   return fmt.Errorf("%s is not a requirement of %s", principal_id, node.ID)
 }
 
-const RequirementOfPolicyType = PolicyType("REQUIREMENT_OF")
 type RequirementOfPolicy struct {
   AllNodesPolicy
 }
@@ -113,7 +124,6 @@ type PerNodePolicy struct {
   NodeActions NodeActions `json:"node_actions"`
 }
 
-const PerNodePolicyType = PolicyType("PER_NODE")
 func (policy *PerNodePolicy) Type() PolicyType {
   return PerNodePolicyType
 }
@@ -136,7 +146,6 @@ type AllNodesPolicy struct {
   Actions Actions
 }
 
-const AllNodesPolicyType = PolicyType("ALL_NODES")
 func (policy *AllNodesPolicy) Type() PolicyType {
   return AllNodesPolicyType
 }
@@ -261,7 +270,6 @@ func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
   return NewACLExt(policies...), nil
 }
 
-const ACLExtType = ExtType("ACL")
 func (ext *ACLExt) Type() ExtType {
   return ACLExtType
 }

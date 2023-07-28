@@ -7,8 +7,37 @@ import (
   "runtime"
 )
 
+type NodeType string
+func (node NodeType) Hash() uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("NODE: %s", string(node))))
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
+}
+
+type PolicyType string
+func (policy PolicyType) Hash() uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("POLICY: %s", string(policy))))
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
+}
+
+type ExtType string
+func (ext ExtType) Hash() uint64 {
+  hash := sha512.Sum512([]byte(fmt.Sprintf("EXTENSION: %s", string(ext))))
+  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
+}
+
 //Function to load an extension from bytes
 type ExtensionLoadFunc func(*Context, []byte) (Extension, error)
+
+const (
+  ACLExtType = ExtType("ACL")
+  ListenerExtType = ExtType("LISTENER")
+  LockableExtType = ExtType("LOCKABLE")
+  GQLExtType = ExtType("GQL")
+  GroupExtType = ExtType("GROUP")
+  ECDHExtType = ExtType("ECDH")
+
+  GQLNodeType = NodeType("GQL")
+)
 
 // Information about a registered extension
 type ExtensionInfo struct {
@@ -99,6 +128,13 @@ func (ctx *Context) GetNode(id NodeID) (*Node, error) {
     }
   }
   return target, nil
+}
+
+// Stop every running loop
+func (ctx *Context) Stop() {
+  for _, node := range(ctx.Nodes) {
+    node.MsgChan <- Msg{ZeroID, StopSignal}
+  }
 }
 
 // Route a Signal to dest. Currently only local context routing is supported

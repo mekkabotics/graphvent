@@ -27,7 +27,6 @@ func LoadListenerExt(ctx *Context, data []byte) (Extension, error) {
   return NewListenerExt(j), nil
 }
 
-const ListenerExtType = ExtType("LISTENER")
 func (listener *ListenerExt) Type() ExtType {
   return ListenerExtType
 }
@@ -58,7 +57,6 @@ func (ext *ListenerExt) Serialize() ([]byte, error) {
   return json.MarshalIndent(ext.Buffer, "", "  ")
 }
 
-const LockableExtType = ExtType("LOCKABLE")
 func (ext *LockableExt) Type() ExtType {
   return LockableExtType
 }

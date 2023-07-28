@@ -24,7 +24,6 @@ func (ext *ECDHExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Si
   return
 }
 
-const ECDHExtType = ExtType("ECDH")
 func (ext *ECDHExt) Type() ExtType {
   return ECDHExtType
 }
@@ -75,7 +74,6 @@ type GroupExt struct {
   Members NodeMap
 }
 
-const GroupExtType = ExtType("GROUP")
 func (ext *GroupExt) Type() ExtType {
   return GroupExtType
 }
