@@ -113,7 +113,7 @@ func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
   }
 
   dep_ext.Requirements[requirement] = ReqState{"linking", "unlocked"}
-  return ctx.Send(dependency.ID, requirement, NewLinkSignal("req_link"))
+  return ctx.Send(dependency.ID, requirement, NewLinkSignal("link_as_req"))
 }
 
 func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
@@ -272,62 +272,69 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
 }
 
 // TODO: don't allow changes to requirements or dependencies while being locked or locked
+// TODO: add unlink
 func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
   ctx.Log.Logf("lockable", "LINK_SIGNAL: %s->%s %+v", source, node.ID, signal)
   state := signal.State
   switch state {
-  // sent by a node to link this node as a requirement
-  case "req_link":
-    _, exists := ext.Requirements[source]
-    if exists == false {
-      dep_state, exists := ext.Dependencies[source]
-      if exists == false {
-        ext.Dependencies[source] = "linking"
-        ctx.Send(node.ID, source, NewLinkSignal("dep_link"))
-      } else if dep_state == "linking" {
-        ext.Dependencies[source] = "linked"
-        ctx.Send(node.ID, source, NewLinkSignal("dep_linked"))
+  case "link_as_dep":
+    state, exists := ext.Requirements[source]
+    if exists == true && state.Link == "linked" {
+      ctx.Send(node.ID, source, NewLinkSignal("already_req"))
+    } else if state.Link == "linking" {
+      state.Link = "linked"
+      ext.Requirements[source] = state
+      ctx.Send(node.ID, source, NewLinkSignal("linked_as_dep"))
+    } else if ext.PendingOwner != ext.Owner {
+      if ext.Owner == nil {
+        ctx.Send(node.ID, source, NewLinkSignal("locking"))
+      } else {
+        ctx.Send(node.ID, source, NewLinkSignal("unlocking"))
       }
     } else {
-      delete(ext.Requirements, source)
-      ctx.Send(node.ID, source, NewLinkSignal("req_reset"))
-    }
-  case "dep_link":
-    _, exists := ext.Dependencies[source]
-    if exists == false {
-      req_state, exists := ext.Requirements[source]
-      if exists == false {
-        ext.Requirements[source] = ReqState{"linking", "unlocked"}
-        ctx.Send(node.ID, source, NewLinkSignal("req_link"))
-      } else if req_state.Link == "linking" {
-        req_state.Link = "linked"
-        ext.Requirements[source] = req_state
-        ctx.Send(node.ID, source, NewLinkSignal("req_linked"))
-      }
-    } else {
-      delete(ext.Dependencies, source)
-      ctx.Send(node.ID, source, NewLinkSignal("dep_reset"))
-    }
-  case "dep_reset":
-    ctx.Log.Logf("lockable", "%s reset %s dependency state", node.ID, source)
-  case "req_reset":
-    ctx.Log.Logf("lockable", "%s reset %s requirement state", node.ID, source)
-  case "dep_linked":
-    ctx.Log.Logf("lockable", "%s is a dependency of %s", node.ID, source)
-    req_state, exists := ext.Requirements[source]
-    if exists == true && req_state.Link == "linking" {
-      req_state.Link = "linked"
-      ext.Requirements[source] = req_state
-      ctx.Send(node.ID, source, NewLinkSignal("req_linked"))
+      ext.Requirements[source] = ReqState{"linking", "unlocked"}
+      ctx.Send(node.ID, source, NewLinkSignal("link_as_req"))
     }
 
-  case "req_linked":
-    ctx.Log.Logf("lockable", "%s is a requirement of %s", node.ID, source)
-    dep_state, exists := ext.Dependencies[source]
-    if exists == true && dep_state == "linking" {
+  case "link_as_req":
+    state, exists := ext.Dependencies[source]
+    if exists == true && state == "linked" {
+      ctx.Send(node.ID, source, NewLinkSignal("already_dep"))
+    } else if state == "linking" {
       ext.Dependencies[source] = "linked"
-      ctx.Send(node.ID, source, NewLinkSignal("dep_linked"))
+      ctx.Send(node.ID, source, NewLinkSignal("linked_as_req"))
+    } else if ext.PendingOwner != ext.Owner {
+      if ext.Owner == nil {
+        ctx.Send(node.ID, source, NewLinkSignal("locking"))
+      } else {
+        ctx.Send(node.ID, source, NewLinkSignal("unlocking"))
+      }
+    } else {
+      ext.Dependencies[source] = "linking"
+      ctx.Send(node.ID, source, NewLinkSignal("link_as_dep"))
     }
+  case "linked_as_dep":
+    state, exists := ext.Dependencies[source]
+    if exists == false {
+      ctx.Send(node.ID, source, NewLinkSignal("not_linking"))
+    } else if state == "linked" {
+    } else if state == "linking" {
+      ext.Dependencies[source] = "linked"
+      ctx.Send(node.ID, source, NewLinkSignal("linked_as_req"))
+    }
+    ctx.Log.Logf("lockable", "%s is a dependency of %s", node.ID, source)
+
+  case "linked_as_req":
+    state, exists := ext.Requirements[source]
+    if exists == false {
+      ctx.Send(node.ID, source, NewLinkSignal("not_linking"))
+    } else if state.Link == "linked" {
+    } else if state.Link == "linking" {
+      state.Link = "linked"
+      ext.Requirements[source] = state
+      ctx.Send(node.ID, source, NewLinkSignal("linked_as_dep"))
+    }
+    ctx.Log.Logf("lockable", "%s is a requirement of %s", node.ID, source)
 
   default:
     ctx.Log.Logf("lockable", "LINK_ERROR: unknown state %s", state)
