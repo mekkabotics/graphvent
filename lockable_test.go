@@ -21,7 +21,7 @@ var link_policy = NewAllNodesPolicy(Actions{MakeAction(LinkSignalType, "*"), Mak
 var lock_policy = NewAllNodesPolicy(Actions{MakeAction(LockSignalType, "*")})
 
 func TestLink(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"lockable"})
+  ctx := lockableTestContext(t, []string{})
 
   l1_listener := NewListenerExt(10)
   l1 := NewNode(ctx, RandID(), TestLockableType, nil,
@@ -51,7 +51,7 @@ func TestLink(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"policy"})
+  ctx := lockableTestContext(t, []string{})
 
   NewLockable := func()(*Node, *ListenerExt) {
     listener := NewListenerExt(10)

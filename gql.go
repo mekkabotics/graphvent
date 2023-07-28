@@ -804,6 +804,10 @@ func (ext *GQLExt) NewSubscriptionChannel(buffer int) chan Signal {
 }
 
 func (ext *GQLExt) Process(context *Context, princ_id NodeID, node *Node, signal Signal) {
+  if signal.Type() == ReadResultSignalType {
+  }
+
+
   ext.SubscribeLock.Lock()
   defer ext.SubscribeLock.Unlock()
 

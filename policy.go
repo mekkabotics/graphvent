@@ -122,8 +122,11 @@ func MakeAction(parts ...interface{}) Action {
 }
 
 func (action Action) Allows(test Action) bool {
+  action_len := len(action)
   for i, part := range(test) {
-    if action[i] == part || action[i] == "*" {
+    if i >= action_len {
+      return false
+    } else if action[i] == part || action[i] == "*" {
       continue
     } else if action[i] == "+" {
       break
@@ -147,6 +150,33 @@ func (actions Actions) Allows(action Action) error {
 }
 
 type NodeActions map[NodeID]Actions
+
+func (actions NodeActions) MarshalJSON() ([]byte, error) {
+  tmp := map[string]Actions{}
+  for id, a := range(actions) {
+    tmp[id.String()] = a
+  }
+  return json.Marshal(tmp)
+}
+
+func (actions NodeActions) UnmarshalJSON(data []byte) error {
+  tmp := map[string]Actions{}
+  err := json.Unmarshal(data, &tmp)
+  if err != nil {
+    return err
+  }
+
+  for id_str, a := range(tmp) {
+    id, err := ParseID(id_str)
+    if err != nil {
+      return err
+    }
+
+    actions[id] = a
+  }
+
+  return nil
+}
 
 type AllNodesPolicyJSON struct {
   Actions Actions `json:"actions"`
@@ -350,7 +380,6 @@ func (ext *ACLExt) Type() ExtType {
 
 // Check if the extension allows the principal to perform action on node
 func (ext *ACLExt) Allows(ctx *Context, principal_id NodeID, action Action, node *Node) error {
-  ctx.Log.Logf("policy", "POLICY_EXT_ALLOWED: %+v", ext)
   errs := []error{}
   for _, policy := range(ext.Policies) {
     err := policy.Allows(principal_id, action, node)

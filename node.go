@@ -160,6 +160,7 @@ func ReadNodeFields(ctx *Context, self *Node, princ NodeID, reqs map[ExtType][]s
         }
       }
     }
+    exts[ext_type] = fields
   }
   return exts
 }
@@ -198,8 +199,8 @@ func nodeLoop(ctx *Context, node *Node) error {
       if ok == false {
         ctx.Log.Logf("signal", "READ_SIGNAL: bad cast %+v", signal)
       } else {
-        fields := ReadNodeFields(ctx, node, source, read_signal.Extensions)
-        ctx.Log.Logf("test", "READ_RESULT: %+v", fields)
+        result := ReadNodeFields(ctx, node, source, read_signal.Extensions)
+        ctx.Send(node.ID, source, NewReadResultSignal(result))
       }
     }
 
@@ -341,19 +342,27 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
 }
 
 func Allowed(ctx *Context, principal_id NodeID, action Action, node *Node) error {
-  ctx.Log.Logf("policy", "POLICY_CHECK: %s %s.%s", principal_id, node.ID, action)
+  ctx.Log.Logf("policy", "POLICY_CHECK: %s -> %s.%s", principal_id, node.ID, action)
   // Nodes are allowed to perform all actions on themselves regardless of whether or not they have an ACL extension
   if principal_id == node.ID {
+    ctx.Log.Logf("policy", "POLICY_CHECK_SAME_NODE: %s.%s", principal_id, action)
     return nil
   }
 
   // Check if the node has a policy extension itself, and check against the policies in it
   policy_ext, err := GetExt[*ACLExt](node)
   if err != nil {
+    ctx.Log.Logf("policy", "POLICY_CHECK_NO_ACL_EXT: %s", node.ID)
     return err
   }
 
-  return policy_ext.Allows(ctx, principal_id, action, node)
+  err = policy_ext.Allows(ctx, principal_id, action, node)
+  if err != nil {
+    ctx.Log.Logf("policy", "POLICY_CHECK_FAIL: %s -> %s.%s : %s", principal_id, node.ID, action, err)
+  } else {
+    ctx.Log.Logf("policy", "POLICY_CHECK_PASS: %s -> %s.%s", principal_id, node.ID, action)
+  }
+  return err
 }
 
 // Magic first four bytes of serialized DB content, stored big endian

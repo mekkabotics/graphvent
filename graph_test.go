@@ -13,7 +13,33 @@ import (
 type GraphTester testing.T
 const listner_timeout = 50 * time.Millisecond
 
-func (t * GraphTester) WaitForState(ctx * Context, listener *ListenerExt, stype SignalType, state string, timeout time.Duration, str string) Signal {
+func (t *GraphTester) WaitForReadResult(ctx *Context, listener *ListenerExt, timeout time.Duration, str string) map[ExtType]map[string]interface{} {
+  timeout_channel := time.After(timeout)
+  for true {
+    select {
+    case signal := <- listener.Chan:
+      ctx.Log.Logf("test", "SIGNAL %+v", signal)
+      if signal == nil {
+        ctx.Log.Logf("test", "SIGNAL_CHANNEL_CLOSED: %s", listener)
+        t.Fatal(str)
+      }
+      if signal.Type() == ReadResultSignalType {
+        result_signal, ok := signal.(ReadResultSignal)
+        if ok == false {
+          ctx.Log.Logf("test", "SIGNAL_CHANNEL_BAD_CAST: %+v", signal)
+          t.Fatal(str)
+        }
+        return result_signal.Extensions
+      }
+    case <-timeout_channel:
+      ctx.Log.Logf("test", "SIGNAL_CHANNEL_TIMEOUT: %+v", listener)
+      t.Fatal(str)
+    }
+  }
+  return nil
+}
+
+func (t *GraphTester) WaitForState(ctx * Context, listener *ListenerExt, stype SignalType, state string, timeout time.Duration, str string) Signal {
   timeout_channel := time.After(timeout)
   for true {
     select {

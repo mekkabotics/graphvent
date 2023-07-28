@@ -10,6 +10,7 @@ const (
   LinkSignalType = SignalType("LINK")
   LockSignalType = SignalType("LOCK")
   ReadSignalType = SignalType("READ")
+  ReadResultSignalType = SignalType("READ_RESULT")
 )
 
 type SignalDirection int
@@ -153,6 +154,18 @@ type ReadSignal struct {
 func NewReadSignal(exts map[ExtType][]string) ReadSignal {
   return ReadSignal{
     BaseSignal: NewDirectSignal(ReadSignalType),
+    Extensions: exts,
+  }
+}
+
+type ReadResultSignal struct {
+  BaseSignal
+  Extensions map[ExtType]map[string]interface{} `json:"extensions"`
+}
+
+func NewReadResultSignal(exts map[ExtType]map[string]interface{}) ReadResultSignal {
+  return ReadResultSignal{
+    BaseSignal: NewDirectSignal(ReadResultSignalType),
     Extensions: exts,
   }
 }
