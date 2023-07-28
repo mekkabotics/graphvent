@@ -102,7 +102,11 @@ func TestLock(t *testing.T) {
   err = LockLockable(ctx, l1)
   fatalErr(t, err)
   (*GraphTester)(t).WaitForState(ctx, l1_listener, LockSignalType, "locked", time.Millisecond*10, "No locked")
-  err = LockLockable(ctx, l0)
-  fatalErr(t, err)
   (*GraphTester)(t).WaitForState(ctx, l1_listener, LockSignalType, "locked", time.Millisecond*10, "No locked")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LockSignalType, "locked", time.Millisecond*10, "No locked")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LockSignalType, "locked", time.Millisecond*10, "No locked")
+  (*GraphTester)(t).WaitForState(ctx, l1_listener, LockSignalType, "locked", time.Millisecond*10, "No locked")
+
+  err = UnlockLockable(ctx, l1)
+  fatalErr(t, err)
 }
