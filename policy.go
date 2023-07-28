@@ -3,6 +3,8 @@ package graphvent
 import (
   "encoding/json"
   "fmt"
+  "crypto/sha512"
+  "encoding/binary"
 )
 
 type PolicyType string

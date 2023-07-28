@@ -9,7 +9,6 @@ import (
   "fmt"
   "encoding/binary"
   "encoding/json"
-  "crypto/sha512"
   "sync/atomic"
 )
 

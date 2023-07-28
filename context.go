@@ -5,17 +5,13 @@ import (
   "fmt"
   "errors"
   "runtime"
+  "crypto/sha512"
+  "encoding/binary"
 )
 
 type NodeType string
 func (node NodeType) Hash() uint64 {
   hash := sha512.Sum512([]byte(fmt.Sprintf("NODE: %s", string(node))))
-  return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
-}
-
-type PolicyType string
-func (policy PolicyType) Hash() uint64 {
-  hash := sha512.Sum512([]byte(fmt.Sprintf("POLICY: %s", string(policy))))
   return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
 
