@@ -17,17 +17,17 @@ const (
 
 type Policy interface {
   Serializable[PolicyType]
-  Allows(principal_id NodeID, action SignalType, node *Node) error
+  Allows(principal_id NodeID, action Action, node *Node) error
   // Merge with another policy of the same underlying type
   Merge(Policy) Policy
 }
 
 //TODO: Update with change from principal *Node to principal_id so sane policies can still be made
-func (policy *AllNodesPolicy) Allows(principal_id NodeID, action SignalType, node *Node) error {
+func (policy *AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   return policy.Actions.Allows(action)
 }
 
-func (policy *PerNodePolicy) Allows(principal_id NodeID, action SignalType, node *Node) error {
+func (policy *PerNodePolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   for id, actions := range(policy.NodeActions) {
     if id != principal_id {
       continue
@@ -41,7 +41,7 @@ func (policy *PerNodePolicy) Allows(principal_id NodeID, action SignalType, node
   return fmt.Errorf("%s is not in per node policy of %s", principal_id, node.ID)
 }
 
-func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action SignalType, node *Node) error {
+func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
   lockable_ext, err := GetExt[*LockableExt](node)
   if err != nil {
     return err
@@ -114,9 +114,10 @@ func (policy *RequirementOfPolicy) Merge(p Policy) Policy {
   return policy
 }
 
-type Actions []SignalType
+type Action string
+type Actions []Action
 
-func (actions Actions) Allows(action SignalType) error {
+func (actions Actions) Allows(action Action) error {
   for _, a := range(actions) {
     if a == action {
       return nil
@@ -320,7 +321,7 @@ func (ext *ACLExt) Type() ExtType {
 }
 
 // Check if the extension allows the principal to perform action on node
-func (ext *ACLExt) Allows(ctx *Context, principal_id NodeID, action SignalType, node *Node) error {
+func (ext *ACLExt) Allows(ctx *Context, principal_id NodeID, action Action, node *Node) error {
   ctx.Log.Logf("policy", "POLICY_EXT_ALLOWED: %+v", ext)
   errs := []error{}
   for _, policy := range(ext.Policies) {

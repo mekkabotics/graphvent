@@ -16,6 +16,7 @@ type SignalType string
 type Signal interface {
   Serializable[SignalType]
   Direction() SignalDirection
+  Permission() Action
 }
 
 type BaseSignal struct {
@@ -25,6 +26,10 @@ type BaseSignal struct {
 
 func (signal BaseSignal) Type() SignalType {
   return signal.SignalType
+}
+
+func (signal BaseSignal) Permission() Action {
+  return Action(signal.Type())
 }
 
 func (signal BaseSignal) Direction() SignalDirection {
