@@ -13,12 +13,10 @@ import (
 )
 
 const (
-  // Size of node message channels
-  NODE_MSG_CHAN_DEFAULT = 1024
   // Magic first four bytes of serialized DB content, stored big endian
   NODE_DB_MAGIC = 0x2491df14
   // Total length of the node database header, has magic to verify and type_hash to map to load function
-  NODE_DB_HEADER_LEN = 20
+  NODE_DB_HEADER_LEN = 24
   EXTENSION_DB_HEADER_LEN = 16
 )
 
@@ -103,6 +101,8 @@ type Node struct {
 
   // Channel for this node to receive messages from the Context
   MsgChan chan Msg
+  // Size of MsgChan
+  BufferSize uint32
   // Channel for this node to process delayed signals
   TimeoutChan <-chan time.Time
 
@@ -272,6 +272,7 @@ func (node *Node) Serialize() ([]byte, error) {
     Header: NodeDBHeader{
       Magic: NODE_DB_MAGIC,
       TypeHash: Hash(node.Type),
+      BufferSize: node.BufferSize,
       NumExtensions: uint32(len(extensions)),
       NumQueuedSignals: uint32(len(node.SignalQueue)),
     },
@@ -299,7 +300,7 @@ func (node *Node) Serialize() ([]byte, error) {
 }
 
 // Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []QueuedSignal, extensions ...Extension) *Node {
+func NewNode(ctx *Context, id NodeID, node_type NodeType, buffer_size uint32, queued_signals []QueuedSignal, extensions ...Extension) *Node {
   _, exists := ctx.Node(id)
   if exists == true {
     panic("Attempted to create an existing node")
@@ -336,7 +337,8 @@ func NewNode(ctx *Context, id NodeID, node_type NodeType, queued_signals []Queue
     ID: id,
     Type: node_type,
     Extensions: ext_map,
-    MsgChan: make(chan Msg, NODE_MSG_CHAN_DEFAULT),
+    MsgChan: make(chan Msg, buffer_size),
+    BufferSize: buffer_size,
     TimeoutChan: timeout_chan,
     SignalQueue: queued_signals,
     NextSignal: next_signal,
@@ -381,6 +383,7 @@ type NodeDBHeader struct {
   Magic uint32
   NumExtensions uint32
   NumQueuedSignals uint32
+  BufferSize uint32
   TypeHash uint64
 }
 
@@ -399,7 +402,8 @@ func NewNodeDB(data []byte) (NodeDB, error) {
   magic := binary.BigEndian.Uint32(data[0:4])
   num_extensions := binary.BigEndian.Uint32(data[4:8])
   num_queued_signals := binary.BigEndian.Uint32(data[8:12])
-  node_type_hash := binary.BigEndian.Uint64(data[12:20])
+  buffer_size := binary.BigEndian.Uint32(data[12:16])
+  node_type_hash := binary.BigEndian.Uint64(data[16:24])
 
   ptr += NODE_DB_HEADER_LEN
 
@@ -438,6 +442,7 @@ func NewNodeDB(data []byte) (NodeDB, error) {
     Header: NodeDBHeader{
       Magic: magic,
       TypeHash: node_type_hash,
+      BufferSize: buffer_size,
       NumExtensions: num_extensions,
       NumQueuedSignals: num_queued_signals,
     },
@@ -455,7 +460,8 @@ func (header NodeDBHeader) Serialize() []byte {
   binary.BigEndian.PutUint32(ret[0:4], header.Magic)
   binary.BigEndian.PutUint32(ret[4:8], header.NumExtensions)
   binary.BigEndian.PutUint32(ret[8:12], header.NumQueuedSignals)
-  binary.BigEndian.PutUint64(ret[12:20], header.TypeHash)
+  binary.BigEndian.PutUint32(ret[12:16], header.BufferSize)
+  binary.BigEndian.PutUint64(ret[16:24], header.TypeHash)
   return ret
 }
 
@@ -545,7 +551,8 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     ID: id,
     Type: node_type.Type,
     Extensions: map[ExtType]Extension{},
-    MsgChan: make(chan Msg, NODE_MSG_CHAN_DEFAULT),
+    MsgChan: make(chan Msg, node_db.Header.BufferSize),
+    BufferSize: node_db.Header.BufferSize,
     TimeoutChan: timeout_chan,
     SignalQueue: node_db.QueuedSignals,
     NextSignal: next_signal,

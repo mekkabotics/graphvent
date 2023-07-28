@@ -76,7 +76,7 @@ type Context struct {
   // Map between database extension hashes and the registered info
   Extensions map[uint64]ExtensionInfo
   // Map between database type hashes and the registered info
-  Types map[uint64]NodeInfo
+  Types map[uint64]*NodeInfo
   // Routing map to all the nodes local to this context
   NodesLock sync.RWMutex
   Nodes map[NodeID]*Node
@@ -105,7 +105,7 @@ func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) e
     ext_found[extension] = true
   }
 
-  ctx.Types[type_hash] = NodeInfo{
+  ctx.Types[type_hash] = &NodeInfo{
     Type: node_type,
     Extensions: extensions,
   }
@@ -192,7 +192,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     DB: db,
     Log: log,
     Extensions: map[uint64]ExtensionInfo{},
-    Types: map[uint64]NodeInfo{},
+    Types: map[uint64]*NodeInfo{},
     Nodes: map[NodeID]*Node{},
   }
 

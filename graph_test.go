@@ -115,6 +115,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
   listener := NewNode(ctx,
                       RandID(),
                       SimpleListenerNodeType,
+                      10,
                       nil,
                       listener_extension,
                       NewACLExt(policy),
