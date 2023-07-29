@@ -25,7 +25,7 @@ func NewSingleton[K graphql.Type](init func() K, post_init func(K, *graphql.List
   }
 }
 
-func AddNodeInterfaceFields(gql *GQLInterface) {
+func AddNodeInterfaceFields(gql *Interface) {
   gql.Interface.AddFieldConfig("ID", &graphql.Field{
     Type: graphql.String,
   })
@@ -35,11 +35,11 @@ func AddNodeInterfaceFields(gql *GQLInterface) {
   })
 }
 
-func AddLockableInterfaceFields(gql *GQLInterface) {
-  addLockableInterfaceFields(gql, GQLInterfaceLockable)
+func AddLockableInterfaceFields(gql *Interface) {
+  addLockableInterfaceFields(gql, InterfaceLockable)
 }
 
-func addLockableInterfaceFields(gql *GQLInterface, gql_lockable *GQLInterface) {
+func addLockableInterfaceFields(gql *Interface, gql_lockable *Interface) {
   AddNodeInterfaceFields(gql)
 
   gql.Interface.AddFieldConfig("Requirements", &graphql.Field{
@@ -108,15 +108,15 @@ func NodeResolver(required_extensions []ExtType, default_type **graphql.Object)f
   }
 }
 
-var GQLInterfaceNode = NewGQLInterface("Node", "DefaultNode", []*graphql.Interface{}, []ExtType{}, func(gql *GQLInterface) {
+var InterfaceNode = NewInterface("Node", "DefaultNode", []*graphql.Interface{}, []ExtType{}, func(gql *Interface) {
   AddNodeInterfaceFields(gql)
-}, func(gql *GQLInterface) {
+}, func(gql *Interface) {
   AddNodeFields(gql.Default)
 })
 
-var GQLInterfaceLockable = NewGQLInterface("Lockable", "DefaultLockable", []*graphql.Interface{GQLInterfaceNode.Interface}, []ExtType{LockableExtType}, func(gql *GQLInterface) {
+var InterfaceLockable = NewInterface("Lockable", "DefaultLockable", []*graphql.Interface{InterfaceNode.Interface}, []ExtType{LockableExtType}, func(gql *Interface) {
   addLockableInterfaceFields(gql, gql)
-}, func(gql *GQLInterface) {
+}, func(gql *Interface) {
   addLockableFields(gql.Default, gql.Interface, gql.List)
 })
 

@@ -3,19 +3,19 @@ import (
   "github.com/graphql-go/graphql"
 )
 
-func GQLSubscribeSignal(p graphql.ResolveParams) (interface{}, error) {
-  return GQLSubscribeFn(p, false, func(ctx *Context, server *Node, ext *GQLExt, signal Signal, p graphql.ResolveParams)(interface{}, error) {
-    return signal, nil
+func SubscribeNode(p graphql.ResolveParams) (interface{}, error) {
+  return SubscribeFn(p, false, func(ctx *Context, server *Node, ext *GQLExt, signal Signal, p graphql.ResolveParams)(interface{}, error) {
+    return nil, nil
   })
 }
 
-func GQLSubscribeSelf(p graphql.ResolveParams) (interface{}, error) {
-  return GQLSubscribeFn(p, true, func(ctx *Context, server *Node, ext *GQLExt, signal Signal, p graphql.ResolveParams)(interface{}, error) {
+func SubscribeSelf(p graphql.ResolveParams) (interface{}, error) {
+  return SubscribeFn(p, true, func(ctx *Context, server *Node, ext *GQLExt, signal Signal, p graphql.ResolveParams)(interface{}, error) {
     return server, nil
   })
 }
 
-func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *Node, *GQLExt, Signal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
+func SubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *Node, *GQLExt, Signal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
   ctx, err := PrepResolve(p)
   if err != nil {
     return nil, err
@@ -24,7 +24,7 @@ func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *N
   c := make(chan interface{})
   go func(c chan interface{}, ext *GQLExt, server *Node) {
     ctx.Context.Log.Logf("gqlws", "GQL_SUBSCRIBE_THREAD_START")
-    sig_c := ext.NewSubscriptionChannel(1)
+    sig_c := make(chan Signal, 1)
     if send_nil == true {
       sig_c <- nil
     }
@@ -44,26 +44,32 @@ func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *N
   return c, nil
 }
 
-var GQLSubscriptionSelf = NewField(func()*graphql.Field{
-  gql_subscription_self := &graphql.Field{
-    Type: GQLInterfaceNode.Default,
+var SubscriptionSelf = NewField(func()*graphql.Field{
+  subscription_self := &graphql.Field{
+    Type: InterfaceNode.Default,
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
       return p.Source, nil
     },
-    Subscribe: GQLSubscribeSelf,
+    Subscribe: SubscribeSelf,
   }
 
-  return gql_subscription_self
+  return subscription_self
 })
 
-var GQLSubscriptionUpdate = NewField(func()*graphql.Field{
-  gql_subscription_update := &graphql.Field{
-    Type: GQLTypeSignal.Type,
+var SubscriptionNode = NewField(func()*graphql.Field{
+  subscription_node := &graphql.Field{
+    Type: InterfaceNode.Default,
+    Args: graphql.FieldConfigArgument{
+    "id": &graphql.ArgumentConfig{
+        Type: graphql.String,
+      },
+    },
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
       return p.Source, nil
     },
-    Subscribe: GQLSubscribeSignal,
+    Subscribe: SubscribeNode,
   }
-  return gql_subscription_update
+
+  return subscription_node
 })
 

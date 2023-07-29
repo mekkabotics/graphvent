@@ -13,13 +13,13 @@ import (
 )
 
 // A Type can be Hashed by Hash
-type Type interface {
+type TypeName interface {
   String() string
   Prefix() string
 }
 
 // Hashed a Type to a uint64
-func Hash(t Type) uint64 {
+func Hash(t TypeName) uint64 {
   hash := sha512.Sum512([]byte(fmt.Sprintf("%s%s", t.Prefix(), t.String())))
   return binary.BigEndian.Uint64(hash[(len(hash)-9):(len(hash)-1)])
 }
@@ -273,7 +273,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = gql_ctx.RegisterNodeType(GQLNodeType, GQLTypeGQLNode.Type)
+  err = gql_ctx.RegisterNodeType(GQLNodeType, TypeGQLNode.Type)
   if err != nil {
     return nil, err
   }

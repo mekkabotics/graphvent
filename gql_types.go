@@ -17,7 +17,7 @@ func AddNodeFields(object *graphql.Object) {
 }
 
 func AddLockableFields(object *graphql.Object) {
-  addLockableFields(object, GQLInterfaceLockable.Interface, GQLInterfaceLockable.List)
+  addLockableFields(object, InterfaceLockable.Interface, InterfaceLockable.List)
 }
 
 func addLockableFields(object *graphql.Object, lockable_interface *graphql.Interface, lockable_list *graphql.List) {
@@ -38,10 +38,10 @@ func addLockableFields(object *graphql.Object, lockable_interface *graphql.Inter
   })
 }
 
-var GQLNodeInterfaces = []*graphql.Interface{GQLInterfaceNode.Interface}
-var GQLLockableInterfaces = append(GQLNodeInterfaces, GQLInterfaceLockable.Interface)
+var GQLNodeInterfaces = []*graphql.Interface{InterfaceNode.Interface}
+var GQLLockableInterfaces = append(GQLNodeInterfaces, InterfaceLockable.Interface)
 
-var GQLTypeGQLNode = NewGQLNodeType(GQLNodeType, GQLNodeInterfaces, func(gql *GQLType) {
+var TypeGQLNode = NewGQLNodeType(GQLNodeType, GQLNodeInterfaces, func(gql *Type) {
   AddNodeFields(gql.Type)
 
   gql.Type.AddFieldConfig("Listen", &graphql.Field{
@@ -50,7 +50,7 @@ var GQLTypeGQLNode = NewGQLNodeType(GQLNodeType, GQLNodeInterfaces, func(gql *GQ
   })
 })
 
-var GQLTypeSignal = NewSingleton(func() *graphql.Object {
+var TypeSignal = NewSingleton(func() *graphql.Object {
   gql_type_signal := graphql.NewObject(graphql.ObjectConfig{
     Name: "Signal",
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {

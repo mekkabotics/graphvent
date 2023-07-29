@@ -23,8 +23,9 @@ const (
   ReadResultSignalType      = "READ_RESULT"
   LinkStartSignalType       = "LINK_START"
   ECDHSignalType            = "ECDH"
-  ECDHStateSignalType            = "ECDH_STATE"
+  ECDHStateSignalType       = "ECDH_STATE"
   ECDHProxySignalType       = "ECDH_PROXY"
+  GQLStateSignalType        = "GQL_STATE"
 
   Up SignalDirection = iota
   Down

@@ -3,10 +3,17 @@ package graphvent
 import (
   "testing"
   "time"
+  "fmt"
+  "encoding/json"
+  "io"
+  "net/http"
+  "net"
+  "crypto/tls"
+  "bytes"
 )
 
 func TestGQL(t *testing.T) {
-  ctx := logTestContext(t, []string{})
+  ctx := logTestContext(t, []string{"test", "gql", "policy"})
 
   TestNodeType := NodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType, ACLExtType})
@@ -16,14 +23,47 @@ func TestGQL(t *testing.T) {
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   policy := NewAllNodesPolicy(Actions{MakeAction("+")})
-  gql := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext, listener_ext)
-  n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy))
+  gql := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext)
+  n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), listener_ext)
 
-  LinkRequirement(ctx, gql.ID, n1.ID)
-  _, err = WaitForSignal(ctx, listener_ext, time.Millisecond*10, LinkSignalType, func(sig StateSignal) bool {
-    return sig.State == "linked_as_req"
+  ctx.Send(n1.ID, gql.ID, StateSignal{NewDirectSignal(GQLStateSignalType), "start_server"})
+  _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, GQLStateSignalType, func(sig StateSignal) bool {
+    return sig.State == "server_started"
   })
   fatalErr(t, err)
+
+  skipVerifyTransport := &http.Transport{
+    TLSClientConfig:       &tls.Config{InsecureSkipVerify: true},
+  }
+  client := &http.Client{Transport: skipVerifyTransport}
+  port := gql_ext.tcp_listener.Addr().(*net.TCPAddr).Port
+  url := fmt.Sprintf("https://localhost:%d/gql", port)
+
+  ser, err := json.MarshalIndent(&GQLPayload{
+    Query: "query { Self { ID } }",
+  }, "", "  ")
+  fatalErr(t, err)
+
+  req_data := bytes.NewBuffer(ser)
+
+  req, err := http.NewRequest("GET", url, req_data)
+  req.SetBasicAuth(n1.ID.String(), "BAD_PASSWORD")
+  fatalErr(t, err)
+
+  resp, err := client.Do(req)
+  fatalErr(t, err)
+
+  body, err := io.ReadAll(resp.Body)
+  fatalErr(t, err)
+
+  resp.Body.Close()
+
+  ctx.Log.Logf("test", "TEST_RESP: %s", body)
+
+  ctx.Send(n1.ID, gql.ID, StateSignal{NewDirectSignal(GQLStateSignalType), "stop_server"})
+  _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, GQLStateSignalType, func(sig StateSignal) bool {
+    return sig.State == "server_stopped"
+  })
 }
 
 func TestGQLDB(t *testing.T) {
