@@ -16,39 +16,28 @@ func AddNodeFields(object *graphql.Object) {
   })
 }
 
-func AddLockableFields(object *graphql.Object) {
-  addLockableFields(object, InterfaceLockable.Interface, InterfaceLockable.List)
+var NodeInterfaces = []*Interface{InterfaceNode}
+var LockableInterfaces = append(NodeInterfaces, InterfaceLockable)
+
+func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init func(*Type)) *Type {
+  var gql Type
+  gql.Type = graphql.NewObject(graphql.ObjectConfig{
+    Name: string(node_type),
+    Interfaces: interfaces,
+    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      node, ok := p.Value.(NodeResult)
+      if ok == false {
+        return false
+      }
+      return node.Result.NodeType == node_type
+    },
+    Fields: graphql.Fields{},
+  })
+  gql.List = graphql.NewList(gql.Type)
+
+  init(&gql)
+  return &gql
 }
-
-func addLockableFields(object *graphql.Object, lockable_interface *graphql.Interface, lockable_list *graphql.List) {
-  AddNodeFields(object)
-  object.AddFieldConfig("Requirements", &graphql.Field{
-    Type: lockable_list,
-    Resolve: ResolveRequirements,
-  })
-
-  object.AddFieldConfig("Owner", &graphql.Field{
-    Type: lockable_interface,
-    Resolve: ResolveOwner,
-  })
-
-  object.AddFieldConfig("Dependencies", &graphql.Field{
-    Type: lockable_list,
-    Resolve: ResolveDependencies,
-  })
-}
-
-var GQLNodeInterfaces = []*graphql.Interface{InterfaceNode.Interface}
-var GQLLockableInterfaces = append(GQLNodeInterfaces, InterfaceLockable.Interface)
-
-var TypeGQLNode = NewGQLNodeType(GQLNodeType, GQLNodeInterfaces, func(gql *Type) {
-  AddNodeFields(gql.Type)
-
-  gql.Type.AddFieldConfig("Listen", &graphql.Field{
-    Type: graphql.String,
-    Resolve: ResolveListen,
-  })
-})
 
 var TypeSignal = NewSingleton(func() *graphql.Object {
   gql_type_signal := graphql.NewObject(graphql.ObjectConfig{

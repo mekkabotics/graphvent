@@ -459,29 +459,10 @@ type Type struct {
   List *graphql.List
 }
 
-func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init func(*Type)) *Type {
-  var gql Type
-  gql.Type = graphql.NewObject(graphql.ObjectConfig{
-    Name: string(node_type),
-    Interfaces: interfaces,
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      node, ok := p.Value.(NodeResult)
-      if ok == false {
-        return false
-      }
-      return node.Result.NodeType == node_type
-    },
-    Fields: graphql.Fields{},
-  })
-  gql.List = graphql.NewList(gql.Type)
-
-  init(&gql)
-  return &gql
-}
-
 type Field struct {
   Ext ExtType
   Name string
+  Field *graphql.Field
 }
 
 // GQL Specific Context information
@@ -491,7 +472,7 @@ type GQLExtContext struct {
 
   // Custom graphql types, mapped to NodeTypes
   NodeTypes map[NodeType]*graphql.Object
-  Interfaces []*Interface
+  Interfaces map[string]*Interface
   Fields map[string]Field
 
   // Schema parameters
@@ -536,17 +517,48 @@ func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
   return graphql.NewSchema(schemaConfig)
 }
 
-func (ctx *GQLExtContext) RegisterField(gql_name string, ext ExtType, acl_name string) error {
+func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name string, ext_type ExtType, acl_name string, resolve_fn func(T)(interface{}, error)) error {
+  if ctx == nil {
+    return fmt.Errorf("ctx is nil")
+  }
+
+  if resolve_fn == nil {
+    return fmt.Errorf("resolve_fn cannot be nil")
+  }
+
   _, exists := ctx.Fields[gql_name]
   if exists == true {
     return fmt.Errorf("%s is already a field in the context, cannot add again", gql_name)
   }
 
-  ctx.Fields[gql_name] = Field{ext, acl_name}
+  ctx.Fields[gql_name] = Field{ext_type, acl_name, &graphql.Field{
+    Type: gql_type,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      return ResolveNodeResult(p, func(result NodeResult) (interface{}, error) {
+        ext, exists := result.Result.Extensions[ext_type]
+        if exists == false {
+          return nil, fmt.Errorf("%s is not in the extensions of the result", ext_type)
+        }
+
+        val_if, exists := ext[acl_name]
+        if exists == false {
+          return nil, fmt.Errorf("%s is not in the fields of %s in the result", acl_name, ext_type)
+        }
+
+        var zero T
+        val, ok := val_if.(T)
+        if ok == false {
+          return nil, fmt.Errorf("%s.%s is not %s", ext_type, acl_name, reflect.TypeOf(zero))
+        }
+
+        return resolve_fn(val)
+      })
+    },
+  }}
   return nil
 }
 
-func (ctx *GQLExtContext) AddInterface(i *Interface) error {
+func (ctx *GQLExtContext) RegisterInterface(i *Interface) error {
   if i == nil {
     return fmt.Errorf("interface is nil")
   }
@@ -555,21 +567,71 @@ func (ctx *GQLExtContext) AddInterface(i *Interface) error {
     return fmt.Errorf("invalid interface, contains nil")
   }
 
-  ctx.Interfaces = append(ctx.Interfaces, i)
+  name := i.Interface.PrivateName
+  _, exists := ctx.Interfaces[name]
+  if exists == true {
+    return fmt.Errorf("%s is already an interface in ctx", name)
+  }
+
+  ctx.Interfaces[name] = i
   ctx.Types = append(ctx.Types, i.Default)
 
   return nil
 }
 
-func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, gql_type *graphql.Object) error {
-  if gql_type == nil {
-    return fmt.Errorf("gql_type is nil")
+func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, name string, interfaces []*Interface, field_names []string) error {
+  if field_names == nil {
+    return fmt.Errorf("fields is nil")
   }
 
   _, exists := ctx.NodeTypes[node_type]
   if exists == true {
     return fmt.Errorf("%s already in GQLExtContext.NodeTypes", node_type)
   }
+
+  node_interfaces := make([]*graphql.Interface, len(interfaces))
+  for i, in := range(interfaces) {
+    if_name := in.Interface.PrivateName
+    _, found := ctx.Interfaces[if_name]
+
+    if found == false {
+      return fmt.Errorf("%+v is not in GQLExtContext.Interfaces", in)
+    }
+    node_interfaces[i] = in.Interface
+  }
+
+  fields := graphql.Fields{
+    "ID": &graphql.Field{
+      Type: graphql.String,
+      Resolve: ResolveNodeID,
+    },
+    "TypeHash": &graphql.Field{
+      Type: graphql.String,
+      Resolve: ResolveNodeTypeHash,
+    },
+  }
+
+  for _, name := range(field_names) {
+    field, exists := ctx.Fields[name]
+    if exists == false {
+      return fmt.Errorf("%s is not in GQLExtContext.Fields", name)
+    }
+    fields[name] = field.Field
+  }
+
+  gql_type := graphql.NewObject(graphql.ObjectConfig{
+    Name: name,
+    Interfaces: node_interfaces,
+    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      node, ok := p.Value.(NodeResult)
+      if ok == false {
+        return false
+      }
+
+      return node.Result.NodeType == node_type
+    },
+    Fields: fields,
+  })
 
   ctx.NodeTypes[node_type] = gql_type
   ctx.Types = append(ctx.Types, gql_type)
@@ -608,16 +670,16 @@ func NewGQLExtContext() *GQLExtContext {
     Mutation: mutation,
     Subscription: subscription,
     NodeTypes: map[NodeType]*graphql.Object{},
-    Interfaces: []*Interface{},
+    Interfaces: map[string]*Interface{},
     Fields: map[string]Field{},
   }
 
   var err error
-  err = context.AddInterface(InterfaceNode)
+  err = context.RegisterInterface(InterfaceNode)
   if err != nil {
     panic(err)
   }
-  err = context.AddInterface(InterfaceLockable)
+  err = context.RegisterInterface(InterfaceLockable)
   if err != nil {
     panic(err)
   }

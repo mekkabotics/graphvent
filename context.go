@@ -2,6 +2,7 @@ package graphvent
 
 import (
   badger "github.com/dgraph-io/badger/v3"
+  "github.com/graphql-go/graphql"
   "fmt"
   "sync"
   "errors"
@@ -273,12 +274,14 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = gql_ctx.RegisterNodeType(GQLNodeType, TypeGQLNode.Type)
+  err = RegisterField(gql_ctx, graphql.String, "Listen", GQLExtType, "listen", func(listen string) (interface{}, error) {
+    return listen, nil
+  })
   if err != nil {
     return nil, err
   }
 
-  err = gql_ctx.RegisterField("Listen", GQLExtType, "listen")
+  err = gql_ctx.RegisterNodeType(GQLNodeType, "GQLServer", NodeInterfaces, []string{"Listen"})
   if err != nil {
     return nil, err
   }

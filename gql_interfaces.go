@@ -139,6 +139,17 @@ var InterfaceNode = NewInterface("Node", "DefaultNode", []*graphql.Interface{}, 
 var InterfaceLockable = NewInterface("Lockable", "DefaultLockable", []*graphql.Interface{InterfaceNode.Interface}, []ExtType{LockableExtType}, func(gql *Interface) {
   addLockableInterfaceFields(gql, gql)
 }, func(gql *Interface) {
-  addLockableFields(gql.Default, gql.Interface, gql.List)
+  AddNodeFields(gql.Default)
+  gql.Default.AddFieldConfig("Requirements", &graphql.Field{
+    Type: gql.List,
+  })
+
+  gql.Default.AddFieldConfig("Owner", &graphql.Field{
+    Type: gql.Interface,
+  })
+
+  gql.Default.AddFieldConfig("Dependencies", &graphql.Field{
+    Type: gql.List,
+  })
 })
 
