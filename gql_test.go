@@ -5,7 +5,28 @@ import (
   "time"
 )
 
-func TestGQLDB(t * testing.T) {
+func TestGQL(t *testing.T) {
+  ctx := logTestContext(t, []string{})
+
+  TestNodeType := NodeType("TEST")
+  err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType, ACLExtType})
+  fatalErr(t, err)
+
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
+  fatalErr(t, err)
+  listener_ext := NewListenerExt(10)
+  policy := NewAllNodesPolicy(Actions{MakeAction("+")})
+  gql := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext, listener_ext)
+  n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy))
+
+  LinkRequirement(ctx, gql.ID, n1.ID)
+  _, err = WaitForSignal(ctx, listener_ext, time.Millisecond*10, LinkSignalType, func(sig StateSignal) bool {
+    return sig.State == "linked_as_req"
+  })
+  fatalErr(t, err)
+}
+
+func TestGQLDB(t *testing.T) {
   ctx := logTestContext(t, []string{})
 
   TestUserNodeType := NodeType("TEST_USER")
@@ -15,7 +36,8 @@ func TestGQLDB(t * testing.T) {
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
-  gql_ext := NewGQLExt(ctx, ":0", nil, nil)
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
+  fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   gql := NewNode(ctx, nil, GQLNodeType, 10, nil,
                  gql_ext,

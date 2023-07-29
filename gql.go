@@ -687,19 +687,19 @@ func LoadGQLExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  return NewGQLExt(ctx, j.Listen, j.TLSCert, j.TLSKey), nil
+  return NewGQLExt(ctx, j.Listen, j.TLSCert, j.TLSKey)
 }
 
-func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) *GQLExt {
+func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*GQLExt, error) {
   if tls_cert == nil || tls_key == nil {
     ssl_key, err := ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
     if err != nil {
-      panic(err)
+      return nil, err
     }
 
     ssl_key_bytes, err := x509.MarshalECPrivateKey(ssl_key)
     if err != nil {
-      panic(err)
+      return nil, err
     }
 
     ssl_key_pem := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ssl_key_bytes})
@@ -722,7 +722,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) *GQ
 
     ssl_cert, err := x509.CreateCertificate(rand.Reader, &template, &template, &ssl_key.PublicKey, ssl_key)
     if err != nil {
-      panic(err)
+      return nil, err
     }
 
     ssl_cert_pem := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ssl_cert})
@@ -735,7 +735,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) *GQ
     SubscribeListeners: []chan Signal{},
     tls_cert: tls_cert,
     tls_key: tls_key,
-  }
+  }, nil
 }
 
 func StartGQLServer(ctx *Context, node *Node, gql_ext *GQLExt) error {
