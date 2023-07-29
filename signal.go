@@ -1,21 +1,26 @@
 package graphvent
 
 import (
+  "time"
+  "fmt"
   "encoding/json"
-)
-
-const (
-  StopSignalType = SignalType("STOP")
-  StatusSignalType = SignalType("STATUS")
-  LinkSignalType = SignalType("LINK")
-  LockSignalType = SignalType("LOCK")
-  ReadSignalType = SignalType("READ")
-  ReadResultSignalType = SignalType("READ_RESULT")
-  LinkStartSignalType = SignalType("LINK_START")
+  "crypto/sha512"
+  "crypto/ecdsa"
+  "crypto/ecdh"
+  "crypto/rand"
 )
 
 type SignalDirection int
 const (
+  StopSignalType SignalType = "STOP"
+  StatusSignalType          = "STATUS"
+  LinkSignalType            = "LINK"
+  LockSignalType            = "LOCK"
+  ReadSignalType            = "READ"
+  ReadResultSignalType      = "READ_RESULT"
+  LinkStartSignalType       = "LINK_START"
+  ECDHSignalType            = "ECDH"
+
   Up SignalDirection = iota
   Down
   Direct
@@ -29,9 +34,34 @@ func (signal_type SignalType) String() string {
 type Signal interface {
   Serializable[SignalType]
   Direction() SignalDirection
-  MarshalJSON() ([]byte, error)
   Permission() Action
 }
+
+func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
+  var zero S
+  timeout_channel := time.After(timeout)
+  for true {
+    select {
+    case signal := <- listener.Chan:
+      if signal == nil {
+        return zero, fmt.Errorf("LISTENER_CLOSED: %s", signal_type)
+      }
+      if signal.Type() == signal_type {
+        sig, ok := signal.(S)
+        if ok == true {
+          ctx.Log.Logf("test", "received: %+v", sig)
+          if check(sig) == true {
+            return sig, nil
+          }
+        }
+      }
+    case <-timeout_channel:
+      return zero, fmt.Errorf("LISTENER_TIMEOUT: %s", signal_type)
+    }
+  }
+  return zero, fmt.Errorf("LOOP_ENDED")
+}
+
 
 type BaseSignal struct {
   SignalDirection SignalDirection `json:"direction"`
@@ -50,7 +80,7 @@ func (signal BaseSignal) Direction() SignalDirection {
   return signal.SignalDirection
 }
 
-func (signal BaseSignal) MarshalJSON() ([]byte, error) {
+func (signal *BaseSignal) MarshalJSON() ([]byte, error) {
   return json.Marshal(signal)
 }
 
@@ -100,12 +130,18 @@ func NewIDSignal(signal_type SignalType, direction SignalDirection, id NodeID) I
   }
 }
 
-type StatusSignal struct {
-  IDSignal
-  Status string `json:"status"`
+type StateSignal struct {
+  BaseSignal
+  State string `json:"state"`
 }
 
-func (signal StatusSignal) String() string {
+type IDStateSignal struct {
+  BaseSignal
+  ID NodeID `json:"id"`
+  State string `json:"status"`
+}
+
+func (signal IDStateSignal) String() string {
   ser, err := json.Marshal(signal)
   if err != nil {
     return "STATE_SER_ERR"
@@ -113,16 +149,12 @@ func (signal StatusSignal) String() string {
   return string(ser)
 }
 
-func NewStatusSignal(status string, source NodeID) StatusSignal {
-  return StatusSignal{
-    IDSignal: NewIDSignal(StatusSignalType, Up, source),
-    Status: status,
+func NewStatusSignal(status string, source NodeID) IDStateSignal {
+  return IDStateSignal{
+    BaseSignal: NewUpSignal(StatusSignalType),
+    ID: source,
+    State: status,
   }
-}
-
-type StateSignal struct {
-  BaseSignal
-  State string `json:"state"`
 }
 
 func (signal StateSignal) Serialize() ([]byte, error) {
@@ -188,4 +220,118 @@ func NewReadResultSignal(exts map[ExtType]map[string]interface{}) ReadResultSign
   }
 }
 
+type ECDHSignal struct {
+  StateSignal
+  Time time.Time
+  ECDSA *ecdsa.PublicKey
+  ECDH *ecdh.PublicKey
+  Signature []byte
+}
+
+func keyHash(now time.Time, ec_key *ecdh.PublicKey) ([]byte, error) {
+  time_bytes, err := now.MarshalJSON()
+  if err != nil {
+    return nil, err
+  }
+
+  sig_data := append(ec_key.Bytes(), time_bytes...)
+  sig_hash := sha512.Sum512(sig_data)
+
+  return sig_hash[:], nil
+}
+
+func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, error) {
+  ec_key, err := ctx.ECDH.GenerateKey(rand.Reader)
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  now := time.Now()
+
+  sig_hash, err := keyHash(now, ec_key.PublicKey())
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  sig, err := ecdsa.SignASN1(rand.Reader, node.Key, sig_hash)
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  return ECDHSignal{
+    StateSignal: StateSignal{
+      BaseSignal: NewDirectSignal(ECDHSignalType),
+      State: "req",
+    },
+    Time: now,
+    ECDSA: &node.Key.PublicKey,
+    ECDH: ec_key.PublicKey(),
+    Signature: sig,
+  }, ec_key, nil
+}
+
+const DEFAULT_ECDH_WINDOW = time.Second
+
+func NewECDHRespSignal(ctx *Context, node *Node, req ECDHSignal) (ECDHSignal, []byte, error) {
+  now := time.Now()
+
+  err := VerifyECDHSignal(now, req, DEFAULT_ECDH_WINDOW)
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  ec_key, err := ctx.ECDH.GenerateKey(rand.Reader)
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  shared_secret, err := ec_key.ECDH(req.ECDH)
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  key_hash, err := keyHash(now, ec_key.PublicKey())
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  sig, err := ecdsa.SignASN1(rand.Reader, node.Key, key_hash)
+  if err != nil {
+    return ECDHSignal{}, nil, err
+  }
+
+  return ECDHSignal{
+    StateSignal: StateSignal{
+      BaseSignal: NewDirectSignal(ECDHSignalType),
+      State: "resp",
+    },
+    Time: now,
+    ECDSA: &node.Key.PublicKey,
+    ECDH: ec_key.PublicKey(),
+    Signature: sig,
+  }, shared_secret, nil
+}
+
+func VerifyECDHSignal(now time.Time, sig ECDHSignal, window time.Duration) error {
+  earliest := now.Add(-window)
+  latest := now.Add(window)
+
+  if sig.Time.Compare(earliest) == -1 {
+    return fmt.Errorf("TIME_TOO_LATE: %+v", sig.Time)
+  } else if sig.Time.Compare(latest) == 1 {
+    return fmt.Errorf("TIME_TOO_EARLY: %+v", sig.Time)
+  }
+
+  sig_hash, err := keyHash(sig.Time, sig.ECDH)
+  if err != nil {
+    return err
+  }
+
+  verified := ecdsa.VerifyASN1(sig.ECDSA, sig_hash, sig.Signature)
+  if verified == false {
+    return fmt.Errorf("VERIFY_FAIL")
+  }
+
+  return nil
+}
 

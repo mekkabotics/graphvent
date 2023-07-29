@@ -10,7 +10,6 @@ import (
   "github.com/graphql-go/graphql/language/ast"
   "context"
   "encoding/json"
-  "encoding/base64"
   "io"
   "reflect"
   "fmt"
@@ -21,7 +20,6 @@ import (
   "crypto/ecdh"
   "crypto/ecdsa"
   "crypto/elliptic"
-  "crypto/sha512"
   "crypto/rand"
   "crypto/x509"
   "crypto/tls"
@@ -29,173 +27,6 @@ import (
   "math/big"
   "encoding/pem"
 )
-
-type AuthReqJSON struct {
-  Time time.Time `json:"time"`
-  Pubkey []byte `json:"pubkey"`
-  ECDHPubkey []byte `json:"ecdh_client"`
-  Signature []byte `json:"signature"`
-}
-
-func NewAuthReqJSON(curve ecdh.Curve, id *ecdsa.PrivateKey) (AuthReqJSON, *ecdh.PrivateKey, error) {
-  ec_key, err := curve.GenerateKey(rand.Reader)
-  if err != nil {
-    return AuthReqJSON{}, nil, err
-  }
-  now := time.Now()
-  time_bytes, err := now.MarshalJSON()
-  if err != nil {
-    return AuthReqJSON{}, nil, err
-  }
-  sig_data := append(ec_key.PublicKey().Bytes(), time_bytes...)
-  sig_hash := sha512.Sum512(sig_data)
-  sig, err := ecdsa.SignASN1(rand.Reader, id, sig_hash[:])
-
-  id_ecdh, err := id.ECDH()
-  if err != nil {
-    return AuthReqJSON{}, nil, err
-  }
-
-  return AuthReqJSON{
-    Time: now,
-    Pubkey: id_ecdh.PublicKey().Bytes(),
-    ECDHPubkey: ec_key.PublicKey().Bytes(),
-    Signature: sig,
-  }, ec_key, nil
-}
-
-type AuthRespJSON struct {
-  Granted time.Time `json:"granted"`
-  ECDHPubkey []byte `json:"echd_server"`
-  Signature []byte `json:"signature"`
-}
-
-func NewAuthRespJSON(gql_ext *GQLExt, req AuthReqJSON) (AuthRespJSON, *ecdsa.PublicKey, []byte, error) {
-    // Check if req.Time is within +- 1 second of now
-    now := time.Now()
-    earliest := now.Add(-1 * time.Second)
-    latest := now.Add(1 * time.Second)
-    // If req.Time is before the earliest acceptable time, or after the latest acceptible time
-    if req.Time.Compare(earliest) == -1 {
-      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_LATE: %s", req.Time)
-    } else if req.Time.Compare(latest) == 1 {
-      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_TIME_TOO_EARLY: %s", req.Time)
-    }
-
-    x, y := elliptic.Unmarshal(gql_ext.Key.Curve, req.Pubkey)
-    if x == nil {
-      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_UNMARSHAL_FAIL: %+v", req.Pubkey)
-    }
-
-    remote, err := gql_ext.ECDH.NewPublicKey(req.ECDHPubkey)
-    if err != nil {
-      return AuthRespJSON{}, nil, nil, err
-    }
-
-    // Verify the signature
-    time_bytes, _ := req.Time.MarshalJSON()
-    sig_data := append(req.ECDHPubkey, time_bytes...)
-    sig_hash := sha512.Sum512(sig_data)
-
-    remote_key := &ecdsa.PublicKey{
-      Curve: gql_ext.Key.Curve,
-      X: x,
-      Y: y,
-    }
-
-    verified := ecdsa.VerifyASN1(
-      remote_key,
-      sig_hash[:],
-      req.Signature,
-    )
-
-    if verified == false {
-      return AuthRespJSON{}, nil, nil, fmt.Errorf("GQL_AUTH_VERIFY_FAIL: %+v", req)
-    }
-
-    ec_key, err := gql_ext.ECDH.GenerateKey(rand.Reader)
-    if err != nil {
-      return AuthRespJSON{}, nil, nil, err
-    }
-
-    ec_key_pub := ec_key.PublicKey().Bytes()
-
-    granted := time.Now()
-    time_ser, _ := granted.MarshalJSON()
-    resp_sig_data := append(ec_key_pub, time_ser...)
-    resp_sig_hash := sha512.Sum512(resp_sig_data)
-
-    resp_sig, err := ecdsa.SignASN1(rand.Reader, gql_ext.Key, resp_sig_hash[:])
-    if err != nil {
-      return AuthRespJSON{}, nil, nil, err
-    }
-
-    shared_secret, err := ec_key.ECDH(remote)
-    if err != nil {
-      return AuthRespJSON{}, nil, nil, err
-    }
-
-    return AuthRespJSON{
-      Granted: granted,
-      ECDHPubkey: ec_key_pub,
-      Signature: resp_sig,
-    }, remote_key, shared_secret, nil
-}
-
-func ParseAuthRespJSON(resp AuthRespJSON, ecdsa_curve elliptic.Curve, ecdh_curve ecdh.Curve, ec_key *ecdh.PrivateKey) ([]byte, error) {
-  remote, err := ecdh_curve.NewPublicKey(resp.ECDHPubkey)
-  if err != nil {
-    return nil, err
-  }
-
-  shared_secret, err := ec_key.ECDH(remote)
-  if err != nil {
-    return nil, err
-  }
-
-  return shared_secret, nil
-}
-
-func AuthHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseWriter, *http.Request) {
-  return func(w http.ResponseWriter, r *http.Request) {
-    ctx.Log.Logf("gql", "GQL_AUTH_REQUEST: %s", r.RemoteAddr)
-    enableCORS(&w)
-
-    str, err := io.ReadAll(r.Body)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_READ_ERR: %e", err)
-      return
-    }
-
-    var req AuthReqJSON
-    err = json.Unmarshal([]byte(str), &req)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_UNMARHSHAL_ERR: %e", err)
-      return
-    }
-
-    resp, _, _, err := NewAuthRespJSON(gql_ext, req)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_VERIFY_ERROR: %s", err)
-      return
-    }
-
-    ser, err := json.Marshal(resp)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_RESP_MARSHAL_ERR: %e", err)
-      return
-    }
-
-    wrote, err := w.Write(ser)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_RESP_ERR: %e", err)
-      return
-    } else if wrote != len(ser) {
-      ctx.Log.Logf("gql", "GQL_AUTH_RESP_BAD_LENGTH: %d/%d", wrote, len(ser))
-      return
-    }
-  }
-}
 
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
@@ -340,7 +171,7 @@ type ResolveContext struct {
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
-  username, password, ok := r.BasicAuth()
+  username, _, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
   }
@@ -353,15 +184,6 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
   user, exists := gql_ext.Users[auth_id]
   if exists == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no existing authorization for client %s", auth_id)
-  }
-
-  user_ext, err := GetExt[*ECDHExt](user)
-  if err != nil {
-    return nil, err
-  }
-
-  if base64.StdEncoding.EncodeToString(user_ext.Shared) != password {
-    return nil, fmt.Errorf("GQL_AUTH_FAIL")
   }
 
   return &ResolveContext{
@@ -942,7 +764,6 @@ func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_
 
 func StartGQLServer(ctx *Context, node *Node, gql_ext *GQLExt) error {
   mux := http.NewServeMux()
-  mux.HandleFunc("/auth", AuthHandler(ctx, node, gql_ext))
   mux.HandleFunc("/gql", GQLHandler(ctx, node, gql_ext))
   mux.HandleFunc("/gqlws", GQLWSHandler(ctx, node, gql_ext))
 

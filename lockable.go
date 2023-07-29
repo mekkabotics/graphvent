@@ -420,8 +420,6 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node
 // LockableExts process Up/Down signals by forwarding them to owner, dependency, and requirement nodes
 // LockSignal and LinkSignal Direct signals are processed to update the requirement/dependency/lock state
 func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
-  ctx.Log.Logf("signal", "LOCKABLE_PROCESS: %s", node.ID)
-
   switch signal.Direction() {
   case Up:
     owner_sent := false

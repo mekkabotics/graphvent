@@ -1,17 +1,89 @@
 package graphvent
 
 import (
-  "time"
   "fmt"
+  "time"
   "encoding/json"
   "crypto/ecdsa"
   "crypto/x509"
+  "crypto/ecdh"
 )
 
+type ECDHState struct {
+  ECKey *ecdh.PrivateKey
+  SharedSecret []byte
+}
+
+type ECDHStateJSON struct {
+  ECKey []byte `json:"ec_key"`
+  SharedSecret []byte `json:"shared_secret"`
+}
+
+func (state *ECDHState) MarshalJSON() ([]byte, error) {
+  var key_bytes []byte
+  var err error
+  if state.ECKey != nil {
+    key_bytes, err = x509.MarshalPKCS8PrivateKey(state.ECKey)
+    if err != nil {
+      return nil, err
+    }
+  }
+
+  return json.Marshal(&ECDHStateJSON{
+    ECKey: key_bytes,
+    SharedSecret: state.SharedSecret,
+  })
+}
+
+func (state *ECDHState) UnmarshalJSON(data []byte) error {
+  var j ECDHStateJSON
+  err := json.Unmarshal(data, &j)
+  if err != nil {
+    return err
+  }
+
+  state.SharedSecret = j.SharedSecret
+  if len(j.ECKey) == 0 {
+    state.ECKey = nil
+  } else {
+    tmp_key, err := x509.ParsePKCS8PrivateKey(j.ECKey)
+    if err != nil {
+      return err
+    }
+
+    ecdsa_key, ok := tmp_key.(*ecdsa.PrivateKey)
+    if ok == false {
+      return fmt.Errorf("Parsed wrong key type from DB for ECDHState")
+    }
+
+    state.ECKey, err = ecdsa_key.ECDH()
+    if err != nil {
+      return err
+    }
+  }
+
+  return nil
+}
+
+type ECDHMap map[NodeID]ECDHState
+
+func (m ECDHMap) MarshalJSON() ([]byte, error) {
+  tmp := map[string]ECDHState{}
+  for id, state := range(m) {
+    tmp[id.String()] = state
+  }
+
+  return json.Marshal(tmp)
+}
+
 type ECDHExt struct {
-  Granted time.Time
-  Pubkey *ecdsa.PublicKey
-  Shared []byte
+  ECDHStates ECDHMap
+}
+
+func NewECDHExt() *ECDHExt {
+  return &ECDHExt{
+    ECDHStates: ECDHMap{},
+  }
 }
 
 func ResolveFields[T Extension](t T, name string, field_funcs map[string]func(T)interface{})interface{} {
@@ -25,26 +97,72 @@ func ResolveFields[T Extension](t T, name string, field_funcs map[string]func(T)
 
 func (ext *ECDHExt) Field(name string) interface{} {
   return ResolveFields(ext, name, map[string]func(*ECDHExt)interface{}{
-    "granted": func(ext *ECDHExt) interface{} {
-      return ext.Granted
-    },
-    "pubkey": func(ext *ECDHExt) interface{} {
-      return ext.Pubkey
-    },
-    "shared": func(ext *ECDHExt) interface{} {
-      return ext.Shared
+    "ecdh_states": func(ext *ECDHExt) interface{} {
+      return ext.ECDHStates
     },
   })
 }
 
-type ECDHExtJSON struct {
-  Granted time.Time `json:"granted"`
-  Pubkey []byte `json:"pubkey"`
-  Shared []byte `json:"shared"`
+func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, signal ECDHSignal) {
+  ctx.Log.Logf("ecdh", "ECDH_SIGNAL: %s->%s - %+v", source, node, signal)
+  switch signal.State {
+  case "req":
+    state, exists := ext.ECDHStates[source]
+    if exists == false {
+      state = ECDHState{nil, nil}
+    }
+    resp, shared_secret, err := NewECDHRespSignal(ctx, node, signal)
+    if err == nil {
+      state.SharedSecret = shared_secret
+      ext.ECDHStates[source] = state
+      ctx.Log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
+      ctx.Send(node.ID, source, resp)
+    } else {
+      ctx.Log.Logf("ecdh", "ECDH_REQ_ERR: %s", err)
+      // TODO: send error response
+    }
+  case "resp":
+    state, exists := ext.ECDHStates[source]
+    if exists == false || state.ECKey == nil {
+      ctx.Send(node.ID, source, StateSignal{NewDirectSignal(ECDHSignalType), "no_req"})
+    } else {
+      err := VerifyECDHSignal(time.Now(), signal, DEFAULT_ECDH_WINDOW)
+      if err == nil {
+        shared_secret, err := state.ECKey.ECDH(signal.ECDH)
+        if err == nil {
+          state.SharedSecret = shared_secret
+          state.ECKey = nil
+          ext.ECDHStates[source] = state
+          ctx.Log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
+        }
+      }
+    }
+  default:
+    ctx.Log.Logf("ecdh", "unknown echd state %s", signal.State)
+  }
 }
 
-func (ext *ECDHExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
-  return
+func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
+
+}
+
+func (ext *ECDHExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
+  switch signal.Direction() {
+  case Direct:
+    switch signal.Type() {
+    case ECDHSignalType:
+      switch ecdh_signal := signal.(type) {
+      case ECDHSignal:
+        ext.HandleECDHSignal(ctx, source, node, ecdh_signal)
+      case StateSignal:
+        ext.HandleStateSignal(ctx, source, node, ecdh_signal)
+      default:
+        ctx.Log.Logf("ecdh", "BAD_SIGNAL_CAST: %+v", signal)
+      }
+    default:
+    }
+  default:
+  }
 }
 
 func (ext *ECDHExt) Type() ExtType {
@@ -52,45 +170,17 @@ func (ext *ECDHExt) Type() ExtType {
 }
 
 func (ext *ECDHExt) Serialize() ([]byte, error) {
-  pubkey, err := x509.MarshalPKIXPublicKey(ext.Pubkey)
-  if err != nil {
-    return nil, err
-  }
-
-  return json.MarshalIndent(&ECDHExtJSON{
-    Granted: ext.Granted,
-    Pubkey: pubkey,
-    Shared: ext.Shared,
-  }, "", "  ")
+  return json.MarshalIndent(ext, "", "  ")
 }
 
 func LoadECDHExt(ctx *Context, data []byte) (Extension, error) {
-  var j ECDHExtJSON
-  err := json.Unmarshal(data, &j)
+  var ext ECDHExt
+  err := json.Unmarshal(data, &ext)
   if err != nil {
     return nil, err
   }
 
-  pub, err := x509.ParsePKIXPublicKey(j.Pubkey)
-  if err != nil {
-    return nil, err
-  }
-
-  var pubkey *ecdsa.PublicKey
-  switch pub.(type) {
-  case *ecdsa.PublicKey:
-    pubkey = pub.(*ecdsa.PublicKey)
-  default:
-    return nil, fmt.Errorf("Invalid key type: %+v", pub)
-  }
-
-  extension := ECDHExt{
-    Granted: j.Granted,
-    Pubkey: pubkey,
-    Shared: j.Shared,
-  }
-
-  return &extension, nil
+  return &ext, nil
 }
 
 type GroupExt struct {

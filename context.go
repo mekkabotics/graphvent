@@ -8,6 +8,7 @@ import (
   "runtime"
   "crypto/sha512"
   "crypto/elliptic"
+  "crypto/ecdh"
   "encoding/binary"
 )
 
@@ -80,6 +81,8 @@ type Context struct {
   Types map[uint64]*NodeInfo
   // Curve used for signature operations
   ECDSA elliptic.Curve
+  // Curve used for ecdh operations
+  ECDH ecdh.Curve
   // Routing map to all the nodes local to this context
   NodesLock sync.RWMutex
   Nodes map[NodeID]*Node
@@ -197,6 +200,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Extensions: map[uint64]ExtensionInfo{},
     Types: map[uint64]*NodeInfo{},
     Nodes: map[NodeID]*Node{},
+    ECDH: ecdh.P256(),
     ECDSA: elliptic.P256(),
   }
 
