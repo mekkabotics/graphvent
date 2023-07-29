@@ -16,7 +16,7 @@ func GQLSubscribeSelf(p graphql.ResolveParams) (interface{}, error) {
 }
 
 func GQLSubscribeFn(p graphql.ResolveParams, send_nil bool, fn func(*Context, *Node, *GQLExt, Signal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
-  _, ctx, err := PrepResolve(p)
+  ctx, err := PrepResolve(p)
   if err != nil {
     return nil, err
   }

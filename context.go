@@ -53,6 +53,13 @@ var (
   NodeNotFoundError = errors.New("Node not found in DB")
 )
 
+type SignalLoadFunc func(*Context, []byte) (Signal, error)
+
+type SignalInfo struct {
+  Load SignalLoadFunc
+  Type SignalType
+}
+
 // Information about a registered extension
 type ExtensionInfo struct {
   // Function used to load extensions of this type from the database
@@ -77,6 +84,8 @@ type Context struct {
   Log Logger
   // Map between database extension hashes and the registered info
   Extensions map[uint64]ExtensionInfo
+  // Map between serialized signal hashes and the registered info
+  Signals map[uint64]SignalInfo
   // Map between database type hashes and the registered info
   Types map[uint64]*NodeInfo
   // Curve used for signature operations
@@ -114,6 +123,24 @@ func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) e
   ctx.Types[type_hash] = &NodeInfo{
     Type: node_type,
     Extensions: extensions,
+  }
+  return nil
+}
+
+func (ctx *Context) RegisterSignal(signal_type SignalType, load_fn SignalLoadFunc) error {
+  if load_fn == nil {
+    return fmt.Errorf("def has no load function")
+  }
+
+  type_hash := Hash(signal_type)
+  _, exists := ctx.Signals[type_hash]
+  if exists == true {
+    return fmt.Errorf("Cannot register signal of type %s, type already exists in context", signal_type)
+  }
+
+  ctx.Signals[type_hash] = SignalInfo{
+    Load: load_fn,
+    Type: signal_type,
   }
   return nil
 }
@@ -199,6 +226,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Log: log,
     Extensions: map[uint64]ExtensionInfo{},
     Types: map[uint64]*NodeInfo{},
+    Signals: map[uint64]SignalInfo{},
     Nodes: map[NodeID]*Node{},
     ECDH: ecdh.P256(),
     ECDSA: elliptic.P256(),
@@ -235,6 +263,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   if err != nil {
     return nil, err
   }
+
+  err = ctx.RegisterSignal(StopSignalType, func(ctx *Context, data []byte) (Signal, error) {
+    return StopSignal, nil
+  })
 
   err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, GroupExtType, GQLExtType})
   if err != nil {

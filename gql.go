@@ -167,7 +167,7 @@ type ResolveContext struct {
   GQLContext *GQLExtContext
   Server *Node
   Ext *GQLExt
-  User *Node
+  User NodeID
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
@@ -181,16 +181,11 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
   }
 
-  user, exists := gql_ext.Users[auth_id]
-  if exists == false {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: no existing authorization for client %s", auth_id)
-  }
-
   return &ResolveContext{
     Context: ctx,
     GQLContext: ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext),
     Server: server,
-    User: user,
+    User: auth_id,
   }, nil
 }
 
@@ -481,6 +476,11 @@ func NewGQLInterface(if_name string, default_name string, interfaces []*graphql.
   return &gql
 }
 
+type GQLNode struct {
+  ID NodeID
+  Type NodeType
+}
+
 // GQL Specific Context information
 type GQLExtContext struct {
   // Generated GQL schema
@@ -545,7 +545,7 @@ func NewGQLExtContext() *GQLExtContext {
   })
 
   query.AddFieldConfig("Self", GQLQuerySelf)
-  query.AddFieldConfig("User", GQLQueryUser)
+  query.AddFieldConfig("Node", GQLQueryNode)
 
   mutation := graphql.NewObject(graphql.ObjectConfig{
     Name: "Mutation",
@@ -600,9 +600,7 @@ type GQLExt struct {
   tls_key []byte
   tls_cert []byte
   Listen string
-  Users NodeMap
-  Key *ecdsa.PrivateKey
-  ECDH ecdh.Curve
+
   SubscribeLock sync.Mutex
   SubscribeListeners []chan Signal
 }
@@ -629,7 +627,6 @@ func (ext *GQLExt) Process(context *Context, princ_id NodeID, node *Node, signal
   if signal.Type() == ReadResultSignalType {
   }
 
-
   ext.SubscribeLock.Lock()
   defer ext.SubscribeLock.Unlock()
 
@@ -655,22 +652,13 @@ func (ext *GQLExt) Type() ExtType {
 
 type GQLExtJSON struct {
   Listen string `json:"listen"`
-  Key []byte `json:"key"`
-  ECDH uint8 `json:"ecdh_curve"`
   TLSKey []byte `json:"ssl_key"`
   TLSCert []byte `json:"ssl_cert"`
 }
 
 func (ext *GQLExt) Serialize() ([]byte, error) {
-  ser_key, err := x509.MarshalECPrivateKey(ext.Key)
-  if err != nil {
-    return nil, err
-  }
-
   return json.MarshalIndent(&GQLExtJSON{
     Listen: ext.Listen,
-    Key: ser_key,
-    ECDH: ecdh_curve_ids[ext.ECDH],
     TLSKey: ext.tls_key,
     TLSCert: ext.tls_cert,
   }, "", "  ")
@@ -699,22 +687,12 @@ func LoadGQLExt(ctx *Context, data []byte) (Extension, error) {
     return nil, err
   }
 
-  ecdh_curve, ok := ecdh_curves[j.ECDH]
-  if ok == false {
-    return nil, fmt.Errorf("%d is not a known ECDH curve ID", j.ECDH)
-  }
-
-  key, err := x509.ParseECPrivateKey(j.Key)
-  if err != nil {
-    return nil, err
-  }
-
-  return NewGQLExt(j.Listen, ecdh_curve, key, j.TLSCert, j.TLSKey), nil
+  return NewGQLExt(ctx, j.Listen, j.TLSCert, j.TLSKey), nil
 }
 
-func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_cert []byte, tls_key []byte) *GQLExt {
+func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) *GQLExt {
   if tls_cert == nil || tls_key == nil {
-    ssl_key, err := ecdsa.GenerateKey(key.Curve, rand.Reader)
+    ssl_key, err := ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
     if err != nil {
       panic(err)
     }
@@ -755,8 +733,6 @@ func NewGQLExt(listen string, ecdh_curve ecdh.Curve, key *ecdsa.PrivateKey, tls_
   return &GQLExt{
     Listen: listen,
     SubscribeListeners: []chan Signal{},
-    Key: key,
-    ECDH: ecdh_curve,
     tls_cert: tls_cert,
     tls_key: tls_key,
   }

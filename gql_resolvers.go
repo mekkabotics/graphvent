@@ -5,18 +5,13 @@ import (
   "github.com/graphql-go/graphql"
 )
 
-func PrepResolve(p graphql.ResolveParams) (*Node, *ResolveContext, error) {
+func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
   resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
   if ok == false {
-    return nil, nil, fmt.Errorf("Bad resolve in params context")
+    return nil, fmt.Errorf("Bad resolve in params context")
   }
 
-  node, ok := p.Source.(*Node)
-  if ok == false {
-    return nil, nil, fmt.Errorf("Source is not a *Node in PrepResolve")
-  }
-
-  return node, resolve_context, nil
+  return resolve_context, nil
 }
 
 // TODO: Make composabe by checkinf if K is a slice, then recursing in the same way that ExtractList does
@@ -71,21 +66,11 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
 
 // TODO: think about what permissions should be needed to read ID, and if there's ever a case where they haven't already been granted
 func GQLNodeID(p graphql.ResolveParams) (interface{}, error) {
-  node, _, err := PrepResolve(p)
-  if err != nil {
-    return nil, err
-  }
-
-  return node.ID, nil
+  return nil, nil
 }
 
 func GQLNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
-  node, _, err := PrepResolve(p)
-  if err != nil {
-    return nil, err
-  }
-
-  return string(node.Type), nil
+  return nil, nil
 }
 
 func GQLNodeListen(p graphql.ResolveParams) (interface{}, error) {

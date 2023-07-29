@@ -67,9 +67,12 @@ func TestECDH(t *testing.T) {
   fatalErr(t, err)
 
   n1_listener := NewListenerExt(10)
-  ecdh_policy := NewAllNodesPolicy(Actions{MakeAction(ECDHSignalType, "+")})
+  ecdh_policy := NewAllNodesPolicy(Actions{MakeAction(ECDHSignalType, "+"), MakeAction(ECDHProxySignalType, "+")})
   n1 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(ecdh_policy), NewECDHExt(), n1_listener)
   n2 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(ecdh_policy), NewECDHExt())
+  n3_listener := NewListenerExt(10)
+  n3_policy := NewPerNodePolicy(NodeActions{n1.ID: Actions{MakeAction(StopSignalType)}})
+  n3 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(ecdh_policy, n3_policy), NewECDHExt(), n3_listener)
 
   ctx.Log.Logf("test", "N1: %s", n1.ID)
   ctx.Log.Logf("test", "N2: %s", n2.ID)
@@ -90,5 +93,12 @@ func TestECDH(t *testing.T) {
   _, err = WaitForSignal(ctx, n1_listener, 100*time.Millisecond, ECDHSignalType, func(sig ECDHSignal) bool {
     return sig.State == "resp"
   })
+  fatalErr(t, err)
+  time.Sleep(10*time.Millisecond)
+
+  ecdh_sig, err := NewECDHProxySignal(n1.ID, n3.ID, NewDirectSignal(StopSignalType), ecdh_ext.ECDHStates[n2.ID].SharedSecret)
+  fatalErr(t, err)
+
+  err = ctx.Send(n1.ID, n2.ID, ecdh_sig)
   fatalErr(t, err)
 }

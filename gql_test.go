@@ -3,10 +3,6 @@ package graphvent
 import (
   "testing"
   "time"
-  "crypto/rand"
-  "crypto/ecdh"
-  "crypto/ecdsa"
-  "crypto/elliptic"
 )
 
 func TestGQLDB(t * testing.T) {
@@ -19,10 +15,7 @@ func TestGQLDB(t * testing.T) {
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
-  key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-  fatalErr(t, err)
-
-  gql_ext := NewGQLExt(":0", ecdh.P256(), key, nil, nil)
+  gql_ext := NewGQLExt(ctx, ":0", nil, nil)
   listener_ext := NewListenerExt(10)
   gql := NewNode(ctx, nil, GQLNodeType, 10, nil,
                  gql_ext,
