@@ -64,46 +64,89 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
   return id, nil
 }
 
-// TODO: think about what permissions should be needed to read ID, and if there's ever a case where they haven't already been granted
-func GQLNodeID(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveNodeResult(p graphql.ResolveParams, resolve_fn func(NodeResult)(interface{}, error)) (interface{}, error) {
+  node, ok := p.Source.(NodeResult)
+  if ok == false {
+    return nil, fmt.Errorf("p.Value is not NodeResult")
+  }
+
+  return resolve_fn(node)
 }
 
-func GQLNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveNodeID(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResult(p, func(node NodeResult) (interface{}, error) {
+    return node.ID, nil
+  })
 }
 
-func GQLNodeListen(p graphql.ResolveParams) (interface{}, error) {
-  // TODO figure out how nodes can read eachother
-  return "", nil
+func ResolveNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResult(p, func(node NodeResult) (interface{}, error) {
+    return Hash(node.Result.NodeType), nil
+  })
 }
 
-func GQLThreadParent(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveNodeResultExt[T any](p graphql.ResolveParams, ext_type ExtType, field string, resolve_fn func(T)(interface{}, error)) (interface{}, error) {
+  return ResolveNodeResult(p, func(result NodeResult) (interface{}, error) {
+    ext, exists := result.Result.Extensions[ext_type]
+    if exists == false {
+      return nil, fmt.Errorf("%s is not in the extensions of the result", ext_type)
+    }
+
+    val_if, exists := ext[field]
+    if exists == false {
+      return nil, fmt.Errorf("%s is not in the fields of %s in the result", field, ext_type)
+    }
+
+    var zero T
+    val, ok := val_if.(T)
+    if ok == false {
+      return nil, fmt.Errorf("%s.%s is not %s", ext_type, field, reflect.TypeOf(zero))
+    }
+
+    return resolve_fn(val)
+  })
 }
 
-func GQLThreadState(p graphql.ResolveParams) (interface{}, error) {
-  return "", nil
+func ResolveListen(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResultExt(p, GQLExtType, "listen", func(listen string) (interface{}, error) {
+    return listen, nil
+  })
 }
 
-func GQLThreadChildren(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveRequirements(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResultExt(p, LockableExtType, "requirements", func(requirements []NodeID) (interface{}, error) {
+    res := make([]string, len(requirements))
+    for i, id := range(requirements) {
+      res[i] = id.String()
+    }
+    return res, nil
+  })
 }
 
-func GQLLockableRequirements(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveDependencies(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResultExt(p, LockableExtType, "dependencies", func(dependencies []NodeID) (interface{}, error) {
+    res := make([]string, len(dependencies))
+    for i, id := range(dependencies) {
+      res[i] = id.String()
+    }
+    return res, nil
+  })
 }
 
-func GQLLockableDependencies(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveOwner(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResultExt(p, LockableExtType, "owner", func(owner NodeID) (interface{}, error) {
+    return owner.String(), nil
+  })
 }
 
-func GQLLockableOwner(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
-}
-
-func GQLGroupMembers(p graphql.ResolveParams) (interface{}, error) {
-  return nil, nil
+func ResolveMembers(p graphql.ResolveParams) (interface{}, error) {
+  return ResolveNodeResultExt(p, GroupExtType, "members", func(members []NodeID) (interface{}, error) {
+    res := make([]string, len(members))
+    for i, id := range(members) {
+      res[i] = id.String()
+    }
+    return res, nil
+  })
 }
 
 func GQLSignalFn(p graphql.ResolveParams, fn func(Signal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {

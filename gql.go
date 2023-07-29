@@ -26,6 +26,7 @@ import (
   "crypto/x509/pkix"
   "math/big"
   "encoding/pem"
+  "github.com/google/uuid"
 )
 
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
@@ -162,14 +163,32 @@ func checkForAuthHeader(header http.Header) (string, bool) {
   return "", false
 }
 
+// Context passed to each resolve execution
 type ResolveContext struct {
+  // ID generated for the context so the gql extension can route data to it
+  ID uuid.UUID
+
+  // Channel for the gql extension to route data to this context
+  Chan chan *ReadResultSignal
+
+  // Graph Context this resolver is running under
   Context *Context
+
+  // GQL Extension context this resolver is running under
   GQLContext *GQLExtContext
+
+  // Pointer to the node that's currently processing this request
   Server *Node
+
+  // The state data for the node processing this request
   Ext *GQLExt
+
+  // ID of the user that made this request
+  // TODO: figure out auth
   User NodeID
 }
 
+const GQL_RESOLVER_CHAN_SIZE = 10
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
   username, _, ok := r.BasicAuth()
   if ok == false {
@@ -182,6 +201,9 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
   }
 
   return &ResolveContext{
+    Ext: gql_ext,
+    ID: uuid.New(),
+    Chan: make(chan *ReadResultSignal, GQL_RESOLVER_CHAN_SIZE),
     Context: ctx,
     GQLContext: ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext),
     Server: server,
@@ -231,6 +253,11 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     if len(query.Variables) > 0 {
       params.VariableValues = query.Variables
     }
+
+    gql_ext.resolver_chans_lock.Lock()
+    gql_ext.resolver_chans[resolve_context.ID] = resolve_context.Chan
+    gql_ext.resolver_chans_lock.Unlock()
+
     result := graphql.Do(params)
     if len(result.Errors) > 0 {
       extra_fields := map[string]interface{}{}
@@ -452,33 +479,9 @@ func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init fu
   return &gql
 }
 
-func NewInterface(if_name string, default_name string, interfaces []*graphql.Interface, extensions []ExtType, init_1 func(*Interface), init_2 func(*Interface)) *Interface {
-  var gql Interface
-  gql.Extensions = extensions
-  gql.Interface = graphql.NewInterface(graphql.InterfaceConfig{
-    Name: if_name,
-    ResolveType: NodeResolver([]ExtType{}, &gql.Default),
-    Fields: graphql.Fields{},
-  })
-  gql.List = graphql.NewList(gql.Interface)
-
-  init_1(&gql)
-
-  gql.Default = graphql.NewObject(graphql.ObjectConfig{
-    Name: default_name,
-    Interfaces: append(interfaces, gql.Interface),
-    IsTypeOf: GQLNodeHasExtensions([]ExtType{}),
-    Fields: graphql.Fields{},
-  })
-
-  init_2(&gql)
-
-  return &gql
-}
-
-type GQLNode struct {
-  ID NodeID
-  Type NodeType
+type Field struct {
+  Ext ExtType
+  Name string
 }
 
 // GQL Specific Context information
@@ -489,12 +492,37 @@ type GQLExtContext struct {
   // Custom graphql types, mapped to NodeTypes
   NodeTypes map[NodeType]*graphql.Object
   Interfaces []*Interface
+  Fields map[string]Field
 
   // Schema parameters
   Types []graphql.Type
   Query *graphql.Object
   Mutation *graphql.Object
   Subscription *graphql.Object
+}
+
+func (ctx *GQLExtContext) GetACLFields(obj_name string, names []string) (map[ExtType][]string, error) {
+  ext_fields := map[ExtType][]string{}
+  for _, name := range(names) {
+    switch name {
+    case "ID":
+    case "TypeHash":
+    default:
+     field, exists := ctx.Fields[name]
+     if exists == false {
+       return nil, fmt.Errorf("%s is not a know field in GQLContext, cannot resolve", name)
+     }
+
+     ext, exists := ext_fields[field.Ext]
+     if exists == false {
+       ext = []string{}
+     }
+     ext = append(ext, field.Name)
+     ext_fields[field.Ext] = ext
+    }
+  }
+
+  return ext_fields, nil
 }
 
 func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
@@ -506,6 +534,16 @@ func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
   }
 
   return graphql.NewSchema(schemaConfig)
+}
+
+func (ctx *GQLExtContext) RegisterField(gql_name string, ext ExtType, acl_name string) error {
+  _, exists := ctx.Fields[gql_name]
+  if exists == true {
+    return fmt.Errorf("%s is already a field in the context, cannot add again", gql_name)
+  }
+
+  ctx.Fields[gql_name] = Field{ext, acl_name}
+  return nil
 }
 
 func (ctx *GQLExtContext) AddInterface(i *Interface) error {
@@ -527,6 +565,7 @@ func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, gql_type *graphql
   if gql_type == nil {
     return fmt.Errorf("gql_type is nil")
   }
+
   _, exists := ctx.NodeTypes[node_type]
   if exists == true {
     return fmt.Errorf("%s already in GQLExtContext.NodeTypes", node_type)
@@ -597,6 +636,13 @@ type GQLExt struct {
   http_server *http.Server
   http_done sync.WaitGroup
 
+  // map of read request IDs to gql request ID
+  resolver_reads map[uuid.UUID]uuid.UUID
+  resolver_reads_lock sync.RWMutex
+  // map of gql request ID to active channel
+  resolver_chans map[uuid.UUID]chan *ReadResultSignal
+  resolver_chans_lock sync.RWMutex
+
   tls_key []byte
   tls_cert []byte
   Listen string
@@ -611,7 +657,39 @@ func (ext *GQLExt) Field(name string) interface{} {
 }
 
 func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
-  if signal.Type() == GQLStateSignalType {
+  // Process ReadResultSignalType by forwarding it to the waiting resolver
+  if signal.Type() == ReadResultSignalType {
+    sig := signal.(ReadResultSignal)
+    ext.resolver_reads_lock.RLock()
+    resolver_id, exists := ext.resolver_reads[sig.UUID]
+    ext.resolver_reads_lock.RUnlock()
+
+    if exists == true {
+      ext.resolver_reads_lock.Lock()
+      delete(ext.resolver_reads, sig.UUID)
+      ext.resolver_reads_lock.Unlock()
+
+      ext.resolver_chans_lock.RLock()
+      resolver_chan, exists := ext.resolver_chans[resolver_id]
+      ext.resolver_chans_lock.RUnlock()
+
+      if exists == true {
+        select {
+        case resolver_chan <- &sig:
+          ctx.Log.Logf("gql", "Forwarded to resolver %s, %+v", resolver_id, sig)
+        default:
+          ctx.Log.Logf("gql", "Resolver %s channel overflow %+v", resolver_id, sig)
+          ext.resolver_chans_lock.Lock()
+          delete(ext.resolver_chans, resolver_id)
+          ext.resolver_chans_lock.Unlock()
+        }
+      } else {
+        ctx.Log.Logf("gql", "Received message for waiting resolver %s which doesn't exist - %+v", resolver_id, sig)
+      }
+    } else {
+      ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
+    }
+  } else if signal.Type() == GQLStateSignalType {
     sig := signal.(StateSignal)
     switch sig.State {
     case "start_server":
@@ -716,6 +794,8 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*G
   }
   return &GQLExt{
     Listen: listen,
+    resolver_reads: map[uuid.UUID]uuid.UUID{},
+    resolver_chans: map[uuid.UUID]chan *ReadResultSignal{},
     tls_cert: tls_cert,
     tls_key: tls_key,
   }, nil

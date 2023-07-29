@@ -1,5 +1,6 @@
 package graphvent
 import (
+  "time"
   "github.com/graphql-go/graphql"
   "github.com/graphql-go/graphql/language/ast"
 )
@@ -28,12 +29,43 @@ var QueryNode = &graphql.Field{
     if err != nil {
       return nil, err
     }
-    ctx.Context.Log.Logf("gql", "FIELDS: %+v", GetFieldNames(p))
-    // Get a list of fields that will be written
-    // Send the read signal
-    // Wait for the response, returning an error on timeout
 
-    return nil, nil
+
+    id, err := ExtractID(p, "id")
+    if err != nil {
+      return nil, err
+    }
+
+    fields := GetFieldNames(p)
+    ctx.Context.Log.Logf("gql", "RESOLVE_NODE(%s): %+v", id, fields)
+
+    // Get a list of fields that will be written
+    ext_fields, err := ctx.GQLContext.GetACLFields(p.Info.FieldName, fields)
+    if err != nil {
+      return nil, err
+    }
+    // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
+    read_signal := NewReadSignal(ext_fields)
+
+    ctx.Ext.resolver_reads_lock.Lock()
+    ctx.Ext.resolver_reads[read_signal.UUID] = ctx.ID
+    ctx.Ext.resolver_reads_lock.Unlock()
+
+    err = ctx.Context.Send(ctx.Server.ID, id, read_signal)
+    if err != nil {
+      ctx.Ext.resolver_reads_lock.Lock()
+      delete(ctx.Ext.resolver_reads, read_signal.UUID)
+      ctx.Ext.resolver_reads_lock.Unlock()
+      return nil, err
+    }
+
+    // Wait for the response, returning an error on timeout
+    response, err := WaitForReadResult(ctx.Chan, time.Millisecond*100, read_signal.UUID)
+    if err != nil {
+      return nil, err
+    }
+
+    return NodeResult{id, response}, nil
   },
 }
 

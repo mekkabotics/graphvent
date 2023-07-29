@@ -55,48 +55,40 @@ func addLockableInterfaceFields(gql *Interface, gql_lockable *Interface) {
   })
 }
 
-func NodeHasExtensions(node *Node, extensions []ExtType) bool {
-  if node == nil {
-    return false
-  }
-
-  for _, ext := range(extensions) {
-    _, has := node.Extensions[ext]
-    if has == false {
-      return false
-    }
-  }
-
-  return true
-}
-
-func GQLNodeHasExtensions(extensions []ExtType) func(graphql.IsTypeOfParams) bool {
+func NodeIsTypeResolver(extensions []ExtType) func(graphql.IsTypeOfParams) bool {
   return func(p graphql.IsTypeOfParams) bool {
-    node, ok := p.Value.(*Node)
+    node, ok := p.Value.(NodeResult)
     if ok == false {
       return false
     }
 
-    return NodeHasExtensions(node, extensions)
+    for _, ext := range(extensions) {
+      _, has := node.Result.Extensions[ext]
+      if has == false {
+        return false
+      }
+    }
+
+    return true
   }
 }
 
-func NodeResolver(required_extensions []ExtType, default_type **graphql.Object)func(graphql.ResolveTypeParams) *graphql.Object {
+func NodeTypeResolver(required_extensions []ExtType, default_type **graphql.Object)func(graphql.ResolveTypeParams) *graphql.Object {
   return func(p graphql.ResolveTypeParams) *graphql.Object {
     ctx, ok := p.Context.Value("resolve").(*ResolveContext)
     if ok == false {
       return nil
     }
 
-    node, ok := p.Value.(*Node)
+    node, ok := p.Value.(NodeResult)
     if ok == false {
       return nil
     }
 
-    gql_type, exists := ctx.GQLContext.NodeTypes[node.Type]
+    gql_type, exists := ctx.GQLContext.NodeTypes[node.Result.NodeType]
     if exists == false {
       for _, ext := range(required_extensions) {
-        _, exists := node.Extensions[ext]
+        _, exists := node.Result.Extensions[ext]
         if exists == false {
           return nil
         }
@@ -107,6 +99,36 @@ func NodeResolver(required_extensions []ExtType, default_type **graphql.Object)f
     return gql_type
   }
 }
+
+type NodeResult struct {
+  ID NodeID
+  Result *ReadResultSignal
+}
+
+func NewInterface(if_name string, default_name string, interfaces []*graphql.Interface, extensions []ExtType, init_1 func(*Interface), init_2 func(*Interface)) *Interface {
+  var gql Interface
+  gql.Extensions = extensions
+  gql.Interface = graphql.NewInterface(graphql.InterfaceConfig{
+    Name: if_name,
+    ResolveType: NodeTypeResolver([]ExtType{}, &gql.Default),
+    Fields: graphql.Fields{},
+  })
+  gql.List = graphql.NewList(gql.Interface)
+
+  init_1(&gql)
+
+  gql.Default = graphql.NewObject(graphql.ObjectConfig{
+    Name: default_name,
+    Interfaces: append(interfaces, gql.Interface),
+    IsTypeOf: NodeIsTypeResolver([]ExtType{}),
+    Fields: graphql.Fields{},
+  })
+
+  init_2(&gql)
+
+  return &gql
+}
+
 
 var InterfaceNode = NewInterface("Node", "DefaultNode", []*graphql.Interface{}, []ExtType{}, func(gql *Interface) {
   AddNodeInterfaceFields(gql)

@@ -7,12 +7,12 @@ import (
 func AddNodeFields(object *graphql.Object) {
   object.AddFieldConfig("ID", &graphql.Field{
     Type: graphql.String,
-    Resolve: GQLNodeID,
+    Resolve: ResolveNodeID,
   })
 
   object.AddFieldConfig("TypeHash", &graphql.Field{
     Type: graphql.String,
-    Resolve: GQLNodeTypeHash,
+    Resolve: ResolveNodeTypeHash,
   })
 }
 
@@ -24,17 +24,17 @@ func addLockableFields(object *graphql.Object, lockable_interface *graphql.Inter
   AddNodeFields(object)
   object.AddFieldConfig("Requirements", &graphql.Field{
     Type: lockable_list,
-    Resolve: GQLLockableRequirements,
+    Resolve: ResolveRequirements,
   })
 
   object.AddFieldConfig("Owner", &graphql.Field{
     Type: lockable_interface,
-    Resolve: GQLLockableOwner,
+    Resolve: ResolveOwner,
   })
 
   object.AddFieldConfig("Dependencies", &graphql.Field{
     Type: lockable_list,
-    Resolve: GQLLockableDependencies,
+    Resolve: ResolveDependencies,
   })
 }
 
@@ -46,7 +46,7 @@ var TypeGQLNode = NewGQLNodeType(GQLNodeType, GQLNodeInterfaces, func(gql *Type)
 
   gql.Type.AddFieldConfig("Listen", &graphql.Field{
     Type: graphql.String,
-    Resolve: GQLNodeListen,
+    Resolve: ResolveListen,
   })
 })
 

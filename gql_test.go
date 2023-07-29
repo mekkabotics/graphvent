@@ -40,7 +40,10 @@ func TestGQL(t *testing.T) {
   url := fmt.Sprintf("https://localhost:%d/gql", port)
 
   ser, err := json.MarshalIndent(&GQLPayload{
-    Query: "query { Self { ID } }",
+    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash } }",
+    Variables: map[string]interface{}{
+      "id": n1.ID.String(),
+    },
   }, "", "  ")
   fatalErr(t, err)
 

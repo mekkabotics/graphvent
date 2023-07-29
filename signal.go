@@ -11,6 +11,7 @@ import (
   "crypto/rand"
   "crypto/aes"
   "crypto/cipher"
+  "github.com/google/uuid"
 )
 
 type SignalDirection int
@@ -40,6 +41,18 @@ type Signal interface {
   Serializable[SignalType]
   Direction() SignalDirection
   Permission() Action
+}
+
+func WaitForReadResult(listener chan *ReadResultSignal, timeout time.Duration, id uuid.UUID) (*ReadResultSignal, error) {
+  timeout_channel := time.After(timeout)
+  var err error = nil
+  var result *ReadResultSignal = nil
+  select {
+  case result =<-listener:
+  case <-timeout_channel:
+    err = fmt.Errorf("timeout waiting for read response to %s", id)
+  }
+  return result, err
 }
 
 func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
@@ -201,6 +214,7 @@ func (signal StateSignal) Permission() Action {
 
 type ReadSignal struct {
   BaseSignal
+  UUID uuid.UUID
   Extensions map[ExtType][]string `json:"extensions"`
 }
 
@@ -210,6 +224,7 @@ func (signal ReadSignal) Serialize() ([]byte, error) {
 
 func NewReadSignal(exts map[ExtType][]string) ReadSignal {
   return ReadSignal{
+    UUID: uuid.New(),
     BaseSignal: NewDirectSignal(ReadSignalType),
     Extensions: exts,
   }
@@ -217,13 +232,15 @@ func NewReadSignal(exts map[ExtType][]string) ReadSignal {
 
 type ReadResultSignal struct {
   BaseSignal
-  NodeType NodeType
+  uuid.UUID
+  NodeType
   Extensions map[ExtType]map[string]interface{} `json:"extensions"`
 }
 
-func NewReadResultSignal(node_type NodeType, exts map[ExtType]map[string]interface{}) ReadResultSignal {
+func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]map[string]interface{}) ReadResultSignal {
   return ReadResultSignal{
     BaseSignal: NewDirectSignal(ReadResultSignalType),
+    UUID: req_id,
     NodeType: node_type,
     Extensions: exts,
   }

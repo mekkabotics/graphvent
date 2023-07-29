@@ -218,7 +218,7 @@ func nodeLoop(ctx *Context, node *Node) error {
         ctx.Log.Logf("signal", "READ_SIGNAL: bad cast %+v", signal)
       } else {
         result := ReadNodeFields(ctx, node, source, read_signal.Extensions)
-        ctx.Send(node.ID, source, NewReadResultSignal(node.Type, result))
+        ctx.Send(node.ID, source, NewReadResultSignal(read_signal.UUID, node.Type, result))
       }
     }
 
