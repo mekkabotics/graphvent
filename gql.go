@@ -465,11 +465,11 @@ func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init fu
     Name: string(node_type),
     Interfaces: interfaces,
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      node, ok := p.Value.(*Node)
+      node, ok := p.Value.(NodeResult)
       if ok == false {
         return false
       }
-      return node.Type == node_type
+      return node.Result.NodeType == node_type
     },
     Fields: graphql.Fields{},
   })
@@ -609,6 +609,7 @@ func NewGQLExtContext() *GQLExtContext {
     Subscription: subscription,
     NodeTypes: map[NodeType]*graphql.Object{},
     Interfaces: []*Interface{},
+    Fields: map[string]Field{},
   }
 
   var err error

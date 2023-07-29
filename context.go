@@ -278,6 +278,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = gql_ctx.RegisterField("Listen", GQLExtType, "listen")
+  if err != nil {
+    return nil, err
+  }
+
   schema, err := BuildSchema(gql_ctx)
   if err != nil {
     return nil, err

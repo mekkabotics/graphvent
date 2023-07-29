@@ -1,17 +1,35 @@
 package graphvent
 import (
   "time"
+  "reflect"
   "github.com/graphql-go/graphql"
   "github.com/graphql-go/graphql/language/ast"
 )
 
-func GetFieldNames(p graphql.ResolveParams) []string {
+func GetFieldNames(ctx *Context, selection_set *ast.SelectionSet) []string {
   names := []string{}
+  if selection_set == nil {
+    return names
+  }
 
-  for _, node := range(p.Info.FieldASTs) {
-    for _, sel := range(node.SelectionSet.Selections) {
-      names = append(names, sel.(*ast.Field).Name.Value)
+  for _, sel := range(selection_set.Selections) {
+    switch field := sel.(type) {
+    case *ast.Field:
+      names = append(names, field.Name.Value)
+    case *ast.InlineFragment:
+      names = append(names, GetFieldNames(ctx, field.SelectionSet)...)
+    default:
+      ctx.Log.Logf("gql", "Unknown selection type: %s", reflect.TypeOf(field))
     }
+  }
+
+  return names
+}
+
+func GetResolveFields(ctx *Context, p graphql.ResolveParams) []string {
+  names := []string{}
+  for _, field := range(p.Info.FieldASTs) {
+    names = append(names, GetFieldNames(ctx, field.SelectionSet)...)
   }
 
   return names
@@ -36,7 +54,7 @@ var QueryNode = &graphql.Field{
       return nil, err
     }
 
-    fields := GetFieldNames(p)
+    fields := GetResolveFields(ctx.Context, p)
     ctx.Context.Log.Logf("gql", "RESOLVE_NODE(%s): %+v", id, fields)
 
     // Get a list of fields that will be written
@@ -77,7 +95,7 @@ var QuerySelf = &graphql.Field{
       return nil, err
     }
 
-    ctx.Context.Log.Logf("gql", "FIELDS: %+v", GetFieldNames(p))
+    ctx.Context.Log.Logf("gql", "FIELDS: %+v", GetResolveFields(ctx.Context, p))
 
     return nil, nil
   },

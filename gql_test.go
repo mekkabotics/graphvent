@@ -23,7 +23,7 @@ func TestGQL(t *testing.T) {
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   policy := NewAllNodesPolicy(Actions{MakeAction("+")})
-  gql := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext)
+  gql := NewNode(ctx, nil, GQLNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext, NewGroupExt(nil))
   n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), listener_ext)
 
   ctx.Send(n1.ID, gql.ID, StateSignal{NewDirectSignal(GQLStateSignalType), "start_server"})
@@ -39,29 +39,43 @@ func TestGQL(t *testing.T) {
   port := gql_ext.tcp_listener.Addr().(*net.TCPAddr).Port
   url := fmt.Sprintf("https://localhost:%d/gql", port)
 
-  ser, err := json.MarshalIndent(&GQLPayload{
+  req_1 := GQLPayload{
     Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash } }",
     Variables: map[string]interface{}{
       "id": n1.ID.String(),
     },
-  }, "", "  ")
-  fatalErr(t, err)
+  }
 
-  req_data := bytes.NewBuffer(ser)
+  req_2 := GQLPayload{
+    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQL { Listen } } }",
+    Variables: map[string]interface{}{
+      "id": gql.ID.String(),
+    },
+  }
 
-  req, err := http.NewRequest("GET", url, req_data)
-  req.SetBasicAuth(n1.ID.String(), "BAD_PASSWORD")
-  fatalErr(t, err)
+  SendGQL := func(payload GQLPayload) []byte {
+    ser, err := json.MarshalIndent(&payload, "", "  ")
+    fatalErr(t, err)
 
-  resp, err := client.Do(req)
-  fatalErr(t, err)
+    req_data := bytes.NewBuffer(ser)
+    req, err := http.NewRequest("GET", url, req_data)
+    fatalErr(t, err)
 
-  body, err := io.ReadAll(resp.Body)
-  fatalErr(t, err)
+    req.SetBasicAuth(n1.ID.String(), "BAD_PASSWORD")
+    resp, err := client.Do(req)
+    fatalErr(t, err)
 
-  resp.Body.Close()
+    body, err := io.ReadAll(resp.Body)
+    fatalErr(t, err)
 
-  ctx.Log.Logf("test", "TEST_RESP: %s", body)
+    resp.Body.Close()
+    return body
+  }
+
+  resp_1 := SendGQL(req_1)
+  ctx.Log.Logf("test", "RESP_1: %s", resp_1)
+  resp_2 := SendGQL(req_2)
+  ctx.Log.Logf("test", "RESP_2: %s", resp_2)
 
   ctx.Send(n1.ID, gql.ID, StateSignal{NewDirectSignal(GQLStateSignalType), "stop_server"})
   _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, GQLStateSignalType, func(sig StateSignal) bool {
