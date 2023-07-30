@@ -57,7 +57,10 @@ func WaitForReadResult(listener chan *ReadResultSignal, timeout time.Duration, i
 
 func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
   var zero S
-  timeout_channel := time.After(timeout)
+  var timeout_channel <- chan time.Time
+  if timeout > 0 {
+    timeout_channel = time.After(timeout)
+  }
   for true {
     select {
     case signal := <- listener.Chan:
