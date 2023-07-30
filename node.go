@@ -147,8 +147,15 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   }
 
   if soonest_signal != nil {
+    print("QUEUE: ")
+    print(fmt.Sprintf("%+v", signals))
+    print(" - SOONEST: ")
+    print(soonest_signal.Time.String())
+    print(" : ")
+    println(soonest_signal.Signal.Type())
     return soonest_signal, time.After(time.Until(soonest_signal.Time))
   } else {
+    println("NONE_QUEUED")
     return nil, nil
   }
 }
