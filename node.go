@@ -140,7 +140,7 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   var soonest_signal *QueuedSignal
   var soonest_time time.Time
   for _, signal := range(signals) {
-    if signal.Time.Compare(soonest_time) == 1 || soonest_signal == nil {
+    if signal.Time.Compare(soonest_time) == -1 || soonest_signal == nil {
       soonest_signal = &signal
       soonest_time = signal.Time
     }
