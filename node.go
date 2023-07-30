@@ -94,8 +94,9 @@ type Extension interface {
 
 // A QueuedSignal is a Signal that has been Queued to trigger at a set time
 type QueuedSignal struct {
-  Signal Signal
-  Time time.Time
+  uuid.UUID
+  Signal
+  time.Time
 }
 
 // Default message channel size for nodes
@@ -119,9 +120,11 @@ type Node struct {
   NextSignal *QueuedSignal
 }
 
-func (node *Node) QueueSignal(time time.Time, signal Signal) {
-  node.SignalQueue = append(node.SignalQueue, QueuedSignal{signal, time})
+func (node *Node) QueueSignal(time time.Time, signal Signal) uuid.UUID {
+  id := uuid.New()
+  node.SignalQueue = append(node.SignalQueue, QueuedSignal{id, signal, time})
   node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+  return id
 }
 
 func (node *Node) ClearSignalQueue() {
@@ -204,6 +207,20 @@ func nodeLoop(ctx *Context, node *Node) error {
     case <-node.TimeoutChan:
       signal = node.NextSignal.Signal
       source = node.ID
+      i := -1
+      for j, queued := range(node.SignalQueue) {
+        if queued.UUID == node.NextSignal.UUID {
+          i = j
+          break
+        }
+      }
+      if i == -1 {
+        panic("node.NextSignal not in node.SignalQueue")
+      }
+      l := len(node.SignalQueue)
+      node.SignalQueue[i] = node.SignalQueue[l-1]
+      node.SignalQueue = node.SignalQueue[:(l-1)]
+
       node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
       ctx.Log.Logf("node", "NODE_TIMEOUT %s - NEXT_SIGNAL: %s", node.ID, signal)
     }

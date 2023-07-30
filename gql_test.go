@@ -10,10 +10,11 @@ import (
   "net"
   "crypto/tls"
   "bytes"
+  "github.com/google/uuid"
 )
 
 func TestGQL(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "gql", "policy"})
+  ctx := logTestContext(t, []string{"node", "test", "gql", "policy"})
 
   TestNodeType := NodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType, ACLExtType})
@@ -23,18 +24,14 @@ func TestGQL(t *testing.T) {
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   policy := NewAllNodesPolicy(Actions{MakeAction("+")})
-  gql := NewNode(ctx, nil, GQLNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext, NewGroupExt(nil))
-  n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), listener_ext)
+  gql := NewNode(ctx, nil, GQLNodeType, 10, []QueuedSignal{
+    QueuedSignal{uuid.New(), StateSignal{NewDirectSignal(GQLStateSignalType), "start_server"}, time.Now()},
+  }, NewLockableExt(), NewACLExt(policy), gql_ext, NewGroupExt(nil), listener_ext)
+  n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy))
 
   err = LinkRequirement(ctx, gql.ID, n1.ID)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, listener_ext, time.Millisecond*10, LinkSignalType, func(sig StateSignal) bool {
-    return sig.State == "linked_as_dep"
-  })
-  fatalErr(t, err)
-
-  ctx.Send(n1.ID, gql.ID, StateSignal{NewDirectSignal(GQLStateSignalType), "start_server"})
   _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, GQLStateSignalType, func(sig StateSignal) bool {
     return sig.State == "server_started"
   })
