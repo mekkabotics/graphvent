@@ -139,11 +139,11 @@ func (node *Node) ClearSignalQueue() {
 func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   var soonest_signal *QueuedSignal
   var soonest_time time.Time
-  for _, signal := range(signals) {
+  for i, signal := range(signals) {
     if signal.Time.Compare(soonest_time) == -1 || soonest_signal == nil {
       print("SOONEST: ")
       println(signal.Time.String())
-      soonest_signal = &signal
+      soonest_signal = &signals[i]
       soonest_time = signal.Time
     }
   }
