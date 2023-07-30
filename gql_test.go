@@ -26,6 +26,14 @@ func TestGQL(t *testing.T) {
   gql := NewNode(ctx, nil, GQLNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), gql_ext, NewGroupExt(nil))
   n1 := NewNode(ctx, nil, TestNodeType, 10, nil, NewLockableExt(), NewACLExt(policy), listener_ext)
 
+  err = LinkRequirement(ctx, gql.ID, n1.ID)
+  fatalErr(t, err)
+
+  _, err = WaitForSignal(ctx, listener_ext, time.Millisecond*10, LinkSignalType, func(sig StateSignal) bool {
+    return sig.State == "linked_as_dep"
+  })
+  fatalErr(t, err)
+
   ctx.Send(n1.ID, gql.ID, StateSignal{NewDirectSignal(GQLStateSignalType), "start_server"})
   _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, GQLStateSignalType, func(sig StateSignal) bool {
     return sig.State == "server_started"
@@ -47,7 +55,7 @@ func TestGQL(t *testing.T) {
   }
 
   req_2 := GQLPayload{
-    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Listen } } }",
+    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Listen, Requirements { ID, TypeHash, Dependencies { ID } } } } }",
     Variables: map[string]interface{}{
       "id": gql.ID.String(),
     },

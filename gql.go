@@ -531,29 +531,31 @@ func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name st
     return fmt.Errorf("%s is already a field in the context, cannot add again", gql_name)
   }
 
+  resolver := func(p graphql.ResolveParams)(interface{}, error) {
+    return ResolveNodeResult(p, func(p graphql.ResolveParams, result NodeResult) (interface{}, error) {
+      ext, exists := result.Result.Extensions[ext_type]
+      if exists == false {
+        return nil, fmt.Errorf("%s is not in the extensions of the result", ext_type)
+      }
+
+      val_if, exists := ext[acl_name]
+      if exists == false {
+        return nil, fmt.Errorf("%s is not in the fields of %s in the result", acl_name, ext_type)
+      }
+
+      var zero T
+      val, ok := val_if.(T)
+      if ok == false {
+        return nil, fmt.Errorf("%s.%s is not %s", ext_type, acl_name, reflect.TypeOf(zero))
+      }
+
+      return resolve_fn(p, val)
+    })
+  }
+
   ctx.Fields[gql_name] = Field{ext_type, acl_name, &graphql.Field{
     Type: gql_type,
-    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      return ResolveNodeResult(p, func(p graphql.ResolveParams, result NodeResult) (interface{}, error) {
-        ext, exists := result.Result.Extensions[ext_type]
-        if exists == false {
-          return nil, fmt.Errorf("%s is not in the extensions of the result", ext_type)
-        }
-
-        val_if, exists := ext[acl_name]
-        if exists == false {
-          return nil, fmt.Errorf("%s is not in the fields of %s in the result", acl_name, ext_type)
-        }
-
-        var zero T
-        val, ok := val_if.(T)
-        if ok == false {
-          return nil, fmt.Errorf("%s.%s is not %s", ext_type, acl_name, reflect.TypeOf(zero))
-        }
-
-        return resolve_fn(p, val)
-      })
-    },
+    Resolve: resolver,
   }}
   return nil
 }
@@ -651,7 +653,8 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
   })
   ctx_interface.List = graphql.NewList(ctx_interface.Interface)
 
-  for field_name, self_field := range(self_fields) {
+  for field_name, field := range(self_fields) {
+    self_field := field
     err := RegisterField(ctx, ctx_interface.Interface, field_name, self_field.Extension, self_field.ACLName,
     func(p graphql.ResolveParams, val interface{})(interface{}, error) {
       ctx, err := PrepResolve(p)
@@ -681,9 +684,9 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
     node_fields[field_name] = ctx.Fields[field_name].Field
   }
 
-  for field_name, list_field := range(list_fields) {
-    err := RegisterField(ctx, ctx_interface.Interface, field_name, list_field.Extension, list_field.ACLName,
-    func(p graphql.ResolveParams, val interface{})(interface{}, error) {
+  for field_name, field := range(list_fields) {
+    list_field := field
+    resolve_fn := func(p graphql.ResolveParams, val interface{})(interface{}, error) {
       ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
@@ -702,7 +705,9 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
         return nil, fmt.Errorf("wrong length of nodes returned")
       }
       return nodes, nil
-    })
+    }
+
+    err := RegisterField(ctx, ctx_interface.List, field_name, list_field.Extension, list_field.ACLName, resolve_fn)
     if err != nil {
       return err
     }
@@ -806,6 +811,42 @@ func NewGQLExtContext() *GQLExtContext {
       },
     },
   }, map[string]ListField{
+    "Requirements": ListField{
+      "requirements",
+      LockableExtType,
+      func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
+        id_strs, ok := val.(map[NodeID]ReqState)
+        if ok == false {
+          return nil, fmt.Errorf("can't parse requirements %+v as string, %s", val, reflect.TypeOf(val))
+        }
+
+        ids := make([]NodeID, len(id_strs))
+        i := 0
+        for id, _ := range(id_strs) {
+          ids[i] = id
+          i++
+        }
+        return ids, nil
+      },
+    },
+    "Dependencies": ListField{
+      "dependencies",
+      LockableExtType,
+      func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
+        id_strs, ok := val.(map[NodeID]string)
+        if ok == false {
+          return nil, fmt.Errorf("can't parse dependencies %+v as string, %s", val, reflect.TypeOf(val))
+        }
+
+        ids := make([]NodeID, len(id_strs))
+        i := 0
+        for id, _ := range(id_strs) {
+          ids[i] = id
+          i++
+        }
+        return ids, nil
+      },
+    },
   })
 
   if err != nil {
@@ -819,7 +860,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node"}, []string{"Listen"})
+  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable"}, []string{"Listen", "Owner", "Requirements", "Dependencies"})
   if err != nil {
     panic(err)
   }
