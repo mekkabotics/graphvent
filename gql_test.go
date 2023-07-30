@@ -55,7 +55,7 @@ func TestGQL(t *testing.T) {
   }
 
   req_2 := GQLPayload{
-    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Listen, Requirements { ID, TypeHash, Dependencies { ID } } } } }",
+    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Members { ID } , Listen, Requirements { ID, TypeHash, Dependencies { ID } } } } }",
     Variables: map[string]interface{}{
       "id": gql.ID.String(),
     },

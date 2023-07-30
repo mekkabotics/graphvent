@@ -791,6 +791,35 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
+  err = RegisterField(&context, context.Interfaces["Node"].List, "Members", GroupExtType, "members",
+                      func(p graphql.ResolveParams, val map[NodeID]string)(interface{}, error) {
+                        ctx, err := PrepResolve(p)
+                        if err != nil {
+                          return nil, err
+                        }
+                        node_list := make([]NodeID, len(val))
+                        i := 0
+                        for id, _ := range(val) {
+                          node_list[i] = id
+                          i += 1
+                        }
+
+                        nodes, err := ResolveNodes(ctx, p, node_list)
+                        if err != nil {
+                          return nil, err
+                        }
+
+                        return nodes, nil
+                      })
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.RegisterInterface("Group", "DefaultGroup", []string{"Node"}, []string{"Members"}, map[string]SelfField{}, map[string]ListField{})
+  if err != nil {
+    panic(err)
+  }
+
   err = context.RegisterInterface("Lockable", "DefaultLockable", []string{"Node"}, []string{}, map[string]SelfField{
     "Owner": SelfField{
       "owner",
@@ -860,7 +889,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable"}, []string{"Listen", "Owner", "Requirements", "Dependencies"})
+  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"Listen", "Owner", "Requirements", "Dependencies", "Members"})
   if err != nil {
     panic(err)
   }
