@@ -146,9 +146,8 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
     }
   }
 
-  node_timeout := time.Until(soonest_time)
   if soonest_signal != nil {
-    return soonest_signal, time.After(node_timeout)
+    return soonest_signal, time.After(time.Until(soonest_signal.Time))
   } else {
     return nil, nil
   }
