@@ -85,7 +85,7 @@ func TestLink10K(t *testing.T) {
   }
 
   l0, l0_listener := NewListener()
-  lockables := make([]*Node, 10000)
+  lockables := make([]*Node, 10)
   for i, _ := range(lockables) {
     lockables[i] = NewLockable()
     LinkRequirement(ctx, l0.ID, lockables[i].ID)

@@ -64,23 +64,23 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
   return id, nil
 }
 
-func ResolveNodeResult(p graphql.ResolveParams, resolve_fn func(NodeResult)(interface{}, error)) (interface{}, error) {
+func ResolveNodeResult(p graphql.ResolveParams, resolve_fn func(graphql.ResolveParams, NodeResult)(interface{}, error)) (interface{}, error) {
   node, ok := p.Source.(NodeResult)
   if ok == false {
     return nil, fmt.Errorf("p.Value is not NodeResult")
   }
 
-  return resolve_fn(node)
+  return resolve_fn(p, node)
 }
 
 func ResolveNodeID(p graphql.ResolveParams) (interface{}, error) {
-  return ResolveNodeResult(p, func(node NodeResult) (interface{}, error) {
+  return ResolveNodeResult(p, func(p graphql.ResolveParams, node NodeResult) (interface{}, error) {
     return node.ID, nil
   })
 }
 
 func ResolveNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
-  return ResolveNodeResult(p, func(node NodeResult) (interface{}, error) {
+  return ResolveNodeResult(p, func(p graphql.ResolveParams, node NodeResult) (interface{}, error) {
     return Hash(node.Result.NodeType), nil
   })
 }

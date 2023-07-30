@@ -517,7 +517,7 @@ func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
   return graphql.NewSchema(schemaConfig)
 }
 
-func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name string, ext_type ExtType, acl_name string, resolve_fn func(T)(interface{}, error)) error {
+func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name string, ext_type ExtType, acl_name string, resolve_fn func(graphql.ResolveParams, T)(interface{}, error)) error {
   if ctx == nil {
     return fmt.Errorf("ctx is nil")
   }
@@ -534,7 +534,7 @@ func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name st
   ctx.Fields[gql_name] = Field{ext_type, acl_name, &graphql.Field{
     Type: gql_type,
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      return ResolveNodeResult(p, func(result NodeResult) (interface{}, error) {
+      return ResolveNodeResult(p, func(p graphql.ResolveParams, result NodeResult) (interface{}, error) {
         ext, exists := result.Result.Extensions[ext_type]
         if exists == false {
           return nil, fmt.Errorf("%s is not in the extensions of the result", ext_type)
@@ -551,7 +551,7 @@ func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name st
           return nil, fmt.Errorf("%s.%s is not %s", ext_type, acl_name, reflect.TypeOf(zero))
         }
 
-        return resolve_fn(val)
+        return resolve_fn(p, val)
       })
     },
   }}
@@ -609,13 +609,13 @@ type NodeResult struct {
 type ListField struct {
   ACLName string
   Extension ExtType
-  ResolveFn func(interface{}) ([]NodeID, error)
+  ResolveFn func(graphql.ResolveParams, interface{}) ([]NodeID, error)
 }
 
 type SelfField struct {
   ACLName string
   Extension ExtType
-  ResolveFn func(interface{}) (NodeID, error)
+  ResolveFn func(graphql.ResolveParams, interface{}) (NodeID, error)
 }
 
 func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, interfaces []string, fields []string, self_fields map[string]SelfField, list_fields map[string]ListField) error {
@@ -651,14 +651,63 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
   })
   ctx_interface.List = graphql.NewList(ctx_interface.Interface)
 
-  //TODO finish self_fields and do list_fields
   for field_name, self_field := range(self_fields) {
-    err := RegisterField(ctx, ctx_interface.Interface, field_name, self_field.Extension, self_field.ACLName, func(id_str string) (interface{}, error) {
-      return nil, nil
+    err := RegisterField(ctx, ctx_interface.Interface, field_name, self_field.Extension, self_field.ACLName,
+    func(p graphql.ResolveParams, val interface{})(interface{}, error) {
+      ctx, err := PrepResolve(p)
+      if err != nil {
+        return nil, err
+      }
+
+      var zero NodeID
+      id, err := self_field.ResolveFn(p, val)
+      if err != nil {
+        return zero, err
+      }
+
+      nodes, err := ResolveNodes(ctx, p, []NodeID{id})
+      if err != nil {
+        return nil, err
+      } else if len(nodes) != 1 {
+        return nil, fmt.Errorf("wrong length of nodes returned")
+      }
+      return nodes[0], nil
     })
     if err != nil {
       return err
     }
+
+    ctx_interface.Interface.AddFieldConfig(field_name, ctx.Fields[field_name].Field)
+    node_fields[field_name] = ctx.Fields[field_name].Field
+  }
+
+  for field_name, list_field := range(list_fields) {
+    err := RegisterField(ctx, ctx_interface.Interface, field_name, list_field.Extension, list_field.ACLName,
+    func(p graphql.ResolveParams, val interface{})(interface{}, error) {
+      ctx, err := PrepResolve(p)
+      if err != nil {
+        return nil, err
+      }
+
+      var zero NodeID
+      ids, err := list_field.ResolveFn(p, val)
+      if err != nil {
+        return zero, err
+      }
+
+      nodes, err := ResolveNodes(ctx, p, ids)
+      if err != nil {
+        return nil, err
+      } else if len(nodes) != len(ids) {
+        return nil, fmt.Errorf("wrong length of nodes returned")
+      }
+      return nodes, nil
+    })
+    if err != nil {
+      return err
+    }
+    ctx_interface.Interface.AddFieldConfig(field_name, ctx.Fields[field_name].Field)
+    node_fields[field_name] = ctx.Fields[field_name].Field
   }
 
   ctx_interface.Default = graphql.NewObject(graphql.ObjectConfig{
@@ -737,6 +786,44 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
+  err = context.RegisterInterface("Lockable", "DefaultLockable", []string{"Node"}, []string{}, map[string]SelfField{
+    "Owner": SelfField{
+      "owner",
+      LockableExtType,
+      func(p graphql.ResolveParams, val interface{}) (NodeID, error) {
+        var zero NodeID
+        id_str, ok := val.(string)
+        if ok == false {
+          return zero, fmt.Errorf("can't parse %+v as string", val)
+        }
+
+        id, err := ParseID(id_str)
+        if err != nil {
+          return zero, err
+        }
+
+        return id, nil
+      },
+    },
+  }, map[string]ListField{
+  })
+
+  if err != nil {
+    panic(err)
+  }
+
+  err = RegisterField(&context, graphql.String, "Listen", GQLExtType, "listen", func(p graphql.ResolveParams, listen string) (interface{}, error) {
+    return listen, nil
+  })
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node"}, []string{"Listen"})
+  if err != nil {
+    panic(err)
+  }
+
   context.Query.AddFieldConfig("Node", &graphql.Field{
     Type: context.Interfaces["Node"].Interface,
     Args: graphql.FieldConfigArgument{
@@ -750,12 +837,19 @@ func NewGQLExtContext() *GQLExtContext {
         return nil, err
       }
 
-      id_str, err := ExtractParam[string](p, "id")
+      id, err := ExtractID(p, "id")
       if err != nil {
         return nil, err
       }
 
-      return ResolveNode(ctx, p, id_str)
+      nodes, err := ResolveNodes(ctx, p, []NodeID{id})
+      if err != nil {
+        return nil, err
+      } else if len(nodes) != 1 {
+        return nil, fmt.Errorf("wrong length of resolved nodes returned")
+      }
+
+      return nodes[0], nil
     },
   })
 
