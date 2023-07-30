@@ -281,7 +281,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = gql_ctx.RegisterNodeType(GQLNodeType, "GQLServer", NodeInterfaces, []string{"Listen"})
+  err = gql_ctx.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node"}, []string{"Listen"})
   if err != nil {
     return nil, err
   }

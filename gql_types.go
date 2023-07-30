@@ -16,9 +16,6 @@ func AddNodeFields(object *graphql.Object) {
   })
 }
 
-var NodeInterfaces = []*Interface{InterfaceNode}
-var LockableInterfaces = append(NodeInterfaces, InterfaceLockable)
-
 func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init func(*Type)) *Type {
   var gql Type
   gql.Type = graphql.NewObject(graphql.ObjectConfig{
