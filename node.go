@@ -33,8 +33,11 @@ var (
 
 // A NodeID uniquely identifies a Node
 type NodeID uuid.UUID
-func (id NodeID) MarshalJSON() ([]byte, error) {
-  str := id.String()
+func (id *NodeID) MarshalJSON() ([]byte, error) {
+  str := ""
+  if id != nil {
+    str = id.String()
+  }
   return json.Marshal(&str)
 }
 

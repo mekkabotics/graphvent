@@ -844,16 +844,18 @@ func NewGQLExtContext() *GQLExtContext {
       "requirements",
       LockableExtType,
       func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
-        id_strs, ok := val.(map[NodeID]ReqState)
+        id_strs, ok := val.(LinkMap)
         if ok == false {
           return nil, fmt.Errorf("can't parse requirements %+v as string, %s", val, reflect.TypeOf(val))
         }
 
         ids := make([]NodeID, len(id_strs))
         i := 0
-        for id, _ := range(id_strs) {
-          ids[i] = id
-          i++
+        for id, state := range(id_strs) {
+          if state.Link == "linked" {
+            ids[i] = id
+            i++
+          }
         }
         return ids, nil
       },
@@ -862,16 +864,18 @@ func NewGQLExtContext() *GQLExtContext {
       "dependencies",
       LockableExtType,
       func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
-        id_strs, ok := val.(map[NodeID]string)
+        id_strs, ok := val.(LinkMap)
         if ok == false {
           return nil, fmt.Errorf("can't parse dependencies %+v as string, %s", val, reflect.TypeOf(val))
         }
 
         ids := make([]NodeID, len(id_strs))
         i := 0
-        for id, _ := range(id_strs) {
-          ids[i] = id
-          i++
+        for id, state := range(id_strs) {
+          if state.Link == "linked" {
+            ids[i] = id
+            i++
+          }
         }
         return ids, nil
       },

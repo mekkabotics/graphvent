@@ -56,24 +56,46 @@ func (ext *ListenerExt) Process(ctx *Context, princ_id NodeID, node *Node, signa
 }
 
 // ReqState holds the multiple states of a requirement
-type ReqState struct {
+type LinkState struct {
   Link string `json:"link"`
   Lock string `json:"lock"`
+  Initiator NodeID `json:"initiator"`
 }
 
 // A LockableExt allows a node to be linked to other nodes(via LinkSignal) and locked/unlocked(via LockSignal)
-type LockableExt struct {
-  Owner *NodeID
-  PendingOwner *NodeID
-  Requirements map[NodeID]ReqState
-  Dependencies map[NodeID]string
+type LinkMap map[NodeID]LinkState
+func (m LinkMap) MarshalJSON() ([]byte, error) {
+  tmp := map[string]LinkState{}
+  for id, state := range(m) {
+    tmp[id.String()] = state
+  }
+
+  return json.Marshal(tmp)
 }
 
-type LockableExtJSON struct {
+func (m LinkMap) UnmarshalJSON(data []byte) error {
+  tmp := map[string]LinkState{}
+  err := json.Unmarshal(data, &tmp)
+  if err != nil {
+    return err
+  }
+
+  for id_str, state := range(tmp) {
+    id, err := ParseID(id_str)
+    if err != nil {
+      return err
+    }
+
+    m[id] = state
+  }
+  return nil
+}
+
+type LockableExt struct {
   Owner *NodeID `json:"owner"`
   PendingOwner *NodeID `json:"pending_owner"`
-  Requirements map[string]ReqState `json:"requirements"`
-  Dependencies map[string]string `json:"dependencies"`
+  Requirements LinkMap `json:"requirements"`
+  Dependencies LinkMap `json:"dependencies"`
 }
 
 func (ext *LockableExt) Field(name string) interface{} {
@@ -94,28 +116,13 @@ func (ext *LockableExt) Field(name string) interface{} {
 }
 
 func LoadLockableExt(ctx *Context, data []byte) (Extension, error) {
-  var j LockableExtJSON
-  err := json.Unmarshal(data, &j)
+  var ext LockableExt
+  err := json.Unmarshal(data, &ext)
   if err != nil {
     return nil, err
   }
 
-  requirements, err := LoadIDMap(j.Requirements)
-  if err != nil {
-    return nil, err
-  }
-
-  dependencies, err := LoadIDMap(j.Dependencies)
-  if err != nil {
-    return nil, err
-  }
-
-  return &LockableExt{
-    Owner: j.Owner,
-    PendingOwner: j.PendingOwner,
-    Requirements: requirements,
-    Dependencies: dependencies,
-  }, nil
+  return &ext, nil
 }
 
 func (ext *ListenerExt) Serialize() ([]byte, error) {
@@ -127,20 +134,15 @@ func (ext *LockableExt) Type() ExtType {
 }
 
 func (ext *LockableExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(&LockableExtJSON{
-    Owner: ext.Owner,
-    PendingOwner: ext.PendingOwner,
-    Requirements: IDMap(ext.Requirements),
-    Dependencies: IDMap(ext.Dependencies),
-  }, "", "  ")
+  return json.MarshalIndent(ext, "", "  ")
 }
 
 func NewLockableExt() *LockableExt {
   return &LockableExt{
     Owner: nil,
     PendingOwner: nil,
-    Requirements: map[NodeID]ReqState{},
-    Dependencies: map[NodeID]string{},
+    Requirements: map[NodeID]LinkState{},
+    Dependencies: map[NodeID]LinkState{},
   }
 }
 
@@ -315,9 +317,9 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   }
 }
 
-func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node *Node, signal LinkStartSignal) {
+func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node *Node, signal IDStateSignal) {
   ctx.Log.Logf("lockable", "LINK__START_SIGNAL: %s->%s %+v", source, node.ID, signal)
-  link_type := signal.LinkType
+  link_type := signal.State
   target := signal.ID
   switch link_type {
   case "req":
@@ -340,8 +342,8 @@ func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node 
     } else if dep_exists == true {
       ctx.Send(node.ID, source, NewLinkStartSignal("already_dep", target))
     } else {
-      ext.Requirements[target] = ReqState{"linking", "unlocked"}
-      ctx.Send(node.ID, target, NewLinkSignal("link_as_req"))
+      ext.Requirements[target] = LinkState{"linking", "unlocked", source}
+      ctx.Send(node.ID, target, NewLinkSignal("linked_as_req"))
       ctx.Send(node.ID, source, NewLinkStartSignal("linking_req", target))
     }
   }
@@ -353,13 +355,33 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node
   ctx.Log.Logf("lockable", "LINK_SIGNAL: %s->%s %+v", source, node.ID, signal)
   state := signal.State
   switch state {
-  case "link_as_dep":
+  case "linked_as_dep":
     state, exists := ext.Requirements[source]
     if exists == true && state.Link == "linked" {
-      ctx.Send(node.ID, source, NewLinkSignal("already_req"))
+      ctx.Send(node.ID, state.Initiator, NewLinkStartSignal("linked_as_req", source))
     } else if state.Link == "linking" {
       state.Link = "linked"
       ext.Requirements[source] = state
+      ctx.Send(node.ID, source, NewLinkSignal("linked_as_req"))
+    } else if ext.PendingOwner != ext.Owner {
+      if ext.Owner == nil {
+        ctx.Send(node.ID, source, NewLinkSignal("locking"))
+      } else {
+        ctx.Send(node.ID, source, NewLinkSignal("unlocking"))
+      }
+    } else {
+      ext.Requirements[source] = LinkState{"linking", "unlocked", source}
+      ctx.Send(node.ID, source, NewLinkSignal("linked_as_req"))
+    }
+    ctx.Log.Logf("lockable", "%s is a dependency of %s", node.ID, source)
+
+  case "linked_as_req":
+    state, exists := ext.Dependencies[source]
+    if exists == true && state.Link == "linked" {
+      ctx.Send(node.ID, state.Initiator, NewLinkStartSignal("linked_as_dep", source))
+    } else if state.Link == "linking" {
+      state.Link = "linked"
+      ext.Dependencies[source] = state
       ctx.Send(node.ID, source, NewLinkSignal("linked_as_dep"))
     } else if ext.PendingOwner != ext.Owner {
       if ext.Owner == nil {
@@ -368,46 +390,7 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node
         ctx.Send(node.ID, source, NewLinkSignal("unlocking"))
       }
     } else {
-      ext.Requirements[source] = ReqState{"linking", "unlocked"}
-      ctx.Send(node.ID, source, NewLinkSignal("link_as_req"))
-    }
-
-  case "link_as_req":
-    state, exists := ext.Dependencies[source]
-    if exists == true && state == "linked" {
-      ctx.Send(node.ID, source, NewLinkSignal("already_dep"))
-    } else if state == "linking" {
-      ext.Dependencies[source] = "linked"
-      ctx.Send(node.ID, source, NewLinkSignal("linked_as_req"))
-    } else if ext.PendingOwner != ext.Owner {
-      if ext.Owner == nil {
-        ctx.Send(node.ID, source, NewLinkSignal("locking"))
-      } else {
-        ctx.Send(node.ID, source, NewLinkSignal("unlocking"))
-      }
-    } else {
-      ext.Dependencies[source] = "linking"
-      ctx.Send(node.ID, source, NewLinkSignal("link_as_dep"))
-    }
-  case "linked_as_dep":
-    state, exists := ext.Dependencies[source]
-    if exists == false {
-      ctx.Send(node.ID, source, NewLinkSignal("not_linking"))
-    } else if state == "linked" {
-    } else if state == "linking" {
-      ext.Dependencies[source] = "linked"
-      ctx.Send(node.ID, source, NewLinkSignal("linked_as_req"))
-    }
-    ctx.Log.Logf("lockable", "%s is a dependency of %s", node.ID, source)
-
-  case "linked_as_req":
-    state, exists := ext.Requirements[source]
-    if exists == false {
-      ctx.Send(node.ID, source, NewLinkSignal("not_linking"))
-    } else if state.Link == "linked" {
-    } else if state.Link == "linking" {
-      state.Link = "linked"
-      ext.Requirements[source] = state
+      ext.Dependencies[source] = LinkState{"linking", "unlocked", source}
       ctx.Send(node.ID, source, NewLinkSignal("linked_as_dep"))
     }
     ctx.Log.Logf("lockable", "%s is a requirement of %s", node.ID, source)
@@ -424,7 +407,7 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
   case Up:
     owner_sent := false
     for dependency, state := range(ext.Dependencies) {
-      if state == "linked" {
+      if state.Link == "linked" {
         err := ctx.Send(node.ID, dependency, signal)
         if err != nil {
           ctx.Log.Logf("signal", "LOCKABLE_SIGNAL_ERR: %s->%s - %e", node.ID, dependency, err)
@@ -462,7 +445,7 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
     case LockSignalType:
       ext.HandleLockSignal(ctx, source, node, signal.(StateSignal))
     case LinkStartSignalType:
-      ext.HandleLinkStartSignal(ctx, source, node, signal.(LinkStartSignal))
+      ext.HandleLinkStartSignal(ctx, source, node, signal.(IDStateSignal))
     default:
     }
   default:

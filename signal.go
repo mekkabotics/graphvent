@@ -189,16 +189,16 @@ func NewLinkSignal(state string) StateSignal {
   }
 }
 
-type LinkStartSignal struct {
-  IDSignal
-  LinkType string `json:"link_type"`
+func NewIDStateSignal(signal_type SignalType, direction SignalDirection, state string, id NodeID) IDStateSignal {
+  return IDStateSignal{
+    BaseSignal: NewBaseSignal(signal_type, direction),
+    ID: id,
+    State: state,
+  }
 }
 
-func NewLinkStartSignal(link_type string, target NodeID) LinkStartSignal {
-  return LinkStartSignal{
-    IDSignal: NewIDSignal(LinkStartSignalType, Direct, target),
-    LinkType: link_type,
-  }
+func NewLinkStartSignal(link_type string, target NodeID) IDStateSignal {
+  return NewIDStateSignal(LinkStartSignalType, Direct, link_type, target)
 }
 
 func NewLockSignal(state string) StateSignal {
