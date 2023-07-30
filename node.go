@@ -225,7 +225,11 @@ func nodeLoop(ctx *Context, node *Node) error {
       node.SignalQueue = node.SignalQueue[:(l-1)]
 
       node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
-      ctx.Log.Logf("node", "NODE_TIMEOUT %s - NEXT_SIGNAL: %s", node.ID, signal)
+      if node.NextSignal == nil {
+        ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v - NEXT_SIGNAL nil", node.ID, signal)
+      } else {
+        ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v - NEXT_SIGNAL: %s@%s", node.ID, signal, node.NextSignal, node.NextSignal.Time)
+      }
     }
 
     // Handle special signal types
