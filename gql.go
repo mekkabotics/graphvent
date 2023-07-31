@@ -898,6 +898,25 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
+  context.Query.AddFieldConfig("Self", &graphql.Field{
+    Type: context.Interfaces["Node"].Interface,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      ctx, err := PrepResolve(p)
+      if err != nil {
+        return nil, err
+      }
+
+      nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
+      if err != nil {
+        return nil, err
+      } else if len(nodes) != 1 {
+        return nil, fmt.Errorf("wrong length of resolved nodes returned")
+      }
+
+      return nodes[0], nil
+    },
+  })
+
   context.Query.AddFieldConfig("Node", &graphql.Field{
     Type: context.Interfaces["Node"].Interface,
     Args: graphql.FieldConfigArgument{
