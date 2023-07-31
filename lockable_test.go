@@ -40,21 +40,21 @@ func TestLink(t *testing.T) {
   err := LinkRequirement(ctx, l1.ID, l2.ID)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, func(sig IDStateSignal) bool {
-    return sig.State == "linked_as_req"
+  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, func(sig IDStringSignal) bool {
+    return sig.Str == "linked_as_req"
   })
   fatalErr(t, err)
 
   err = ctx.Send(l2.ID, l2.ID, NewStatusSignal("TEST", l2.ID))
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, StatusSignalType, func(sig IDStateSignal) bool {
-    return sig.State == "TEST"
+  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, StatusSignalType, func(sig IDStringSignal) bool {
+    return sig.Str == "TEST"
   })
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l2_listener, time.Millisecond*10, StatusSignalType, func(sig IDStateSignal) bool {
-    return sig.State == "TEST"
+  _, err = WaitForSignal(ctx, l2_listener, time.Millisecond*10, StatusSignalType, func(sig IDStringSignal) bool {
+    return sig.Str == "TEST"
   })
   fatalErr(t, err)
 }
@@ -91,8 +91,8 @@ func TestLink10K(t *testing.T) {
 
 
   for range(lockables) {
-    _, err := WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkStartSignalType, func(sig IDStateSignal) bool {
-      return sig.State == "linked_as_req"
+    _, err := WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkStartSignalType, func(sig IDStringSignal) bool {
+      return sig.Str == "linked_as_req"
     })
     fatalErr(t, err)
   }
@@ -140,15 +140,15 @@ func TestLock(t *testing.T) {
   err = LinkRequirement(ctx, l0.ID, l5.ID)
   fatalErr(t, err)
 
-  linked_as_req := func(sig IDStateSignal) bool {
-    return sig.State == "linked_as_req"
+  linked_as_req := func(sig IDStringSignal) bool {
+    return sig.Str == "linked_as_req"
   }
 
-  locked := func(sig StateSignal) bool {
-    return sig.State == "locked"
+  locked := func(sig StringSignal) bool {
+    return sig.Str == "locked"
   }
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, linked_as_req)
+    _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, linked_as_req)
   fatalErr(t, err)
   _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, linked_as_req)
   fatalErr(t, err)

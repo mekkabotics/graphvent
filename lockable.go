@@ -162,9 +162,9 @@ func LinkRequirement(ctx *Context, dependency NodeID, requirement NodeID) error 
 }
 
 // Handle a LockSignal and update the extensions owner/requirement states
-func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
+func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node, signal StringSignal) {
   ctx.Log.Logf("lockable", "LOCK_SIGNAL: %s->%s %+v", source, node.ID, signal)
-  state := signal.State
+  state := signal.Str
   switch state {
   case "unlock":
     if ext.Owner == nil {
@@ -317,9 +317,9 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   }
 }
 
-func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node *Node, signal IDStateSignal) {
+func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node *Node, signal IDStringSignal) {
   ctx.Log.Logf("lockable", "LINK__START_SIGNAL: %s->%s %+v", source, node.ID, signal)
-  link_type := signal.State
+  link_type := signal.Str
   target := signal.ID
   switch link_type {
   case "req":
@@ -351,9 +351,9 @@ func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node 
 
 // Handle LinkSignal, updating the extensions requirements and dependencies as necessary
 // TODO: Add unlink
-func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
+func (ext *LockableExt) HandleLinkSignal(ctx *Context, source NodeID, node *Node, signal StringSignal) {
   ctx.Log.Logf("lockable", "LINK_SIGNAL: %s->%s %+v", source, node.ID, signal)
-  state := signal.State
+  state := signal.Str
   switch state {
   case "linked_as_dep":
     state, exists := ext.Requirements[source]
@@ -441,11 +441,11 @@ func (ext *LockableExt) Process(ctx *Context, source NodeID, node *Node, signal 
   case Direct:
     switch signal.Type() {
     case LinkSignalType:
-      ext.HandleLinkSignal(ctx, source, node, signal.(StateSignal))
+      ext.HandleLinkSignal(ctx, source, node, signal.(StringSignal))
     case LockSignalType:
-      ext.HandleLockSignal(ctx, source, node, signal.(StateSignal))
+      ext.HandleLockSignal(ctx, source, node, signal.(StringSignal))
     case LinkStartSignalType:
-      ext.HandleLinkStartSignal(ctx, source, node, signal.(IDStateSignal))
+      ext.HandleLinkStartSignal(ctx, source, node, signal.(IDStringSignal))
     default:
     }
   default:

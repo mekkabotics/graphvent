@@ -17,6 +17,7 @@ import (
 type SignalDirection int
 const (
   StopSignalType SignalType = "STOP"
+  ErrorSignalType           = "ERROR"
   StatusSignalType          = "STATUS"
   LinkSignalType            = "LINK"
   LockSignalType            = "LOCK"
@@ -126,6 +127,18 @@ func NewDirectSignal(signal_type SignalType) BaseSignal {
 
 var StopSignal = NewDownSignal(StopSignalType)
 
+type ErrorSignal struct {
+  BaseSignal
+  Error error `json:"error"`
+}
+
+func NewErrorSignal(err error) ErrorSignal {
+  return ErrorSignal{
+    BaseSignal: NewDirectSignal(ErrorSignalType),
+    Error: err,
+  }
+}
+
 type IDSignal struct {
   BaseSignal
   ID NodeID `json:"id"`
@@ -150,26 +163,26 @@ func NewIDSignal(signal_type SignalType, direction SignalDirection, id NodeID) I
   }
 }
 
-type StateSignal struct {
+type StringSignal struct {
   BaseSignal
-  State string `json:"state"`
+  Str string `json:"state"`
 }
 
-func (signal StateSignal) Serialize() ([]byte, error) {
+func (signal StringSignal) Serialize() ([]byte, error) {
   return json.Marshal(&signal)
 }
 
-type IDStateSignal struct {
+type IDStringSignal struct {
   BaseSignal
   ID NodeID `json:"id"`
-  State string `json:"state"`
+  Str string `json:"state"`
 }
 
-func (signal IDStateSignal) Serialize() ([]byte, error) {
+func (signal IDStringSignal) Serialize() ([]byte, error) {
   return json.Marshal(&signal)
 }
 
-func (signal IDStateSignal) String() string {
+func (signal IDStringSignal) String() string {
   ser, err := json.Marshal(signal)
   if err != nil {
     return "STATE_SER_ERR"
@@ -177,42 +190,42 @@ func (signal IDStateSignal) String() string {
   return string(ser)
 }
 
-func NewStatusSignal(status string, source NodeID) IDStateSignal {
-  return IDStateSignal{
+func NewStatusSignal(status string, source NodeID) IDStringSignal {
+  return IDStringSignal{
     BaseSignal: NewUpSignal(StatusSignalType),
     ID: source,
-    State: status,
+    Str: status,
   }
 }
 
-func NewLinkSignal(state string) StateSignal {
-  return StateSignal{
+func NewLinkSignal(state string) StringSignal {
+  return StringSignal{
     BaseSignal: NewDirectSignal(LinkSignalType),
-    State: state,
+    Str: state,
   }
 }
 
-func NewIDStateSignal(signal_type SignalType, direction SignalDirection, state string, id NodeID) IDStateSignal {
-  return IDStateSignal{
+func NewIDStringSignal(signal_type SignalType, direction SignalDirection, state string, id NodeID) IDStringSignal {
+  return IDStringSignal{
     BaseSignal: NewBaseSignal(signal_type, direction),
     ID: id,
-    State: state,
+    Str: state,
   }
 }
 
-func NewLinkStartSignal(link_type string, target NodeID) IDStateSignal {
-  return NewIDStateSignal(LinkStartSignalType, Direct, link_type, target)
+func NewLinkStartSignal(link_type string, target NodeID) IDStringSignal {
+  return NewIDStringSignal(LinkStartSignalType, Direct, link_type, target)
 }
 
-func NewLockSignal(state string) StateSignal {
-  return StateSignal{
+func NewLockSignal(state string) StringSignal {
+  return StringSignal{
     BaseSignal: NewDirectSignal(LockSignalType),
-    State: state,
+    Str: state,
   }
 }
 
-func (signal StateSignal) Permission() Action {
-  return MakeAction(signal.Type(), signal.State)
+func (signal StringSignal) Permission() Action {
+  return MakeAction(signal.Type(), signal.Str)
 }
 
 type ReadSignal struct {
@@ -250,7 +263,7 @@ func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]
 }
 
 type ECDHSignal struct {
-  StateSignal
+  StringSignal
   Time time.Time
   ECDSA *ecdsa.PublicKey
   ECDH *ecdh.PublicKey
@@ -258,7 +271,7 @@ type ECDHSignal struct {
 }
 
 type ECDHSignalJSON struct {
-  StateSignal
+  StringSignal
   Time time.Time `json:"time"`
   ECDSA []byte `json:"ecdsa_pubkey"`
   ECDH []byte `json:"ecdh_pubkey"`
@@ -267,7 +280,7 @@ type ECDHSignalJSON struct {
 
 func (signal *ECDHSignal) MarshalJSON() ([]byte, error) {
   return json.Marshal(&ECDHSignalJSON{
-    StateSignal: signal.StateSignal,
+    StringSignal: signal.StringSignal,
     Time: signal.Time,
     ECDH: signal.ECDH.Bytes(),
     ECDSA: signal.ECDH.Bytes(),
@@ -310,9 +323,9 @@ func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, e
   }
 
   return ECDHSignal{
-    StateSignal: StateSignal{
+    StringSignal: StringSignal{
       BaseSignal: NewDirectSignal(ECDHSignalType),
-      State: "req",
+      Str: "req",
     },
     Time: now,
     ECDSA: &node.Key.PublicKey,
@@ -352,9 +365,9 @@ func NewECDHRespSignal(ctx *Context, node *Node, req ECDHSignal) (ECDHSignal, []
   }
 
   return ECDHSignal{
-    StateSignal: StateSignal{
+    StringSignal: StringSignal{
       BaseSignal: NewDirectSignal(ECDHSignalType),
-      State: "resp",
+      Str: "resp",
     },
     Time: now,
     ECDSA: &node.Key.PublicKey,

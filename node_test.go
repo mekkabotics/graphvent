@@ -91,7 +91,7 @@ func TestECDH(t *testing.T) {
   fatalErr(t, err)
 
   _, err = WaitForSignal(ctx, n1_listener, 100*time.Millisecond, ECDHSignalType, func(sig ECDHSignal) bool {
-    return sig.State == "resp"
+    return sig.Str == "resp"
   })
   fatalErr(t, err)
   time.Sleep(10*time.Millisecond)

@@ -106,7 +106,7 @@ func (ext *ECDHExt) Field(name string) interface{} {
 func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, signal ECDHSignal) {
   ser, _ := signal.Serialize()
   ctx.Log.Logf("ecdh", "ECDH_SIGNAL: %s->%s - %s", source, node.ID, ser)
-  switch signal.State {
+  switch signal.Str {
   case "req":
     state, exists := ext.ECDHStates[source]
     if exists == false {
@@ -125,7 +125,7 @@ func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, si
   case "resp":
     state, exists := ext.ECDHStates[source]
     if exists == false || state.ECKey == nil {
-      ctx.Send(node.ID, source, StateSignal{NewDirectSignal(ECDHStateSignalType), "no_req"})
+      ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), "no_req"})
     } else {
       err := VerifyECDHSignal(time.Now(), signal, DEFAULT_ECDH_WINDOW)
       if err == nil {
@@ -139,11 +139,11 @@ func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, si
       }
     }
   default:
-    ctx.Log.Logf("ecdh", "unknown echd state %s", signal.State)
+    ctx.Log.Logf("ecdh", "unknown echd state %s", signal.Str)
   }
 }
 
-func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, signal StateSignal) {
+func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, signal StringSignal) {
   ser, _ := signal.Serialize()
   ctx.Log.Logf("ecdh", "ECHD_STATE: %s->%s - %s", source, node.ID, ser)
 }
@@ -151,13 +151,13 @@ func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, s
 func (ext *ECDHExt) HandleECDHProxySignal(ctx *Context, source NodeID, node *Node, signal ECDHProxySignal) {
   state, exists := ext.ECDHStates[source]
   if exists == false {
-    ctx.Send(node.ID, source, StateSignal{NewDirectSignal(ECDHStateSignalType), "no_req"})
+    ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), "no_req"})
   } else if state.SharedSecret == nil {
-    ctx.Send(node.ID, source, StateSignal{NewDirectSignal(ECDHStateSignalType), "no_shared"})
+    ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), "no_shared"})
   } else {
     unwrapped_signal, err := ParseECDHProxySignal(ctx, &signal, state.SharedSecret)
     if err != nil {
-      ctx.Send(node.ID, source, StateSignal{NewDirectSignal(ECDHStateSignalType), err.Error()})
+      ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), err.Error()})
     } else {
       //TODO: Figure out what I was trying to do here and fix it
       ctx.Send(signal.Source, signal.Dest, unwrapped_signal)
@@ -173,7 +173,7 @@ func (ext *ECDHExt) Process(ctx *Context, source NodeID, node *Node, signal Sign
       ecdh_signal := signal.(ECDHProxySignal)
       ext.HandleECDHProxySignal(ctx, source, node, ecdh_signal)
     case ECDHStateSignalType:
-      ecdh_signal := signal.(StateSignal)
+      ecdh_signal := signal.(StringSignal)
       ext.HandleStateSignal(ctx, source, node, ecdh_signal)
     case ECDHSignalType:
       ecdh_signal := signal.(ECDHSignal)

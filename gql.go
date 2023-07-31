@@ -996,20 +996,20 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
   } else if signal.Type() == GQLStateSignalType {
-    sig := signal.(StateSignal)
-    switch sig.State {
+    sig := signal.(StringSignal)
+    switch sig.Str {
     case "start_server":
       err := ext.StartGQLServer(ctx, node)
       if err == nil {
-        ctx.Send(node.ID, source, StateSignal{NewDirectSignal(GQLStateSignalType), "server_started"})
+        ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"})
       }
     case "stop_server":
       err := ext.StopGQLServer()
       if err == nil {
-        ctx.Send(node.ID, source, StateSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"})
+        ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"})
       }
     default:
-      ctx.Log.Logf("gql", "unknown gql state %s", sig.State)
+      ctx.Log.Logf("gql", "unknown gql state %s", sig.Str)
     }
   }
 }
