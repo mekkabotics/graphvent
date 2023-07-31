@@ -252,6 +252,13 @@ func nodeLoop(ctx *Context, node *Node) error {
     }
 
     node.Process(ctx, source, signal)
+    // assume that processing a signal means that this nodes state changed
+    // TODO: remove a lot of database writes by only writing when things change,
+    //  so need to have Process return whether or not state changed
+    err := WriteNode(ctx, node)
+    if err != nil {
+      panic(err)
+    }
   }
 
   stopped := node.Active.CompareAndSwap(true, false)
