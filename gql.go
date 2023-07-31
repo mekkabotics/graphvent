@@ -774,11 +774,16 @@ func NewGQLExtContext() *GQLExtContext {
     Fields: graphql.Fields{},
   })
 
+  mutation := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Mutation",
+    Fields: graphql.Fields{},
+  })
+
   context := GQLExtContext{
     Schema: graphql.Schema{},
     Types: []graphql.Type{},
     Query: query,
-    Mutation: nil,
+    Mutation: mutation,
     Subscription: nil,
     NodeTypes: map[NodeType]*graphql.Object{},
     Interfaces: map[string]*Interface{},
@@ -897,6 +902,23 @@ func NewGQLExtContext() *GQLExtContext {
   if err != nil {
     panic(err)
   }
+
+  context.Mutation.AddFieldConfig("stopServer", &graphql.Field{
+    Type: graphql.String,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      ctx, err := PrepResolve(p)
+      if err != nil {
+        return nil, err
+      }
+
+      err = ctx.Context.Send(ctx.User, ctx.Server.ID, StringSignal{NewDirectSignal(GQLStateSignalType), "stop_server"})
+      if err != nil {
+        return nil, err
+      }
+
+      return "stop_sent", nil
+    },
+  })
 
   context.Query.AddFieldConfig("Self", &graphql.Field{
     Type: context.Interfaces["Node"].Interface,
