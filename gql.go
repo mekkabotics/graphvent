@@ -1000,17 +1000,34 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
     sig := signal.(StringSignal)
     switch sig.Str {
     case "start_server":
+      if ext.State == "stopped" {
+        err := ext.StartGQLServer(ctx, node)
+        if err == nil {
+          ext.State = "running"
+          ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"})
+        }
+      }
+    case "stop_server":
+      if ext.State == "running" {
+        err := ext.StopGQLServer()
+        if err == nil {
+          ext.State = "stopped"
+          ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"})
+        }
+      }
+    default:
+      ctx.Log.Logf("gql", "unknown gql state %s", sig.Str)
+    }
+  } else if signal.Type() == StartSignalType {
+    switch ext.State {
+    case "running":
       err := ext.StartGQLServer(ctx, node)
       if err == nil {
         ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"})
       }
-    case "stop_server":
-      err := ext.StopGQLServer()
-      if err == nil {
-        ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"})
-      }
+    case "stopped":
     default:
-      ctx.Log.Logf("gql", "unknown gql state %s", sig.Str)
+      ctx.Log.Logf("gql", "unknown state to restore from: %s", ext.State)
     }
   }
 }
@@ -1090,6 +1107,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, sta
     tls_key = ssl_key_pem
   }
   return &GQLExt{
+    State: state,
     Listen: listen,
     resolver_reads: map[uuid.UUID]uuid.UUID{},
     resolver_chans: map[uuid.UUID]chan *ReadResultSignal{},

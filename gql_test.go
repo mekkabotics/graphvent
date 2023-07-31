@@ -20,7 +20,7 @@ func TestGQL(t *testing.T) {
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType, ACLExtType})
   fatalErr(t, err)
 
-  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "start")
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "stopped")
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   policy := NewAllNodesPolicy(Actions{MakeAction("+")})

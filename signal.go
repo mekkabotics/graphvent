@@ -17,6 +17,7 @@ import (
 type SignalDirection int
 const (
   StopSignalType SignalType = "STOP"
+  StartSignalType           = "START"
   ErrorSignalType           = "ERROR"
   StatusSignalType          = "STATUS"
   LinkSignalType            = "LINK"

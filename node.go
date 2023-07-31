@@ -195,6 +195,10 @@ func nodeLoop(ctx *Context, node *Node) error {
   if started == false {
     return fmt.Errorf("%s is already started, will not start again", node.ID)
   }
+
+  // Queue the signal for extensions to perform startup actions
+  node.QueueSignal(time.Now(), NewDirectSignal(StartSignalType))
+
   for true {
     var signal Signal
     var source NodeID
