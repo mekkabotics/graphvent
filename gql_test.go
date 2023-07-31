@@ -20,7 +20,7 @@ func TestGQL(t *testing.T) {
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType, ACLExtType})
   fatalErr(t, err)
 
-  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "start")
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   policy := NewAllNodesPolicy(Actions{MakeAction("+")})
@@ -98,7 +98,7 @@ func TestGQLDB(t *testing.T) {
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
-  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "start")
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   gql := NewNode(ctx, nil, GQLNodeType, 10, nil,

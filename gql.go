@@ -938,20 +938,21 @@ func NewGQLExtContext() *GQLExtContext {
 }
 
 type GQLExt struct {
-  tcp_listener net.Listener
-  http_server *http.Server
-  http_done sync.WaitGroup
+  tcp_listener net.Listener `json:"-"`
+  http_server *http.Server `json:"-"`
+  http_done sync.WaitGroup `json:"-"`
 
   // map of read request IDs to gql request ID
-  resolver_reads map[uuid.UUID]uuid.UUID
-  resolver_reads_lock sync.RWMutex
+  resolver_reads map[uuid.UUID]uuid.UUID `json:"-"`
+  resolver_reads_lock sync.RWMutex `json:"-"`
   // map of gql request ID to active channel
-  resolver_chans map[uuid.UUID]chan *ReadResultSignal
-  resolver_chans_lock sync.RWMutex
+  resolver_chans map[uuid.UUID]chan *ReadResultSignal `json:"-"`
+  resolver_chans_lock sync.RWMutex `json:"-"`
 
-  tls_key []byte
-  tls_cert []byte
-  Listen string
+  State string `json:"state"`
+  tls_key []byte `json:"tls_key"`
+  tls_cert []byte `json:"tls_cert"`
+  Listen string `json:"listen"`
 }
 
 func (ext *GQLExt) Field(name string) interface{} {
@@ -1018,18 +1019,8 @@ func (ext *GQLExt) Type() ExtType {
   return GQLExtType
 }
 
-type GQLExtJSON struct {
-  Listen string `json:"listen"`
-  TLSKey []byte `json:"ssl_key"`
-  TLSCert []byte `json:"ssl_cert"`
-}
-
 func (ext *GQLExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(&GQLExtJSON{
-    Listen: ext.Listen,
-    TLSKey: ext.tls_key,
-    TLSCert: ext.tls_cert,
-  }, "", "  ")
+  return json.MarshalIndent(ext, "", "  ")
 }
 
 var ecdsa_curves = map[uint8]elliptic.Curve{
@@ -1049,16 +1040,16 @@ var ecdh_curve_ids = map[ecdh.Curve]uint8{
 }
 
 func LoadGQLExt(ctx *Context, data []byte) (Extension, error) {
-  var j GQLExtJSON
-  err := json.Unmarshal(data, &j)
+  var ext GQLExt
+  err := json.Unmarshal(data, &ext)
   if err != nil {
     return nil, err
   }
 
-  return NewGQLExt(ctx, j.Listen, j.TLSCert, j.TLSKey)
+  return NewGQLExt(ctx, ext.Listen, ext.tls_cert, ext.tls_key, ext.State)
 }
 
-func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*GQLExt, error) {
+func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, state string) (*GQLExt, error) {
   if tls_cert == nil || tls_key == nil {
     ssl_key, err := ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
     if err != nil {
