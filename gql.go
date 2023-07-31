@@ -1019,6 +1019,7 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
       ctx.Log.Logf("gql", "unknown gql state %s", sig.Str)
     }
   } else if signal.Type() == StartSignalType {
+    ctx.Log.Logf("gql", "starting with state: %s", ext.State)
     switch ext.State {
     case "running":
       err := ext.StartGQLServer(ctx, node)
