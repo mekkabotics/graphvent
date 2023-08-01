@@ -209,6 +209,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       err := Allowed(ctx, msg.Source, signal.Permission(), node)
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_POLICY_ERR: %s", err)
+        ctx.Send(node.ID, msg.Source, NewErrorSignal(msg.Signal.ID(), err))
         continue
       }
     case <-node.TimeoutChan:
@@ -239,6 +240,7 @@ func nodeLoop(ctx *Context, node *Node) error {
 
     // Handle special signal types
     if signal.Type() == StopSignalType {
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), nil))
       node.Process(ctx, node.ID, NewStatusSignal("stopped", node.ID))
       break
     } else if signal.Type() == ReadSignalType {

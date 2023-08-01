@@ -42,17 +42,26 @@ func (signal_type SignalType) Prefix() string { return "SIGNAL: " }
 type Signal interface {
   Serializable[SignalType]
   Direction() SignalDirection
+  ID() uuid.UUID
   Permission() Action
 }
 
-func WaitForReadResult(listener chan *ReadResultSignal, timeout time.Duration, id uuid.UUID) (*ReadResultSignal, error) {
+func WaitForResult(listener chan Signal, timeout time.Duration, id uuid.UUID) (Signal, error) {
   timeout_channel := time.After(timeout)
   var err error = nil
-  var result *ReadResultSignal = nil
-  select {
-  case result =<-listener:
-  case <-timeout_channel:
-    err = fmt.Errorf("timeout waiting for read response to %s", id)
+  var result Signal = nil
+  run := true
+  for run == true {
+    select {
+    case result=<-listener:
+      if result.ID() == id {
+        run = false
+      }
+    case <-timeout_channel:
+      result = nil
+      err = fmt.Errorf("timeout waiting for read response to %s", id)
+      run = false
+    }
   }
   return result, err
 }
@@ -88,6 +97,11 @@ func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.
 type BaseSignal struct {
   SignalDirection SignalDirection `json:"direction"`
   SignalType SignalType `json:"type"`
+  uuid.UUID `json:"id"`
+}
+
+func (signal BaseSignal) ID() uuid.UUID {
+  return signal.UUID
 }
 
 func (signal BaseSignal) Type() SignalType {
@@ -108,6 +122,7 @@ func (signal BaseSignal) Serialize() ([]byte, error) {
 
 func NewBaseSignal(signal_type SignalType, direction SignalDirection) BaseSignal {
   signal := BaseSignal{
+    UUID: uuid.New(),
     SignalDirection: direction,
     SignalType: signal_type,
   }
@@ -133,9 +148,13 @@ type ErrorSignal struct {
   Error error `json:"error"`
 }
 
-func NewErrorSignal(err error) ErrorSignal {
+func NewErrorSignal(req_id uuid.UUID, err error) ErrorSignal {
   return ErrorSignal{
-    BaseSignal: NewDirectSignal(ErrorSignalType),
+    BaseSignal: BaseSignal{
+      Direct,
+      ErrorSignalType,
+      req_id,
+    },
     Error: err,
   }
 }
@@ -175,8 +194,8 @@ func (signal StringSignal) Serialize() ([]byte, error) {
 
 type IDStringSignal struct {
   BaseSignal
-  ID NodeID `json:"id"`
-  Str string `json:"state"`
+  NodeID `json:"node_id"`
+  Str string `json:"string"`
 }
 
 func (signal IDStringSignal) Serialize() ([]byte, error) {
@@ -194,7 +213,7 @@ func (signal IDStringSignal) String() string {
 func NewStatusSignal(status string, source NodeID) IDStringSignal {
   return IDStringSignal{
     BaseSignal: NewUpSignal(StatusSignalType),
-    ID: source,
+    NodeID: source,
     Str: status,
   }
 }
@@ -209,7 +228,7 @@ func NewLinkSignal(state string) StringSignal {
 func NewIDStringSignal(signal_type SignalType, direction SignalDirection, state string, id NodeID) IDStringSignal {
   return IDStringSignal{
     BaseSignal: NewBaseSignal(signal_type, direction),
-    ID: id,
+    NodeID: id,
     Str: state,
   }
 }
@@ -249,15 +268,17 @@ func NewReadSignal(exts map[ExtType][]string) ReadSignal {
 
 type ReadResultSignal struct {
   BaseSignal
-  uuid.UUID
   NodeType
   Extensions map[ExtType]map[string]interface{} `json:"extensions"`
 }
 
 func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]map[string]interface{}) ReadResultSignal {
   return ReadResultSignal{
-    BaseSignal: NewDirectSignal(ReadResultSignalType),
-    UUID: req_id,
+    BaseSignal: BaseSignal{
+      Direct,
+      ReadResultSignalType,
+      req_id,
+    },
     NodeType: node_type,
     Extensions: exts,
   }

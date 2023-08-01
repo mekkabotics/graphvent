@@ -169,11 +169,11 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   switch state {
   case "unlock":
     if ext.Owner == nil {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("already_unlocked")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("already_unlocked")))
     } else if source != *ext.Owner {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_owner")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_owner")))
     } else if ext.PendingOwner == nil {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("already_unlocking")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("already_unlocking")))
     } else {
       if len(ext.Requirements) == 0 {
         ext.Owner = nil
@@ -199,11 +199,11 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   case "unlocking":
     state, exists := ext.Requirements[source]
     if exists == false {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_requirement")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_requirement")))
     } else if state.Link != "linked" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("node_not_linked")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("node_not_linked")))
     } else if state.Lock != "unlocking" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_unlocking")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_unlocking")))
     }
 
   case "unlocked":
@@ -213,11 +213,11 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
 
     state, exists := ext.Requirements[source]
     if exists == false {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_requirement")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_requirement")))
     } else if state.Link != "linked" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_linked")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_linked")))
     } else if state.Lock != "unlocking" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_unlocking")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_unlocking")))
     } else {
       state.Lock = "unlocked"
       ext.Requirements[source] = state
@@ -248,11 +248,11 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
 
     state, exists := ext.Requirements[source]
     if exists == false {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_requirement")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_requirement")))
     } else if state.Link != "linked" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_linked")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_linked")))
     } else if state.Lock != "locking" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_locking")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_locking")))
     } else {
       state.Lock = "locked"
       ext.Requirements[source] = state
@@ -278,18 +278,18 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
   case "locking":
     state, exists := ext.Requirements[source]
     if exists == false {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_requirement")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_requirement")))
     } else if state.Link != "linked" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("node_not_linked")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("node_not_linked")))
     } else if state.Lock != "locking" {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("not_locking")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("not_locking")))
     }
 
   case "lock":
     if ext.Owner != nil {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("already_locked")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("already_locked")))
     } else if ext.PendingOwner != nil {
-      ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("already_locking")))
+      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("already_locking")))
     } else {
       owner := source
       if len(ext.Requirements) == 0 {
@@ -321,7 +321,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, source NodeID, node *Node
 func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node *Node, signal IDStringSignal) {
   ctx.Log.Logf("lockable", "LINK__START_SIGNAL: %s->%s %+v", source, node.ID, signal)
   link_type := signal.Str
-  target := signal.ID
+  target := signal.NodeID
   switch link_type {
   case "req":
     state, exists := ext.Requirements[target]
@@ -336,9 +336,9 @@ func (ext *LockableExt) HandleLinkStartSignal(ctx *Context, source NodeID, node 
       }
     } else if exists == true {
       if state.Link == "linking" {
-        ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("already_linking_req")))
+        ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("already_linking_req")))
       } else if state.Link == "linked" {
-        ctx.Send(node.ID, source, NewErrorSignal(fmt.Errorf("already_req")))
+        ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), fmt.Errorf("already_req")))
       }
     } else if dep_exists == true {
       ctx.Send(node.ID, source, NewLinkStartSignal("already_dep", target))

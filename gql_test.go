@@ -112,7 +112,7 @@ func TestGQLDB(t *testing.T) {
   fatalErr(t, err)
 
   _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, StatusSignalType, func(sig IDStringSignal) bool {
-    return sig.Str == "stopped" && sig.ID == gql.ID
+    return sig.Str == "stopped" && sig.NodeID == gql.ID
   })
   fatalErr(t, err)
 
@@ -130,7 +130,7 @@ func TestGQLDB(t *testing.T) {
   err = ctx.Send(gql_loaded.ID, gql_loaded.ID, StopSignal)
   fatalErr(t, err)
   _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, StatusSignalType, func(sig IDStringSignal) bool {
-    return sig.Str == "stopped" && sig.ID == gql_loaded.ID
+    return sig.Str == "stopped" && sig.NodeID == gql_loaded.ID
   })
   fatalErr(t, err)
 
