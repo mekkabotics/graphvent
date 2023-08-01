@@ -159,7 +159,7 @@ func (actions NodeActions) MarshalJSON() ([]byte, error) {
   return json.Marshal(tmp)
 }
 
-func (actions NodeActions) UnmarshalJSON(data []byte) error {
+func (actions *NodeActions) UnmarshalJSON(data []byte) error {
   tmp := map[string]Actions{}
   err := json.Unmarshal(data, &tmp)
   if err != nil {
@@ -171,8 +171,8 @@ func (actions NodeActions) UnmarshalJSON(data []byte) error {
     if err != nil {
       return err
     }
-
-    actions[id] = a
+    ac := *actions
+    ac[id] = a
   }
 
   return nil
@@ -197,7 +197,9 @@ func AllNodesPolicyLoad(init_fn func(Actions)(Policy, error)) func(*Context, []b
 
 func PerNodePolicyLoad(init_fn func(NodeActions)(Policy, error)) func(*Context, []byte)(Policy, error) {
   return func(ctx *Context, data []byte)(Policy, error){
-    var policy PerNodePolicy
+    policy := PerNodePolicy{
+      NodeActions: NodeActions{},
+    }
     err := json.Unmarshal(data, &policy)
     if err != nil {
       return nil, err
