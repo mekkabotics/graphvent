@@ -58,10 +58,21 @@ func NodeInterfaceResolveType(required_extensions []ExtType, default_type **grap
     gql_type, exists := ctx.GQLContext.NodeTypes[node.Result.NodeType]
     ctx.Context.Log.Logf("gql", "GQL_INTERFACE_RESOLVE_TYPE(%+v): %+v - %t - %+v - %+v", node, gql_type, exists, required_extensions, *default_type)
     if exists == false {
-      for _, ext := range(required_extensions) {
-        _, exists := node.Result.Extensions[ext]
-        if exists == false {
-          return nil
+      node_type_def, exists := ctx.Context.Types[Hash(node.Result.NodeType)]
+      if exists == false {
+        return nil
+      } else {
+        for _, ext := range(required_extensions) {
+          found := false
+          for _, e := range(node_type_def.Extensions) {
+            if e == ext {
+              found = true
+              break
+            }
+          }
+          if found == false {
+            return nil
+          }
         }
       }
       return *default_type
