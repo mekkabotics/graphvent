@@ -161,7 +161,7 @@ func NewErrorSignal(req_id uuid.UUID, err error) ErrorSignal {
 
 type IDSignal struct {
   BaseSignal
-  ID NodeID `json:"id"`
+  NodeID `json:"id"`
 }
 
 func (signal IDSignal) Serialize() ([]byte, error) {
@@ -179,7 +179,7 @@ func (signal IDSignal) String() string {
 func NewIDSignal(signal_type SignalType, direction SignalDirection, id NodeID) IDSignal {
   return IDSignal{
     BaseSignal: NewBaseSignal(signal_type, direction),
-    ID: id,
+    NodeID: id,
   }
 }
 
