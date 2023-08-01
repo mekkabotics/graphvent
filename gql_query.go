@@ -51,19 +51,14 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     read_signal := NewReadSignal(ext_fields)
 
-    response_chan := make(chan Signal, 1)
-    ctx.Ext.resolver_response_lock.Lock()
-    ctx.Ext.resolver_response[read_signal.ID()] = response_chan
-    ctx.Ext.resolver_response_lock.Unlock()
 
+    response_chan := ctx.Ext.GetResponseChannel(read_signal.ID())
     resp_channels[read_signal.ID()] = response_chan
     node_ids[read_signal.ID()] = id
 
     err = ctx.Context.Send(ctx.Server.ID, id, read_signal)
     if err != nil {
-      ctx.Ext.resolver_response_lock.Lock()
-      delete(ctx.Ext.resolver_response, read_signal.ID())
-      ctx.Ext.resolver_response_lock.Unlock()
+      ctx.Ext.FreeResponseChannel(read_signal.ID())
       return nil, err
     }
   }
