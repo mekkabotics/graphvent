@@ -605,7 +605,7 @@ func GQLFields(ctx *GQLExtContext, field_names []string) (graphql.Fields, []ExtT
 
 type NodeResult struct {
   ID NodeID
-  Result *ReadResultSignal
+  Result ReadResultSignal
 }
 
 type ListField struct {

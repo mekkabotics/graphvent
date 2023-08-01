@@ -71,7 +71,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     if err != nil {
       return nil, err
     }
-    responses = append(responses, NodeResult{node_id, response.(*ReadResultSignal)})
+    responses = append(responses, NodeResult{node_id, response.(ReadResultSignal)})
   }
 
   return responses, nil
