@@ -326,9 +326,14 @@ func (ext *ACLExt) Field(name string) interface{} {
   })
 }
 
+var ErrorSignalAction = Action{"ERROR_RESP"}
+var DefaultACLPolicies = []Policy{
+  NewAllNodesPolicy(Actions{ErrorSignalAction}),
+}
+
 func NewACLExt(policies ...Policy) *ACLExt {
   policy_map := map[PolicyType]Policy{}
-  for _, policy := range(policies) {
+  for _, policy := range(append(policies, DefaultACLPolicies...)) {
     existing, exists := policy_map[policy.Type()]
     if exists == true {
       policy = existing.Merge(policy)

@@ -148,6 +148,10 @@ type ErrorSignal struct {
   Error error `json:"error"`
 }
 
+func (signal ErrorSignal) Permission() Action {
+  return ErrorSignalAction
+}
+
 func NewErrorSignal(req_id uuid.UUID, err error) ErrorSignal {
   return ErrorSignal{
     BaseSignal: BaseSignal{
