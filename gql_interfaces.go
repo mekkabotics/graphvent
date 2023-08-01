@@ -25,17 +25,32 @@ func NewSingleton[K graphql.Type](init func() K, post_init func(K, *graphql.List
   }
 }
 
-func NodeInterfaceDefaultIsType(extensions []ExtType) func(graphql.IsTypeOfParams) bool {
+func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTypeOfParams) bool {
   return func(p graphql.IsTypeOfParams) bool {
+    ctx, ok := p.Context.Value("resolve").(*ResolveContext)
+    if ok == false {
+      return false
+    }
     node, ok := p.Value.(NodeResult)
     if ok == false {
       return false
     }
 
-    for _, ext := range(extensions) {
-      _, has := node.Result.Extensions[ext]
-      if has == false {
-        return false
+    node_type_def, exists := ctx.Context.Types[Hash(node.Result.NodeType)]
+    if exists == false {
+      return false
+    } else {
+      for _, ext := range(required_extensions) {
+        found := false
+        for _, e := range(node_type_def.Extensions) {
+          if e == ext {
+            found = true
+            break
+          }
+        }
+        if found == false {
+          return false
+        }
       }
     }
 
