@@ -238,6 +238,35 @@ func nodeLoop(ctx *Context, node *Node) error {
       }
     }
 
+    // Unwrap Authorized Signals
+    if signal.Type() == AuthorizedSignalType {
+      sig, ok := signal.(AuthorizedSignal)
+      if ok == false {
+        ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL: bad cast %+v", reflect.TypeOf(signal))
+      } else {
+        // Validate
+        sig_data, err := sig.Signal.Serialize()
+        if err != nil {
+        } else {
+          sig_hash := sha512.Sum512(sig_data)
+          validated := ecdsa.VerifyASN1(sig.Principal, sig_hash[:], sig.Signature)
+          if validated == true {
+            err := Allowed(ctx, KeyID(sig.Principal), sig.Signal.Permission(), node)
+            if err != nil {
+              ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL_POLICY_ERR: %s", err)
+              ctx.Send(node.ID, source, NewErrorSignal(sig.ID(), err))
+            } else {
+              // Unwrap the signal without changing the source
+              signal = sig.Signal
+            }
+          } else {
+            ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL: failed to validate")
+            ctx.Send(node.ID, source, NewErrorSignal(sig.ID(), fmt.Errorf("failed to validate signature")))
+          }
+        }
+      }
+    }
+
     // Handle special signal types
     if signal.Type() == StopSignalType {
       ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), nil))

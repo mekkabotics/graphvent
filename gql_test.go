@@ -9,6 +9,7 @@ import (
   "net/http"
   "net"
   "crypto/tls"
+  "crypto/x509"
   "bytes"
   "github.com/google/uuid"
 )
@@ -66,7 +67,9 @@ func TestGQL(t *testing.T) {
     req, err := http.NewRequest("GET", url, req_data)
     fatalErr(t, err)
 
-    req.SetBasicAuth(n1.ID.String(), "BAD_PASSWORD")
+    key_bytes, err := x509.MarshalECPrivateKey(n1.Key)
+    fatalErr(t, err)
+    req.SetBasicAuth(n1.ID.String(), string(key_bytes))
     resp, err := client.Do(req)
     fatalErr(t, err)
 

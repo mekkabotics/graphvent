@@ -23,6 +23,7 @@ const (
   LinkSignalType            = "LINK"
   LockSignalType            = "LOCK"
   ReadSignalType            = "READ"
+  AuthorizedSignalType      = "AUTHORIZED"
   ReadResultSignalType      = "READ_RESULT"
   LinkStartSignalType       = "LINK_START"
   ECDHSignalType            = "ECDH"
@@ -48,22 +49,16 @@ type Signal interface {
 
 func WaitForResult(listener chan Signal, timeout time.Duration, id uuid.UUID) (Signal, error) {
   timeout_channel := time.After(timeout)
-  var err error = nil
-  var result Signal = nil
-  run := true
-  for run == true {
-    select {
-    case result=<-listener:
-      if result.ID() == id {
-        run = false
-      }
-    case <-timeout_channel:
-      result = nil
-      err = fmt.Errorf("timeout waiting for read response to %s", id)
-      run = false
+  select {
+  case result:=<-listener:
+    if result.ID() == id {
+      return result, nil
+    } else {
+      return result, fmt.Errorf("WRONG_ID: %s", result.ID())
     }
+  case <-timeout_channel:
+    return nil, fmt.Errorf("timeout waiting for read response to %s", id)
   }
-  return result, err
 }
 
 func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
@@ -255,6 +250,37 @@ func (signal StringSignal) Permission() Action {
 type ReadSignal struct {
   BaseSignal
   Extensions map[ExtType][]string `json:"extensions"`
+}
+
+type AuthorizedSignal struct {
+  BaseSignal
+  Principal *ecdsa.PublicKey
+  Signal Signal
+  Signature []byte
+}
+
+func (signal AuthorizedSignal) Permission() Action {
+  return AuthorizedSignalAction
+}
+
+func NewAuthorizedSignal(principal *ecdsa.PrivateKey, signal Signal) (AuthorizedSignal, error) {
+  sig_data, err := signal.Serialize()
+  if err != nil {
+    return AuthorizedSignal{}, err
+  }
+
+  sig_hash := sha512.Sum512(sig_data)
+  sig, err := ecdsa.SignASN1(rand.Reader, principal, sig_hash[:])
+  if err != nil {
+    return AuthorizedSignal{}, err
+  }
+
+  return AuthorizedSignal{
+    BaseSignal: NewDirectSignal(AuthorizedSignalType),
+    Principal: &principal.PublicKey,
+    Signal: signal,
+    Signature: sig,
+  }, nil
 }
 
 func (signal ReadSignal) Serialize() ([]byte, error) {

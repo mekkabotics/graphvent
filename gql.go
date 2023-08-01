@@ -165,9 +165,6 @@ func checkForAuthHeader(header http.Header) (string, bool) {
 
 // Context passed to each resolve execution
 type ResolveContext struct {
-  // ID generated for the context so the gql extension can route data to it
-  ID uuid.UUID
-
   // Channels for the gql extension to route data to this context
   Chans map[uuid.UUID]chan Signal
 
@@ -184,13 +181,15 @@ type ResolveContext struct {
   Ext *GQLExt
 
   // ID of the user that made this request
-  // TODO: figure out auth
   User NodeID
+
+  // Key for the user that made this request, to sign resolver requests
+  // TODO: figure out some way to use a generated key so that the server can't impersonate the user afterwards
+  Key *ecdsa.PrivateKey
 }
 
-const GQL_RESOLVER_CHAN_SIZE = 10
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
-  username, _, ok := r.BasicAuth()
+  username, key_bytes, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
   }
@@ -200,14 +199,24 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
   }
 
+  key, err := x509.ParseECPrivateKey([]byte(key_bytes))
+  if err != nil {
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ecdsa key from auth password: %s", key_bytes)
+  }
+
+  key_id := KeyID(&key.PublicKey)
+  if auth_id != key_id {
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: key_id(%s) != auth_id(%s)", auth_id, key_id)
+  }
+
   return &ResolveContext{
     Ext: gql_ext,
-    ID: uuid.New(),
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
     GQLContext: ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext),
     Server: server,
-    User: auth_id,
+    User: key_id,
+    Key: key,
   }, nil
 }
 
@@ -1050,7 +1059,7 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
       }
 
     } else {
-      ctx.Log.Logf("gql", "received error signal response %s with no mapped resolver", sig.UUID)
+      ctx.Log.Logf("gql", "received error signal response %+v with no mapped resolver", sig)
     }
   } else if signal.Type() == ReadResultSignalType {
     sig := signal.(ReadResultSignal)
