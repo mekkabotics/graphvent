@@ -912,7 +912,11 @@ func NewGQLExtContext() *GQLExtContext {
       }
 
       sig := StringSignal{NewDirectSignal(GQLStateSignalType), "stop_server"}
-      err = ctx.Context.Send(ctx.User, ctx.Server.ID, sig)
+      err = Allowed(ctx.Context, ctx.User, sig.Permission(), ctx.Server)
+      if err != nil {
+        return nil, err
+      }
+      err = ctx.Context.Send(ctx.Server.ID, ctx.Server.ID, sig)
       if err != nil {
         return nil, err
       }
