@@ -911,12 +911,20 @@ func NewGQLExtContext() *GQLExtContext {
         return nil, err
       }
 
-      err = ctx.Context.Send(ctx.User, ctx.Server.ID, StringSignal{NewDirectSignal(GQLStateSignalType), "stop_server"})
+      sig := StringSignal{NewDirectSignal(GQLStateSignalType), "stop_server"}
+      err = ctx.Context.Send(ctx.User, ctx.Server.ID, sig)
       if err != nil {
         return nil, err
       }
 
-      return "stop_sent", nil
+      resp, err := WaitForResult(ctx.Chan, 100*time.Millisecond, sig.ID())
+      if err != nil {
+        return nil, err
+      }
+
+      ser, err := resp.Serialize()
+
+      return string(ser), err
     },
   })
 
