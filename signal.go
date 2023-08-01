@@ -97,7 +97,7 @@ func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.
 type BaseSignal struct {
   SignalDirection SignalDirection `json:"direction"`
   SignalType SignalType `json:"type"`
-  uuid.UUID `json:"id"`
+  UUID uuid.UUID `json:"id"`
 }
 
 func (signal BaseSignal) ID() uuid.UUID {
@@ -254,7 +254,6 @@ func (signal StringSignal) Permission() Action {
 
 type ReadSignal struct {
   BaseSignal
-  UUID uuid.UUID
   Extensions map[ExtType][]string `json:"extensions"`
 }
 
@@ -264,7 +263,6 @@ func (signal ReadSignal) Serialize() ([]byte, error) {
 
 func NewReadSignal(exts map[ExtType][]string) ReadSignal {
   return ReadSignal{
-    UUID: uuid.New(),
     BaseSignal: NewDirectSignal(ReadSignalType),
     Extensions: exts,
   }

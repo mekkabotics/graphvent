@@ -40,7 +40,8 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   fields := GetResolveFields(ctx.Context, p)
   ctx.Context.Log.Logf("gql", "RESOLVE_NODES(%+v): %+v", ids, fields)
 
-  read_signals := map[NodeID]uuid.UUID{}
+  resp_channels := map[uuid.UUID]chan Signal{}
+  node_ids := map[uuid.UUID]NodeID{}
   for _, id := range(ids) {
     // Get a list of fields that will be written
     ext_fields, err := ctx.GQLContext.GetACLFields(p.Info.FieldName, fields)
@@ -50,28 +51,31 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     read_signal := NewReadSignal(ext_fields)
 
+    response_chan := make(chan Signal, 1)
     ctx.Ext.resolver_response_lock.Lock()
-    ctx.Ext.resolver_response[read_signal.UUID] = ctx.ID
+    ctx.Ext.resolver_response[read_signal.ID()] = response_chan
     ctx.Ext.resolver_response_lock.Unlock()
 
+    resp_channels[read_signal.ID()] = response_chan
+    node_ids[read_signal.ID()] = id
+
     err = ctx.Context.Send(ctx.Server.ID, id, read_signal)
-    read_signals[id] = read_signal.UUID
     if err != nil {
       ctx.Ext.resolver_response_lock.Lock()
-      delete(ctx.Ext.resolver_response, read_signal.UUID)
+      delete(ctx.Ext.resolver_response, read_signal.ID())
       ctx.Ext.resolver_response_lock.Unlock()
       return nil, err
     }
   }
 
   responses := []NodeResult{}
-  for node_id, sig_id := range(read_signals) {
+  for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
-    response, err := WaitForResult(ctx.Chan, time.Millisecond*100, sig_id)
+    response, err := WaitForResult(response_chan, time.Millisecond*100, sig_id)
     if err != nil {
       return nil, err
     }
-    responses = append(responses, NodeResult{node_id, response.(ReadResultSignal)})
+    responses = append(responses, NodeResult{node_ids[sig_id], response.(ReadResultSignal)})
   }
 
   return responses, nil

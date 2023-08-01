@@ -168,8 +168,8 @@ type ResolveContext struct {
   // ID generated for the context so the gql extension can route data to it
   ID uuid.UUID
 
-  // Channel for the gql extension to route data to this context
-  Chan chan Signal
+  // Channels for the gql extension to route data to this context
+  Chans map[uuid.UUID]chan Signal
 
   // Graph Context this resolver is running under
   Context *Context
@@ -203,7 +203,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
   return &ResolveContext{
     Ext: gql_ext,
     ID: uuid.New(),
-    Chan: make(chan Signal, GQL_RESOLVER_CHAN_SIZE),
+    Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
     GQLContext: ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext),
     Server: server,
@@ -253,10 +253,6 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     if len(query.Variables) > 0 {
       params.VariableValues = query.Variables
     }
-
-    gql_ext.resolver_chans_lock.Lock()
-    gql_ext.resolver_chans[resolve_context.ID] = resolve_context.Chan
-    gql_ext.resolver_chans_lock.Unlock()
 
     result := graphql.Do(params)
     if len(result.Errors) > 0 {
@@ -917,12 +913,20 @@ func NewGQLExtContext() *GQLExtContext {
         return err, nil
       }
 
+      response_chan := make(chan Signal, 1)
+      ctx.Ext.resolver_response_lock.Lock()
+      ctx.Ext.resolver_response[sig.ID()] = response_chan
+      ctx.Ext.resolver_response_lock.Unlock()
+
       err = ctx.Context.Send(ctx.Server.ID, ctx.Server.ID, sig)
       if err != nil {
+        ctx.Ext.resolver_response_lock.Lock()
+        delete(ctx.Ext.resolver_response, sig.ID())
+        ctx.Ext.resolver_response_lock.Unlock()
         return nil, err
       }
 
-      resp, err := WaitForResult(ctx.Chan, 100*time.Millisecond, sig.ID())
+      resp, err := WaitForResult(response_chan, 100*time.Millisecond, sig.ID())
       if err != nil {
         return nil, err
       }
@@ -996,12 +1000,9 @@ type GQLExt struct {
   http_server *http.Server `json:"-"`
   http_done sync.WaitGroup `json:"-"`
 
-  // map of read request IDs to gql request ID
-  resolver_response map[uuid.UUID]uuid.UUID `json:"-"`
+  // map of read request IDs to response channels
+  resolver_response map[uuid.UUID]chan Signal `json:"-"`
   resolver_response_lock sync.RWMutex `json:"-"`
-  // map of gql request ID to active channel
-  resolver_chans map[uuid.UUID]chan Signal `json:"-"`
-  resolver_chans_lock sync.RWMutex `json:"-"`
 
   State string `json:"state"`
   tls_key []byte `json:"tls_key"`
@@ -1023,28 +1024,18 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
     // TODO: Forward to resolver if waiting for it
     sig := signal.(ErrorSignal)
     ext.resolver_response_lock.RLock()
-    resolver_id, exists := ext.resolver_response[sig.UUID]
+    resolver_chan, exists := ext.resolver_response[sig.UUID]
     ext.resolver_response_lock.RUnlock()
     if exists == true {
       ext.resolver_response_lock.Lock()
       delete(ext.resolver_response, sig.UUID)
       ext.resolver_response_lock.Unlock()
 
-      ext.resolver_chans_lock.RLock()
-      resolver_chan, exists := ext.resolver_chans[resolver_id]
-      ext.resolver_chans_lock.RUnlock()
-      if exists == true {
-        select {
-        case resolver_chan <- sig:
-          ctx.Log.Logf("gql", "Forwarded error to resolver %s, %+v", resolver_id, sig)
-        default:
-          ctx.Log.Logf("gql", "Resolver %s channel overflow %+v", resolver_id, sig)
-          ext.resolver_chans_lock.Lock()
-          delete(ext.resolver_chans, resolver_id)
-          ext.resolver_chans_lock.Unlock()
-        }
-      } else {
-        ctx.Log.Logf("gql", "received error signal response for resolver %s which doesn't exist", resolver_id)
+      select {
+      case resolver_chan <- sig:
+        ctx.Log.Logf("gql", "Forwarded error to resolver, %+v", sig)
+      default:
+        ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
       }
 
     } else {
@@ -1053,7 +1044,7 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
   } else if signal.Type() == ReadResultSignalType {
     sig := signal.(ReadResultSignal)
     ext.resolver_response_lock.RLock()
-    resolver_id, exists := ext.resolver_response[sig.UUID]
+    resolver_chan, exists := ext.resolver_response[sig.ID()]
     ext.resolver_response_lock.RUnlock()
 
     if exists == true {
@@ -1061,22 +1052,11 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
       delete(ext.resolver_response, sig.UUID)
       ext.resolver_response_lock.Unlock()
 
-      ext.resolver_chans_lock.RLock()
-      resolver_chan, exists := ext.resolver_chans[resolver_id]
-      ext.resolver_chans_lock.RUnlock()
-
-      if exists == true {
-        select {
-        case resolver_chan <- sig:
-          ctx.Log.Logf("gql", "Forwarded to resolver %s, %+v", resolver_id, sig)
-        default:
-          ctx.Log.Logf("gql", "Resolver %s channel overflow %+v", resolver_id, sig)
-          ext.resolver_chans_lock.Lock()
-          delete(ext.resolver_chans, resolver_id)
-          ext.resolver_chans_lock.Unlock()
-        }
-      } else {
-        ctx.Log.Logf("gql", "Received message for waiting resolver %s which doesn't exist - %+v", resolver_id, sig)
+      select {
+      case resolver_chan <- sig:
+        ctx.Log.Logf("gql", "Forwarded to resolver, %+v", sig)
+      default:
+        ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
       }
     } else {
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
@@ -1195,8 +1175,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, sta
   return &GQLExt{
     State: state,
     Listen: listen,
-    resolver_response: map[uuid.UUID]uuid.UUID{},
-    resolver_chans: map[uuid.UUID]chan Signal{},
+    resolver_response: map[uuid.UUID]chan Signal{},
     tls_cert: tls_cert,
     tls_key: tls_key,
   }, nil
