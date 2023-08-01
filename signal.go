@@ -276,6 +276,10 @@ type ReadResultSignal struct {
   Extensions map[ExtType]map[string]interface{} `json:"extensions"`
 }
 
+func (signal ReadResultSignal) Permission() Action {
+  return ReadResultSignalAction
+}
+
 func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]map[string]interface{}) ReadResultSignal {
   return ReadResultSignal{
     BaseSignal: BaseSignal{

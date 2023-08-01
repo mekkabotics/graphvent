@@ -327,8 +327,9 @@ func (ext *ACLExt) Field(name string) interface{} {
 }
 
 var ErrorSignalAction = Action{"ERROR_RESP"}
+var ReadResultSignalAction = Action{"READ_RESULT"}
 var DefaultACLPolicies = []Policy{
-  NewAllNodesPolicy(Actions{ErrorSignalAction}),
+  NewAllNodesPolicy(Actions{ErrorSignalAction, ReadResultSignalAction}),
 }
 
 func NewACLExt(policies ...Policy) *ACLExt {
