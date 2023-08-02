@@ -95,23 +95,27 @@ type BaseSignal struct {
   UUID uuid.UUID `json:"id"`
 }
 
-func (signal BaseSignal) ID() uuid.UUID {
+func (signal *BaseSignal) Deserialize(ctx *Context, data []byte) error {
+  return json.Unmarshal(data, signal)
+}
+
+func (signal *BaseSignal) ID() uuid.UUID {
   return signal.UUID
 }
 
-func (signal BaseSignal) Type() SignalType {
+func (signal *BaseSignal) Type() SignalType {
   return signal.SignalType
 }
 
-func (signal BaseSignal) Permission() Action {
+func (signal *BaseSignal) Permission() Action {
   return MakeAction(signal.Type())
 }
 
-func (signal BaseSignal) Direction() SignalDirection {
+func (signal *BaseSignal) Direction() SignalDirection {
   return signal.SignalDirection
 }
 
-func (signal BaseSignal) Serialize() ([]byte, error) {
+func (signal *BaseSignal) Serialize() ([]byte, error) {
   return json.Marshal(signal)
 }
 
@@ -136,43 +140,16 @@ func NewDirectSignal(signal_type SignalType) BaseSignal {
   return NewBaseSignal(signal_type, Direct)
 }
 
+var StartSignal = NewDirectSignal(StartSignalType)
 var StopSignal = NewDownSignal(StopSignalType)
-
-type ErrorSignal struct {
-  BaseSignal
-  Error error `json:"error"`
-}
-
-func (signal ErrorSignal) Permission() Action {
-  return ErrorSignalAction
-}
-
-func NewErrorSignal(req_id uuid.UUID, err error) ErrorSignal {
-  return ErrorSignal{
-    BaseSignal: BaseSignal{
-      Direct,
-      ErrorSignalType,
-      req_id,
-    },
-    Error: err,
-  }
-}
 
 type IDSignal struct {
   BaseSignal
   NodeID `json:"id"`
 }
 
-func (signal IDSignal) Serialize() ([]byte, error) {
-  return json.Marshal(&signal)
-}
-
-func (signal IDSignal) String() string {
-  ser, err := json.Marshal(signal)
-  if err != nil {
-    return "STATE_SER_ERR"
-  }
-  return string(ser)
+func (signal *IDSignal) Serialize() ([]byte, error) {
+  return json.Marshal(signal)
 }
 
 func NewIDSignal(signal_type SignalType, direction SignalDirection, id NodeID) IDSignal {
@@ -187,8 +164,25 @@ type StringSignal struct {
   Str string `json:"state"`
 }
 
-func (signal StringSignal) Serialize() ([]byte, error) {
+func (signal *StringSignal) Serialize() ([]byte, error) {
   return json.Marshal(&signal)
+}
+
+type ErrorSignal struct {
+  StringSignal
+}
+
+func (signal *ErrorSignal) Permission() Action {
+  return ErrorSignalAction
+}
+
+func NewErrorSignal(req_id uuid.UUID, err string) ErrorSignal {
+  return ErrorSignal{
+    StringSignal{
+      NewDirectSignal(ErrorSignalType),
+      err,
+    },
+  }
 }
 
 type IDStringSignal struct {
@@ -197,11 +191,11 @@ type IDStringSignal struct {
   Str string `json:"string"`
 }
 
-func (signal IDStringSignal) Serialize() ([]byte, error) {
-  return json.Marshal(&signal)
+func (signal *IDStringSignal) Serialize() ([]byte, error) {
+  return json.Marshal(signal)
 }
 
-func (signal IDStringSignal) String() string {
+func (signal *IDStringSignal) String() string {
   ser, err := json.Marshal(signal)
   if err != nil {
     return "STATE_SER_ERR"
@@ -243,7 +237,7 @@ func NewLockSignal(state string) StringSignal {
   }
 }
 
-func (signal StringSignal) Permission() Action {
+func (signal *StringSignal) Permission() Action {
   return MakeAction(signal.Type(), signal.Str)
 }
 
@@ -259,7 +253,7 @@ type AuthorizedSignal struct {
   Signature []byte
 }
 
-func (signal AuthorizedSignal) Permission() Action {
+func (signal *AuthorizedSignal) Permission() Action {
   return AuthorizedSignalAction
 }
 
@@ -283,8 +277,8 @@ func NewAuthorizedSignal(principal *ecdsa.PrivateKey, signal Signal) (Authorized
   }, nil
 }
 
-func (signal ReadSignal) Serialize() ([]byte, error) {
-  return json.Marshal(&signal)
+func (signal *ReadSignal) Serialize() ([]byte, error) {
+  return json.Marshal(signal)
 }
 
 func NewReadSignal(exts map[ExtType][]string) ReadSignal {
@@ -300,7 +294,7 @@ type ReadResultSignal struct {
   Extensions map[ExtType]map[string]interface{} `json:"extensions"`
 }
 
-func (signal ReadResultSignal) Permission() Action {
+func (signal *ReadResultSignal) Permission() Action {
   return ReadResultSignalAction
 }
 
@@ -342,8 +336,8 @@ func (signal *ECDHSignal) MarshalJSON() ([]byte, error) {
   })
 }
 
-func (signal ECDHSignal) Serialize() ([]byte, error) {
-  return json.Marshal(&signal)
+func (signal *ECDHSignal) Serialize() ([]byte, error) {
+  return json.Marshal(signal)
 }
 
 func keyHash(now time.Time, ec_key *ecdh.PublicKey) ([]byte, error) {
@@ -390,7 +384,7 @@ func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, e
 
 const DEFAULT_ECDH_WINDOW = time.Second
 
-func NewECDHRespSignal(ctx *Context, node *Node, req ECDHSignal) (ECDHSignal, []byte, error) {
+func NewECDHRespSignal(ctx *Context, node *Node, req *ECDHSignal) (ECDHSignal, []byte, error) {
   now := time.Now()
 
   err := VerifyECDHSignal(now, req, DEFAULT_ECDH_WINDOW)
@@ -430,7 +424,7 @@ func NewECDHRespSignal(ctx *Context, node *Node, req ECDHSignal) (ECDHSignal, []
   }, shared_secret, nil
 }
 
-func VerifyECDHSignal(now time.Time, sig ECDHSignal, window time.Duration) error {
+func VerifyECDHSignal(now time.Time, sig *ECDHSignal, window time.Duration) error {
   earliest := now.Add(-window)
   latest := now.Add(window)
 

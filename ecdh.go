@@ -103,9 +103,7 @@ func (ext *ECDHExt) Field(name string) interface{} {
   })
 }
 
-func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, signal ECDHSignal) {
-  ser, _ := signal.Serialize()
-  ctx.Log.Logf("ecdh", "ECDH_SIGNAL: %s->%s - %s", source, node.ID, ser)
+func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, signal *ECDHSignal) {
   switch signal.Str {
   case "req":
     state, exists := ext.ECDHStates[source]
@@ -117,7 +115,7 @@ func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, si
       state.SharedSecret = shared_secret
       ext.ECDHStates[source] = state
       ctx.Log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
-      ctx.Send(node.ID, source, resp)
+      ctx.Send(node.ID, source, &resp)
     } else {
       ctx.Log.Logf("ecdh", "ECDH_REQ_ERR: %s", err)
       // TODO: send error response
@@ -125,7 +123,8 @@ func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, si
   case "resp":
     state, exists := ext.ECDHStates[source]
     if exists == false || state.ECKey == nil {
-      ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), "no_req"})
+      resp := NewErrorSignal(signal.ID(), "no_req")
+      ctx.Send(node.ID, source, &resp)
     } else {
       err := VerifyECDHSignal(time.Now(), signal, DEFAULT_ECDH_WINDOW)
       if err == nil {
@@ -143,21 +142,22 @@ func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, si
   }
 }
 
-func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, signal StringSignal) {
-  ser, _ := signal.Serialize()
-  ctx.Log.Logf("ecdh", "ECHD_STATE: %s->%s - %s", source, node.ID, ser)
+func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, signal *StringSignal) {
 }
 
-func (ext *ECDHExt) HandleECDHProxySignal(ctx *Context, source NodeID, node *Node, signal ECDHProxySignal) {
+func (ext *ECDHExt) HandleECDHProxySignal(ctx *Context, source NodeID, node *Node, signal *ECDHProxySignal) {
   state, exists := ext.ECDHStates[source]
   if exists == false {
-    ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), "no_req"})
+    resp := NewErrorSignal(signal.ID(), "no_req")
+    ctx.Send(node.ID, source, &resp)
   } else if state.SharedSecret == nil {
-    ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), "no_shared"})
+    resp := NewErrorSignal(signal.ID(), "no_shared")
+    ctx.Send(node.ID, source, &resp)
   } else {
-    unwrapped_signal, err := ParseECDHProxySignal(ctx, &signal, state.SharedSecret)
+    unwrapped_signal, err := ParseECDHProxySignal(ctx, signal, state.SharedSecret)
     if err != nil {
-      ctx.Send(node.ID, source, StringSignal{NewDirectSignal(ECDHStateSignalType), err.Error()})
+      resp := NewErrorSignal(signal.ID(), err.Error())
+      ctx.Send(node.ID, source, &resp)
     } else {
       //TODO: Figure out what I was trying to do here and fix it
       ctx.Send(signal.Source, signal.Dest, unwrapped_signal)
@@ -170,13 +170,13 @@ func (ext *ECDHExt) Process(ctx *Context, source NodeID, node *Node, signal Sign
   case Direct:
     switch signal.Type() {
     case ECDHProxySignalType:
-      ecdh_signal := signal.(ECDHProxySignal)
+      ecdh_signal := signal.(*ECDHProxySignal)
       ext.HandleECDHProxySignal(ctx, source, node, ecdh_signal)
     case ECDHStateSignalType:
-      ecdh_signal := signal.(StringSignal)
+      ecdh_signal := signal.(*StringSignal)
       ext.HandleStateSignal(ctx, source, node, ecdh_signal)
     case ECDHSignalType:
-      ecdh_signal := signal.(ECDHSignal)
+      ecdh_signal := signal.(*ECDHSignal)
       ext.HandleECDHSignal(ctx, source, node, ecdh_signal)
     default:
     }
@@ -189,15 +189,9 @@ func (ext *ECDHExt) Type() ExtType {
 }
 
 func (ext *ECDHExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(ext, "", "  ")
+  return json.Marshal(ext)
 }
 
-func LoadECDHExt(ctx *Context, data []byte) (Extension, error) {
-  var ext ECDHExt
-  err := json.Unmarshal(data, &ext)
-  if err != nil {
-    return nil, err
-  }
-
-  return &ext, nil
+func (ext *ECDHExt) Deserialize(ctx *Context, data []byte) error {
+  return json.Unmarshal(data, &ext)
 }

@@ -20,6 +20,8 @@ type Policy interface {
   Allows(principal_id NodeID, action Action, node *Node) error
   // Merge with another policy of the same underlying type
   Merge(Policy) Policy
+  // Make a copy of this policy
+  Copy() Policy
 }
 
 func (policy AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
@@ -72,6 +74,14 @@ func MergeActions(first Actions, second Actions) Actions {
   return ret
 }
 
+func CopyNodeActions(actions NodeActions) NodeActions {
+  ret := NodeActions{}
+  for id, a := range(actions) {
+    ret[id] = a
+  }
+  return ret
+}
+
 func MergeNodeActions(modified NodeActions, read NodeActions) {
   for id, actions := range(read) {
     existing, exists := modified[id]
@@ -83,22 +93,45 @@ func MergeNodeActions(modified NodeActions, read NodeActions) {
   }
 }
 
-func (policy PerNodePolicy) Merge(p Policy) Policy {
-  other := p.(PerNodePolicy)
+func (policy *PerNodePolicy) Merge(p Policy) Policy {
+  other := p.(*PerNodePolicy)
   MergeNodeActions(policy.NodeActions, other.NodeActions)
   return policy
 }
 
-func (policy AllNodesPolicy) Merge(p Policy) Policy {
-  other := p.(AllNodesPolicy)
+func (policy *PerNodePolicy) Copy() Policy {
+  new_actions := CopyNodeActions(policy.NodeActions)
+  return &PerNodePolicy{
+    NodeActions: new_actions,
+  }
+}
+
+func (policy *AllNodesPolicy) Merge(p Policy) Policy {
+  other := p.(*AllNodesPolicy)
   policy.Actions = MergeActions(policy.Actions, other.Actions)
   return policy
 }
 
-func (policy RequirementOfPolicy) Merge(p Policy) Policy {
-  other := p.(RequirementOfPolicy)
+func (policy *AllNodesPolicy) Copy() Policy {
+  new_actions := policy.Actions
+  return &AllNodesPolicy {
+    Actions: new_actions,
+  }
+}
+
+func (policy *RequirementOfPolicy) Merge(p Policy) Policy {
+  other := p.(*RequirementOfPolicy)
   policy.Actions = MergeActions(policy.Actions, other.Actions)
   return policy
+}
+
+func (policy *RequirementOfPolicy) Copy() Policy {
+  new_actions := policy.Actions
+  return &RequirementOfPolicy{
+    AllNodesPolicy {
+      Actions: new_actions,
+    },
+  }
 }
 
 type Action []string
@@ -178,36 +211,6 @@ func (actions *NodeActions) UnmarshalJSON(data []byte) error {
   return nil
 }
 
-type AllNodesPolicyJSON struct {
-  Actions Actions `json:"actions"`
-}
-
-func AllNodesPolicyLoad(init_fn func(Actions)(Policy, error)) func(*Context, []byte)(Policy, error) {
-  return func(ctx *Context, data []byte)(Policy, error){
-    var j AllNodesPolicyJSON
-    err := json.Unmarshal(data, &j)
-
-    if err != nil {
-      return nil, err
-    }
-
-    return init_fn(j.Actions)
-  }
-}
-
-func PerNodePolicyLoad(init_fn func(NodeActions)(Policy, error)) func(*Context, []byte)(Policy, error) {
-  return func(ctx *Context, data []byte)(Policy, error){
-    policy := PerNodePolicy{
-      NodeActions: NodeActions{},
-    }
-    err := json.Unmarshal(data, &policy)
-    if err != nil {
-      return nil, err
-    }
-    return init_fn(policy.NodeActions)
-  }
-}
-
 func NewPerNodePolicy(node_actions NodeActions) PerNodePolicy {
   if node_actions == nil {
     node_actions = NodeActions{}
@@ -222,12 +225,16 @@ type PerNodePolicy struct {
   NodeActions NodeActions `json:"node_actions"`
 }
 
-func (policy PerNodePolicy) Type() PolicyType {
+func (policy *PerNodePolicy) Type() PolicyType {
   return PerNodePolicyType
 }
 
-func (policy PerNodePolicy) Serialize() ([]byte, error) {
+func (policy *PerNodePolicy) Serialize() ([]byte, error) {
   return json.MarshalIndent(policy, "", "  ")
+}
+
+func (policy *PerNodePolicy) Deserialize(ctx *Context, data []byte) error {
+  return json.Unmarshal(data, policy)
 }
 
 func NewAllNodesPolicy(actions Actions) AllNodesPolicy {
@@ -244,12 +251,16 @@ type AllNodesPolicy struct {
   Actions Actions
 }
 
-func (policy AllNodesPolicy) Type() PolicyType {
+func (policy *AllNodesPolicy) Type() PolicyType {
   return AllNodesPolicyType
 }
 
-func (policy AllNodesPolicy) Serialize() ([]byte, error) {
+func (policy *AllNodesPolicy) Serialize() ([]byte, error) {
   return json.MarshalIndent(policy, "", "  ")
+}
+
+func (policy *AllNodesPolicy) Deserialize(ctx *Context, data []byte) error {
+  return json.Unmarshal(data, policy)
 }
 
 // Extension to allow a node to hold ACL policies
@@ -266,36 +277,17 @@ func NodeList(nodes ...*Node) NodeMap {
   return m
 }
 
-type PolicyLoadFunc func(*Context, []byte) (Policy, error)
-type PolicyInfo struct {
-  Load PolicyLoadFunc
-}
-
+type PolicyLoadFunc func(*Context,[]byte) (Policy, error)
 type ACLExtContext struct {
-  Types map[PolicyType]PolicyInfo
+  Loads map[PolicyType]PolicyLoadFunc
 }
 
 func NewACLExtContext() *ACLExtContext {
   return &ACLExtContext{
-    Types: map[PolicyType]PolicyInfo{
-      AllNodesPolicyType: PolicyInfo{
-        Load: AllNodesPolicyLoad(func(actions Actions)(Policy, error){
-          policy := NewAllNodesPolicy(actions)
-          return &policy, nil
-        }),
-      },
-      PerNodePolicyType: PolicyInfo{
-        Load: PerNodePolicyLoad(func(nodes NodeActions)(Policy,error){
-          policy := NewPerNodePolicy(nodes)
-          return &policy, nil
-        }),
-      },
-      RequirementOfPolicyType: PolicyInfo{
-        Load: AllNodesPolicyLoad(func(actions Actions)(Policy, error){
-          policy := NewRequirementOfPolicy(actions)
-          return &policy, nil
-        }),
-      },
+    Loads: map[PolicyType]PolicyLoadFunc{
+      AllNodesPolicyType: LoadPolicy[AllNodesPolicy,*AllNodesPolicy],
+      PerNodePolicyType: LoadPolicy[PerNodePolicy,*PerNodePolicy],
+      RequirementOfPolicyType: LoadPolicy[RequirementOfPolicy,*RequirementOfPolicy],
     },
   }
 }
@@ -331,13 +323,15 @@ func (ext *ACLExt) Field(name string) interface{} {
 var ErrorSignalAction = Action{"ERROR_RESP"}
 var ReadResultSignalAction = Action{"READ_RESULT"}
 var AuthorizedSignalAction = Action{"AUTHORIZED_READ"}
+var defaultPolicy = NewAllNodesPolicy(Actions{ErrorSignalAction, ReadResultSignalAction, AuthorizedSignalAction})
 var DefaultACLPolicies = []Policy{
-  NewAllNodesPolicy(Actions{ErrorSignalAction, ReadResultSignalAction, AuthorizedSignalAction}),
+  &defaultPolicy,
 }
 
 func NewACLExt(policies ...Policy) *ACLExt {
   policy_map := map[PolicyType]Policy{}
-  for _, policy := range(append(policies, DefaultACLPolicies...)) {
+  for _, policy_arg := range(append(policies, DefaultACLPolicies...)) {
+    policy := policy_arg.Copy()
     existing, exists := policy_map[policy.Type()]
     if exists == true {
       policy = existing.Merge(policy)
@@ -351,36 +345,49 @@ func NewACLExt(policies ...Policy) *ACLExt {
   }
 }
 
-func LoadACLExt(ctx *Context, data []byte) (Extension, error) {
+func LoadPolicy[T any, P interface {
+  *T
+  Policy
+}](ctx *Context, data []byte) (Policy, error) {
+  p := P(new(T))
+  err := p.Deserialize(ctx, data)
+  if err != nil {
+    return nil, err
+  }
+
+  return p, nil
+}
+
+func (ext *ACLExt) Deserialize(ctx *Context, data []byte) error {
   var j struct {
     Policies map[string][]byte `json:"policies"`
   }
+
   err := json.Unmarshal(data, &j)
   if err != nil {
-    return nil, err
+    return err
   }
 
-  policies := make([]Policy, len(j.Policies))
-  i := 0
   acl_ctx, err := GetCtx[*ACLExt, *ACLExtContext](ctx)
   if err != nil {
-    return nil, err
+    return err
   }
+  ext.Policies = map[PolicyType]Policy{}
+
   for name, ser := range(j.Policies) {
-    policy_def, exists := acl_ctx.Types[PolicyType(name)]
+    policy_load, exists := acl_ctx.Loads[PolicyType(name)]
     if exists == false {
-      return nil, fmt.Errorf("%s is not a known policy type", name)
+      return fmt.Errorf("%s is not a known policy type", name)
     }
-    policy, err := policy_def.Load(ctx, ser)
+    policy, err := policy_load(ctx, ser)
     if err != nil {
-      return nil, err
+      return err
     }
 
-    policies[i] = policy
-    i++
+    ext.Policies[PolicyType(name)] = policy
   }
 
-  return NewACLExt(policies...), nil
+  return nil
 }
 
 func (ext *ACLExt) Type() ExtType {

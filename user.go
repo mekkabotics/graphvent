@@ -17,9 +17,9 @@ func (ext *GroupExt) Type() ExtType {
 }
 
 func (ext *GroupExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(&GroupExtJSON{
+  return json.Marshal(&GroupExtJSON{
     Members: IDMap(ext.Members),
-  }, "", "  ")
+  })
 }
 
 func (ext *GroupExt) Field(name string) interface{} {
@@ -40,18 +40,12 @@ func NewGroupExt(members map[NodeID]string) *GroupExt {
   }
 }
 
-func LoadGroupExt(ctx *Context, data []byte) (Extension, error) {
+func (ext *GroupExt) Deserialize(ctx *Context, data []byte) error {
   var j GroupExtJSON
   err := json.Unmarshal(data, &j)
 
-  members, err := LoadIDMap(j.Members)
-  if err != nil {
-    return nil, err
-  }
-
-  return &GroupExt{
-    Members: members,
-  }, nil
+  ext.Members, err = LoadIDMap(j.Members)
+  return err
 }
 
 func (ext *GroupExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {

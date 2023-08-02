@@ -51,7 +51,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     }
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     read_signal := NewReadSignal(ext_fields)
-    auth_signal, err := NewAuthorizedSignal(ctx.Key, read_signal)
+    auth_signal, err := NewAuthorizedSignal(ctx.Key, &read_signal)
     if err != nil {
       return nil, err
     }
@@ -61,7 +61,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     resp_channels[read_signal.ID()] = response_chan
     node_ids[read_signal.ID()] = id
 
-    err = ctx.Context.Send(ctx.Server.ID, id, auth_signal)
+    err = ctx.Context.Send(ctx.Server.ID, id, &auth_signal)
     if err != nil {
       ctx.Ext.FreeResponseChannel(read_signal.ID())
       return nil, err
@@ -76,10 +76,10 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
       return nil, err
     }
     switch resp := response.(type) {
-    case ReadResultSignal:
+    case *ReadResultSignal:
       responses = append(responses, NodeResult{node_ids[sig_id], resp})
-    case ErrorSignal:
-      return nil, resp.Error
+    case *ErrorSignal:
+      return nil, fmt.Errorf(resp.Str)
     default:
       return nil, fmt.Errorf("BAD_TYPE: %s", reflect.TypeOf(resp))
     }

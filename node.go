@@ -84,8 +84,9 @@ func RandID() NodeID {
 
 // A Serializable has a type that can be used to map to it, and a function to serialize the current state
 type Serializable[I comparable] interface {
+  Serialize()([]byte,error)
+  Deserialize(*Context,[]byte)error
   Type() I
-  Serialize() ([]byte, error)
 }
 
 // Extensions are data attached to nodes that process signals
@@ -197,7 +198,7 @@ func nodeLoop(ctx *Context, node *Node) error {
   }
 
   // Queue the signal for extensions to perform startup actions
-  node.QueueSignal(time.Now(), NewDirectSignal(StartSignalType))
+  node.QueueSignal(time.Now(), &StartSignal)
 
   for true {
     var signal Signal
@@ -209,7 +210,8 @@ func nodeLoop(ctx *Context, node *Node) error {
       err := Allowed(ctx, msg.Source, signal.Permission(), node)
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_POLICY_ERR: %s", err)
-        ctx.Send(node.ID, msg.Source, NewErrorSignal(msg.Signal.ID(), err))
+        resp := NewErrorSignal(msg.Signal.ID(), err.Error())
+        ctx.Send(node.ID, msg.Source, &resp)
         continue
       }
     case <-node.TimeoutChan:
@@ -240,7 +242,7 @@ func nodeLoop(ctx *Context, node *Node) error {
 
     // Unwrap Authorized Signals
     if signal.Type() == AuthorizedSignalType {
-      sig, ok := signal.(AuthorizedSignal)
+      sig, ok := signal.(*AuthorizedSignal)
       if ok == false {
         ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL: bad cast %+v", reflect.TypeOf(signal))
       } else {
@@ -254,14 +256,16 @@ func nodeLoop(ctx *Context, node *Node) error {
             err := Allowed(ctx, KeyID(sig.Principal), sig.Signal.Permission(), node)
             if err != nil {
               ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL_POLICY_ERR: %s", err)
-              ctx.Send(node.ID, source, NewErrorSignal(sig.ID(), err))
+              resp := NewErrorSignal(sig.ID(), err.Error())
+              ctx.Send(node.ID, source, &resp)
             } else {
               // Unwrap the signal without changing the source
               signal = sig.Signal
             }
           } else {
             ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL: failed to validate")
-            ctx.Send(node.ID, source, NewErrorSignal(sig.ID(), fmt.Errorf("failed to validate signature")))
+            resp := NewErrorSignal(sig.ID(), "signature validation failed")
+            ctx.Send(node.ID, source, &resp)
           }
         }
       }
@@ -269,16 +273,19 @@ func nodeLoop(ctx *Context, node *Node) error {
 
     // Handle special signal types
     if signal.Type() == StopSignalType {
-      ctx.Send(node.ID, source, NewErrorSignal(signal.ID(), nil))
-      node.Process(ctx, node.ID, NewStatusSignal("stopped", node.ID))
+      resp := NewErrorSignal(signal.ID(), "stopped")
+      ctx.Send(node.ID, source, &resp)
+      status := NewStatusSignal("stopped", node.ID)
+      node.Process(ctx, node.ID, &status)
       break
     } else if signal.Type() == ReadSignalType {
-      read_signal, ok := signal.(ReadSignal)
+      read_signal, ok := signal.(*ReadSignal)
       if ok == false {
         ctx.Log.Logf("signal", "READ_SIGNAL: bad cast %+v", signal)
       } else {
         result := ReadNodeFields(ctx, node, source, read_signal.Extensions)
-        ctx.Send(node.ID, source, NewReadResultSignal(read_signal.ID(), node.Type, result))
+        resp := NewReadResultSignal(read_signal.ID(), node.Type, result)
+        ctx.Send(node.ID, source, &resp)
       }
     }
 

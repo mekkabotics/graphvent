@@ -84,37 +84,3 @@ func ResolveNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
     return Hash(node.Result.NodeType), nil
   })
 }
-
-func GQLSignalFn(p graphql.ResolveParams, fn func(Signal, graphql.ResolveParams)(interface{}, error))(interface{}, error) {
-    if signal, ok := p.Source.(Signal); ok {
-      return fn(signal, p)
-    }
-    return nil, fmt.Errorf("Failed to cast source to event")
-}
-
-func GQLSignalType(p graphql.ResolveParams) (interface{}, error) {
-  return GQLSignalFn(p, func(signal Signal, p graphql.ResolveParams)(interface{}, error){
-    return signal.Type(), nil
-  })
-}
-
-func GQLSignalDirection(p graphql.ResolveParams) (interface{}, error) {
-    return GQLSignalFn(p, func(signal Signal, p graphql.ResolveParams)(interface{}, error){
-      direction := signal.Direction()
-      if direction == Up {
-        return "up", nil
-      } else if direction == Down {
-        return "down", nil
-      } else if direction == Direct {
-        return "direct", nil
-      }
-      return nil, fmt.Errorf("Invalid direction: %+v", direction)
-    })
-}
-
-func GQLSignalString(p graphql.ResolveParams) (interface{}, error) {
-    return GQLSignalFn(p, func(signal Signal, p graphql.ResolveParams)(interface{}, error){
-      ser, err := signal.Serialize()
-      return string(ser), err
-    })
-}

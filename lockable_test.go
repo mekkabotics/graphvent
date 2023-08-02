@@ -26,13 +26,13 @@ func TestLink(t *testing.T) {
   l1_listener := NewListenerExt(10)
   l1 := NewNode(ctx, nil, TestLockableType, 10, nil,
                  l1_listener,
-                 NewACLExt(link_policy),
+                 NewACLExt(&link_policy),
                  NewLockableExt(),
                )
   l2_listener := NewListenerExt(10)
   l2 := NewNode(ctx, nil, TestLockableType, 10, nil,
                  l2_listener,
-                 NewACLExt(link_policy),
+                 NewACLExt(&link_policy),
                  NewLockableExt(),
                )
 
@@ -40,20 +40,21 @@ func TestLink(t *testing.T) {
   err := LinkRequirement(ctx, l1.ID, l2.ID)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, func(sig IDStringSignal) bool {
+  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkStartSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "linked_as_req"
   })
   fatalErr(t, err)
 
-  err = ctx.Send(l2.ID, l2.ID, NewStatusSignal("TEST", l2.ID))
+  sig1 := NewStatusSignal("TEST", l2.ID)
+  err = ctx.Send(l2.ID, l2.ID, &sig1)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, StatusSignalType, func(sig IDStringSignal) bool {
+  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "TEST"
   })
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l2_listener, time.Millisecond*10, StatusSignalType, func(sig IDStringSignal) bool {
+  _, err = WaitForSignal(ctx, l2_listener, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "TEST"
   })
   fatalErr(t, err)
@@ -64,7 +65,7 @@ func TestLink10K(t *testing.T) {
 
   NewLockable := func()(*Node) {
     l := NewNode(ctx, nil, TestLockableType, 10, nil,
-                  NewACLExt(lock_policy, link_policy),
+                  NewACLExt(&lock_policy, &link_policy),
                   NewLockableExt(),
                 )
     return l
@@ -74,7 +75,7 @@ func TestLink10K(t *testing.T) {
     listener := NewListenerExt(100000)
     l := NewNode(ctx, nil, TestLockableType, 256, nil,
                   listener,
-                  NewACLExt(lock_policy, link_policy),
+                  NewACLExt(&lock_policy, &link_policy),
                   NewLockableExt(),
                 )
     return l, listener
@@ -91,7 +92,7 @@ func TestLink10K(t *testing.T) {
 
 
   for range(lockables) {
-    _, err := WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkStartSignalType, func(sig IDStringSignal) bool {
+    _, err := WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkStartSignalType, func(sig *IDStringSignal) bool {
       return sig.Str == "linked_as_req"
     })
     fatalErr(t, err)
@@ -107,7 +108,7 @@ func TestLock(t *testing.T) {
     listener := NewListenerExt(100)
     l := NewNode(ctx, nil, TestLockableType, 10, nil,
                   listener,
-                  NewACLExt(lock_policy, link_policy),
+                  NewACLExt(&lock_policy, &link_policy),
                   NewLockableExt(),
                 )
     return l, listener
@@ -140,11 +141,11 @@ func TestLock(t *testing.T) {
   err = LinkRequirement(ctx, l0.ID, l5.ID)
   fatalErr(t, err)
 
-  linked_as_req := func(sig IDStringSignal) bool {
+  linked_as_req := func(sig *IDStringSignal) bool {
     return sig.Str == "linked_as_req"
   }
 
-  locked := func(sig StringSignal) bool {
+  locked := func(sig *StringSignal) bool {
     return sig.Str == "locked"
   }
 

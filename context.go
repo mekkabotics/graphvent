@@ -35,7 +35,19 @@ func (ext ExtType) Prefix() string { return "EXTENSION: " }
 func (ext ExtType) String() string { return string(ext) }
 
 //Function to load an extension from bytes
-type ExtensionLoadFunc func(*Context, []byte) (Extension, error)
+type ExtensionLoadFunc func(*Context,[]byte) (Extension, error)
+func LoadExtension[T any, E interface {
+  *T
+  Extension
+}](ctx *Context, data []byte) (Extension, error) {
+  e := E(new(T))
+  err := e.Deserialize(ctx, data)
+  if err != nil {
+    return nil, err
+  }
+
+  return e, nil
+}
 
 // ExtType and NodeType constants
 const (
@@ -53,7 +65,19 @@ var (
   NodeNotFoundError = errors.New("Node not found in DB")
 )
 
-type SignalLoadFunc func(*Context, []byte) (Signal, error)
+type SignalLoadFunc func(*Context,[]byte) (Signal, error)
+func LoadSignal[T any, S interface{
+  *T
+  Signal
+}](ctx *Context, data []byte) (Signal, error) {
+  s := S(new(T))
+  err := s.Deserialize(ctx, data)
+  if err != nil {
+    return nil, err
+  }
+
+  return s, nil
+}
 
 type SignalInfo struct {
   Load SignalLoadFunc
@@ -127,11 +151,10 @@ func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) e
   return nil
 }
 
-func (ctx *Context) RegisterSignal(signal_type SignalType, load_fn SignalLoadFunc) error {
-  if load_fn == nil {
-    return fmt.Errorf("def has no load function")
-  }
-
+func RegisterSignal[T any, S interface {
+  *T
+  Signal
+}](ctx *Context, signal_type SignalType) error {
   type_hash := Hash(signal_type)
   _, exists := ctx.Signals[type_hash]
   if exists == true {
@@ -139,18 +162,19 @@ func (ctx *Context) RegisterSignal(signal_type SignalType, load_fn SignalLoadFun
   }
 
   ctx.Signals[type_hash] = SignalInfo{
-    Load: load_fn,
+    Load: LoadSignal[T, S],
     Type: signal_type,
   }
   return nil
 }
 
 // Add a node to a context, returns an error if the def is invalid or already exists in the context
-func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFunc, data interface{}) error {
-  if load_fn == nil {
-    return fmt.Errorf("def has no load function")
-  }
-
+func RegisterExtension[T any, E interface{
+  *T
+  Extension
+}](ctx *Context, data interface{}) error {
+  var zero E
+  ext_type := zero.Type()
   type_hash := Hash(ext_type)
   _, exists := ctx.Extensions[type_hash]
   if exists == true {
@@ -158,7 +182,7 @@ func (ctx *Context) RegisterExtension(ext_type ExtType, load_fn ExtensionLoadFun
   }
 
   ctx.Extensions[type_hash] = ExtensionInfo{
-    Load: load_fn,
+    Load: LoadExtension[T,E],
     Type: ext_type,
     Data: data,
   }
@@ -195,7 +219,7 @@ func (ctx *Context) GetNode(id NodeID) (*Node, error) {
 // Stop every running loop
 func (ctx *Context) Stop() {
   for _, node := range(ctx.Nodes) {
-    node.MsgChan <- Msg{ZeroID, StopSignal}
+    node.MsgChan <- Msg{ZeroID, &StopSignal}
   }
 }
 
@@ -233,40 +257,41 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   var err error
-  err = ctx.RegisterExtension(ACLExtType, LoadACLExt, NewACLExtContext())
+  err = RegisterExtension[ACLExt,*ACLExt](ctx, NewACLExtContext())
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(LockableExtType, LoadLockableExt, nil)
+  err = RegisterExtension[LockableExt,*LockableExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(ListenerExtType, LoadListenerExt, nil)
+  err = RegisterExtension[ListenerExt,*ListenerExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(ECDHExtType, LoadECDHExt, nil)
+  err = RegisterExtension[ECDHExt,*ECDHExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(GroupExtType, LoadGroupExt, nil)
+  err = RegisterExtension[GroupExt,*GroupExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
   gql_ctx := NewGQLExtContext()
-  err = ctx.RegisterExtension(GQLExtType, LoadGQLExt, gql_ctx)
+  err = RegisterExtension[GQLExt,*GQLExt](ctx, gql_ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(StopSignalType, func(ctx *Context, data []byte) (Signal, error) {
-    return StopSignal, nil
-  })
+  err = RegisterSignal[BaseSignal, *BaseSignal](ctx, StopSignalType)
+  if err != nil {
+    return nil, err
+  }
 
   err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, GroupExtType, GQLExtType})
   if err != nil {

@@ -41,18 +41,19 @@ func TestNodeRead(t *testing.T) {
     n1_id: Actions{MakeAction(ReadResultSignalType, "+")},
   })
   n2_listener := NewListenerExt(10)
-  n2 := NewNode(ctx, n2_key, node_type, 10, nil, NewACLExt(n2_policy), NewGroupExt(nil), NewECDHExt(), n2_listener)
+  n2 := NewNode(ctx, n2_key, node_type, 10, nil, NewACLExt(&n2_policy), NewGroupExt(nil), NewECDHExt(), n2_listener)
 
   n1_policy := NewPerNodePolicy(map[NodeID]Actions{
     n2_id: Actions{MakeAction(ReadSignalType, "+")},
   })
-  n1 := NewNode(ctx, n1_key, node_type, 10, nil, NewACLExt(n1_policy), NewGroupExt(nil), NewECDHExt())
+  n1 := NewNode(ctx, n1_key, node_type, 10, nil, NewACLExt(&n1_policy), NewGroupExt(nil), NewECDHExt())
 
-  ctx.Send(n2.ID, n1.ID, NewReadSignal(map[ExtType][]string{
+  read_sig := NewReadSignal(map[ExtType][]string{
     GroupExtType: []string{"members"},
-  }))
+  })
+  ctx.Send(n2.ID, n1.ID, &read_sig)
 
-  res, err := WaitForSignal(ctx, n2_listener, 10*time.Millisecond, ReadResultSignalType, func(sig ReadResultSignal) bool {
+  res, err := WaitForSignal(ctx, n2_listener, 10*time.Millisecond, ReadResultSignalType, func(sig *ReadResultSignal) bool {
     return true
   })
   fatalErr(t, err)
@@ -68,11 +69,11 @@ func TestECDH(t *testing.T) {
 
   n1_listener := NewListenerExt(10)
   ecdh_policy := NewAllNodesPolicy(Actions{MakeAction(ECDHSignalType, "+"), MakeAction(ECDHProxySignalType, "+")})
-  n1 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(ecdh_policy), NewECDHExt(), n1_listener)
-  n2 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(ecdh_policy), NewECDHExt())
+  n1 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(&ecdh_policy), NewECDHExt(), n1_listener)
+  n2 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(&ecdh_policy), NewECDHExt())
   n3_listener := NewListenerExt(10)
   n3_policy := NewPerNodePolicy(NodeActions{n1.ID: Actions{MakeAction(StopSignalType)}})
-  n3 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(ecdh_policy, n3_policy), NewECDHExt(), n3_listener)
+  n3 := NewNode(ctx, nil, node_type, 10, nil, NewACLExt(&ecdh_policy, &n3_policy), NewECDHExt(), n3_listener)
 
   ctx.Log.Logf("test", "N1: %s", n1.ID)
   ctx.Log.Logf("test", "N2: %s", n2.ID)
@@ -87,18 +88,18 @@ func TestECDH(t *testing.T) {
   }
   fatalErr(t, err)
   ctx.Log.Logf("test", "N1_EC: %+v", n1_ec)
-  err = ctx.Send(n1.ID, n2.ID, ecdh_req)
+  err = ctx.Send(n1.ID, n2.ID, &ecdh_req)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, n1_listener, 100*time.Millisecond, ECDHSignalType, func(sig ECDHSignal) bool {
+  _, err = WaitForSignal(ctx, n1_listener, 100*time.Millisecond, ECDHSignalType, func(sig *ECDHSignal) bool {
     return sig.Str == "resp"
   })
   fatalErr(t, err)
   time.Sleep(10*time.Millisecond)
 
-  ecdh_sig, err := NewECDHProxySignal(n1.ID, n3.ID, NewDirectSignal(StopSignalType), ecdh_ext.ECDHStates[n2.ID].SharedSecret)
+  ecdh_sig, err := NewECDHProxySignal(n1.ID, n3.ID, &StopSignal, ecdh_ext.ECDHStates[n2.ID].SharedSecret)
   fatalErr(t, err)
 
-  err = ctx.Send(n1.ID, n2.ID, ecdh_sig)
+  err = ctx.Send(n1.ID, n2.ID, &ecdh_sig)
   fatalErr(t, err)
 }

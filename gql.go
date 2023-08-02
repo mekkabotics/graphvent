@@ -610,7 +610,7 @@ func GQLFields(ctx *GQLExtContext, field_names []string) (graphql.Fields, []ExtT
 
 type NodeResult struct {
   ID NodeID
-  Result ReadResultSignal
+  Result *ReadResultSignal
 }
 
 type ListField struct {
@@ -923,7 +923,7 @@ func NewGQLExtContext() *GQLExtContext {
       }
 
       response_chan := ctx.Ext.GetResponseChannel(sig.ID())
-      err = ctx.Context.Send(ctx.Server.ID, ctx.Server.ID, sig)
+      err = ctx.Context.Send(ctx.Server.ID, ctx.Server.ID, &sig)
       if err != nil {
         ctx.Ext.FreeResponseChannel(sig.ID())
         return nil, err
@@ -1048,7 +1048,7 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
   // Process ReadResultSignalType by forwarding it to the waiting resolver
   if signal.Type() == ErrorSignalType {
     // TODO: Forward to resolver if waiting for it
-    sig := signal.(ErrorSignal)
+    sig := signal.(*ErrorSignal)
     response_chan := ext.FreeResponseChannel(sig.ID())
     if response_chan != nil {
       select {
@@ -1062,7 +1062,7 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
       ctx.Log.Logf("gql", "received error signal response %+v with no mapped resolver", sig)
     }
   } else if signal.Type() == ReadResultSignalType {
-    sig := signal.(ReadResultSignal)
+    sig := signal.(*ReadResultSignal)
     response_chan := ext.FreeResponseChannel(sig.ID())
     if response_chan != nil {
       select {
@@ -1075,14 +1075,15 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
   } else if signal.Type() == GQLStateSignalType {
-    sig := signal.(StringSignal)
+    sig := signal.(*StringSignal)
     switch sig.Str {
     case "start_server":
       if ext.State == "stopped" {
         err := ext.StartGQLServer(ctx, node)
         if err == nil {
           ext.State = "running"
-          ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"})
+          resp := StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"}
+          ctx.Send(node.ID, source, &resp)
         }
       }
     case "stop_server":
@@ -1090,7 +1091,8 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
         err := ext.StopGQLServer()
         if err == nil {
           ext.State = "stopped"
-          ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"})
+          resp := StringSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"}
+          ctx.Send(node.ID, source, &resp)
         }
       }
     default:
@@ -1102,7 +1104,8 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
     case "running":
       err := ext.StartGQLServer(ctx, node)
       if err == nil {
-        ctx.Send(node.ID, source, StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"})
+        resp := StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"}
+        ctx.Send(node.ID, source, &resp)
       }
     case "stopped":
     default:
@@ -1116,7 +1119,7 @@ func (ext *GQLExt) Type() ExtType {
 }
 
 func (ext *GQLExt) Serialize() ([]byte, error) {
-  return json.MarshalIndent(ext, "", "  ")
+  return json.Marshal(ext)
 }
 
 var ecdsa_curves = map[uint8]elliptic.Curve{
@@ -1135,14 +1138,8 @@ var ecdh_curve_ids = map[ecdh.Curve]uint8{
   ecdh.P256(): 0,
 }
 
-func LoadGQLExt(ctx *Context, data []byte) (Extension, error) {
-  var ext GQLExt
-  err := json.Unmarshal(data, &ext)
-  if err != nil {
-    return nil, err
-  }
-
-  return NewGQLExt(ctx, ext.Listen, ext.tls_cert, ext.tls_key, ext.State)
+func (ext *GQLExt) Deserialize(ctx *Context, data []byte) error {
+  return json.Unmarshal(data, &ext)
 }
 
 func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, state string) (*GQLExt, error) {
