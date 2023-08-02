@@ -94,7 +94,7 @@ func TestGQL(t *testing.T) {
 }
 
 func TestGQLDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"listener"})
+  ctx := logTestContext(t, []string{"test"})
 
   TestUserNodeType := NodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
@@ -123,8 +123,10 @@ func TestGQLDB(t *testing.T) {
 
   ser1, err := gql.Serialize()
   ser2, err := u1.Serialize()
-  ctx.Log.Logf("test", "\n%s\n\n", ser1)
-  ctx.Log.Logf("test", "\n%s\n\n", ser2)
+  ser3, err := StopSignal.Serialize()
+  ctx.Log.Logf("test", "SER_1: \n%s\n\n", ser1)
+  ctx.Log.Logf("test", "SER_2: \n%s\n\n", ser2)
+  ctx.Log.Logf("test", "SER_3: \n%s\n\n", ser3)
 
   // Clear all loaded nodes from the context so it loads them from the database
   ctx.Nodes = NodeMap{}
@@ -138,6 +140,5 @@ func TestGQLDB(t *testing.T) {
     return sig.Str == "stopped" && sig.NodeID == gql_loaded.ID
   })
   fatalErr(t, err)
-
 }
 
