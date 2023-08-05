@@ -17,6 +17,7 @@ import (
 type SignalDirection int
 const (
   StopSignalType SignalType = "STOP"
+  NewSignalType             = "NEW"
   StartSignalType           = "START"
   ErrorSignalType           = "ERROR"
   StatusSignalType          = "STATUS"
@@ -140,6 +141,7 @@ func NewDirectSignal(signal_type SignalType) BaseSignal {
   return NewBaseSignal(signal_type, Direct)
 }
 
+var NewSignal = NewDirectSignal(NewSignalType)
 var StartSignal = NewDirectSignal(StartSignalType)
 var StopSignal = NewDownSignal(StopSignalType)
 

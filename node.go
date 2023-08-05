@@ -432,7 +432,9 @@ func NewNode(ctx *Context, key *ecdsa.PrivateKey, node_type NodeType, buffer_siz
   }
 
   if queued_signals == nil {
-    queued_signals = []QueuedSignal{}
+    queued_signals = []QueuedSignal{
+      QueuedSignal{uuid.New(), &NewSignal, time.Now()},
+    }
   }
 
   next_signal, timeout_chan := SoonestSignal(queued_signals)
