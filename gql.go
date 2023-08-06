@@ -18,7 +18,7 @@ import (
   "github.com/gobwas/ws/wsutil"
   "strings"
   "crypto/ecdh"
-  "crypto/ecdsa"
+  "crypto/ed25519"
   "crypto/elliptic"
   "crypto/rand"
   "crypto/x509"
@@ -185,7 +185,7 @@ type ResolveContext struct {
 
   // Key for the user that made this request, to sign resolver requests
   // TODO: figure out some way to use a generated key so that the server can't impersonate the user afterwards
-  Key *ecdsa.PrivateKey
+  Key ed25519.PrivateKey
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
@@ -199,12 +199,20 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
   }
 
-  key, err := x509.ParseECPrivateKey([]byte(key_bytes))
+  key_raw, err := x509.ParsePKCS8PrivateKey([]byte(key_bytes))
   if err != nil {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ecdsa key from auth password: %s", key_bytes)
   }
 
-  key_id := KeyID(&key.PublicKey)
+  var key ed25519.PrivateKey
+  switch k := key_raw.(type) {
+  case ed25519.PrivateKey:
+    key = k
+  default:
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: wrong type for key: %s", reflect.TypeOf(key_raw))
+  }
+
+  key_id := KeyID(key.Public().(ed25519.PublicKey))
   if auth_id != key_id {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: key_id(%s) != auth_id(%s)", auth_id, key_id)
   }
@@ -1144,12 +1152,12 @@ func (ext *GQLExt) Deserialize(ctx *Context, data []byte) error {
 
 func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, state string) (*GQLExt, error) {
   if tls_cert == nil || tls_key == nil {
-    ssl_key, err := ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
+    _, ssl_key, err := ed25519.GenerateKey(rand.Reader)
     if err != nil {
       return nil, err
     }
 
-    ssl_key_bytes, err := x509.MarshalECPrivateKey(ssl_key)
+    ssl_key_bytes, err := x509.MarshalPKCS8PrivateKey(ssl_key)
     if err != nil {
       return nil, err
     }
@@ -1172,7 +1180,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, sta
       BasicConstraintsValid: true,
     }
 
-    ssl_cert, err := x509.CreateCertificate(rand.Reader, &template, &template, &ssl_key.PublicKey, ssl_key)
+    ssl_cert, err := x509.CreateCertificate(rand.Reader, &template, &template, ssl_key.Public(), ssl_key)
     if err != nil {
       return nil, err
     }

@@ -4,11 +4,11 @@ import (
   "testing"
   "time"
   "crypto/rand"
-  "crypto/ecdsa"
+  "crypto/ed25519"
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{})
+  ctx := logTestContext(t, []string{"signal", "node"})
   node_type := NodeType("test")
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
@@ -26,13 +26,13 @@ func TestNodeRead(t *testing.T) {
   err := ctx.RegisterNodeType(node_type, []ExtType{ACLExtType, GroupExtType, ECDHExtType})
   fatalErr(t, err)
 
-  n1_key, err := ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
+  n1_pub, n1_key, err := ed25519.GenerateKey(rand.Reader)
   fatalErr(t, err)
-  n2_key, err := ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
+  n2_pub, n2_key, err := ed25519.GenerateKey(rand.Reader)
   fatalErr(t, err)
 
-  n1_id := KeyID(&n1_key.PublicKey)
-  n2_id := KeyID(&n2_key.PublicKey)
+  n1_id := KeyID(n1_pub)
+  n2_id := KeyID(n2_pub)
 
   ctx.Log.Logf("test", "N1: %s", n1_id)
   ctx.Log.Logf("test", "N2: %s", n2_id)

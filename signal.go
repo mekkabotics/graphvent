@@ -5,8 +5,8 @@ import (
   "fmt"
   "encoding/json"
   "encoding/binary"
-  "crypto/sha512"
-  "crypto/ecdsa"
+  "crypto"
+  "crypto/ed25519"
   "crypto/ecdh"
   "crypto/rand"
   "crypto/aes"
@@ -250,7 +250,7 @@ type ReadSignal struct {
 
 type AuthorizedSignal struct {
   BaseSignal
-  Principal *ecdsa.PublicKey
+  Principal ed25519.PublicKey
   Signal Signal
   Signature []byte
 }
@@ -259,21 +259,20 @@ func (signal *AuthorizedSignal) Permission() Action {
   return AuthorizedSignalAction
 }
 
-func NewAuthorizedSignal(principal *ecdsa.PrivateKey, signal Signal) (AuthorizedSignal, error) {
+func NewAuthorizedSignal(principal ed25519.PrivateKey, signal Signal) (AuthorizedSignal, error) {
   sig_data, err := signal.Serialize()
   if err != nil {
     return AuthorizedSignal{}, err
   }
 
-  sig_hash := sha512.Sum512(sig_data)
-  sig, err := ecdsa.SignASN1(rand.Reader, principal, sig_hash[:])
+  sig, err := principal.Sign(rand.Reader, sig_data, crypto.Hash(0))
   if err != nil {
     return AuthorizedSignal{}, err
   }
 
   return AuthorizedSignal{
     BaseSignal: NewDirectSignal(AuthorizedSignalType),
-    Principal: &principal.PublicKey,
+    Principal: principal.Public().(ed25519.PublicKey),
     Signal: signal,
     Signature: sig,
   }, nil
@@ -315,7 +314,7 @@ func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]
 type ECDHSignal struct {
   StringSignal
   Time time.Time
-  ECDSA *ecdsa.PublicKey
+  EDDSA ed25519.PublicKey
   ECDH *ecdh.PublicKey
   Signature []byte
 }
@@ -323,7 +322,7 @@ type ECDHSignal struct {
 type ECDHSignalJSON struct {
   StringSignal
   Time time.Time `json:"time"`
-  ECDSA []byte `json:"ecdsa_pubkey"`
+  EDDSA []byte `json:"ecdsa_pubkey"`
   ECDH []byte `json:"ecdh_pubkey"`
   Signature []byte `json:"signature"`
 }
@@ -333,25 +332,13 @@ func (signal *ECDHSignal) MarshalJSON() ([]byte, error) {
     StringSignal: signal.StringSignal,
     Time: signal.Time,
     ECDH: signal.ECDH.Bytes(),
-    ECDSA: signal.ECDH.Bytes(),
+    EDDSA: signal.ECDH.Bytes(),
     Signature: signal.Signature,
   })
 }
 
 func (signal *ECDHSignal) Serialize() ([]byte, error) {
   return json.Marshal(signal)
-}
-
-func keyHash(now time.Time, ec_key *ecdh.PublicKey) ([]byte, error) {
-  time_bytes, err := now.MarshalJSON()
-  if err != nil {
-    return nil, err
-  }
-
-  sig_data := append(ec_key.Bytes(), time_bytes...)
-  sig_hash := sha512.Sum512(sig_data)
-
-  return sig_hash[:], nil
 }
 
 func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, error) {
@@ -361,13 +348,14 @@ func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, e
   }
 
   now := time.Now()
-
-  sig_hash, err := keyHash(now, ec_key.PublicKey())
+  time_bytes, err := now.MarshalJSON()
   if err != nil {
     return ECDHSignal{}, nil, err
   }
 
-  sig, err := ecdsa.SignASN1(rand.Reader, node.Key, sig_hash)
+  sig_data := append(ec_key.PublicKey().Bytes(), time_bytes...)
+
+  sig, err := node.Key.Sign(rand.Reader, sig_data, crypto.Hash(0))
   if err != nil {
     return ECDHSignal{}, nil, err
   }
@@ -378,7 +366,7 @@ func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, e
       Str: "req",
     },
     Time: now,
-    ECDSA: &node.Key.PublicKey,
+    EDDSA: node.Key.Public().(ed25519.PublicKey),
     ECDH: ec_key.PublicKey(),
     Signature: sig,
   }, ec_key, nil
@@ -404,12 +392,14 @@ func NewECDHRespSignal(ctx *Context, node *Node, req *ECDHSignal) (ECDHSignal, [
     return ECDHSignal{}, nil, err
   }
 
-  key_hash, err := keyHash(now, ec_key.PublicKey())
+  time_bytes, err := now.MarshalJSON()
   if err != nil {
     return ECDHSignal{}, nil, err
   }
 
-  sig, err := ecdsa.SignASN1(rand.Reader, node.Key, key_hash)
+  sig_data := append(ec_key.PublicKey().Bytes(), time_bytes...)
+
+  sig, err := node.Key.Sign(rand.Reader, sig_data, crypto.Hash(0))
   if err != nil {
     return ECDHSignal{}, nil, err
   }
@@ -420,7 +410,7 @@ func NewECDHRespSignal(ctx *Context, node *Node, req *ECDHSignal) (ECDHSignal, [
       Str: "resp",
     },
     Time: now,
-    ECDSA: &node.Key.PublicKey,
+    EDDSA: node.Key.Public().(ed25519.PublicKey),
     ECDH: ec_key.PublicKey(),
     Signature: sig,
   }, shared_secret, nil
@@ -436,14 +426,16 @@ func VerifyECDHSignal(now time.Time, sig *ECDHSignal, window time.Duration) erro
     return fmt.Errorf("TIME_TOO_EARLY: %+v", sig.Time)
   }
 
-  sig_hash, err := keyHash(sig.Time, sig.ECDH)
+  time_bytes, err := sig.Time.MarshalJSON()
   if err != nil {
     return err
   }
 
-  verified := ecdsa.VerifyASN1(sig.ECDSA, sig_hash, sig.Signature)
+  sig_data := append(sig.ECDH.Bytes(), time_bytes...)
+
+  verified := ed25519.Verify(sig.EDDSA, sig_data, sig.Signature)
   if verified == false {
-    return fmt.Errorf("VERIFY_FAIL")
+    return fmt.Errorf("Failed to verify signature")
   }
 
   return nil

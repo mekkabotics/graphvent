@@ -68,7 +68,7 @@ func TestGQL(t *testing.T) {
     req, err := http.NewRequest("GET", url, req_data)
     fatalErr(t, err)
 
-    key_bytes, err := x509.MarshalECPrivateKey(n1.Key)
+    key_bytes, err := x509.MarshalPKCS8PrivateKey(n1.Key)
     fatalErr(t, err)
     req.SetBasicAuth(n1.ID.String(), string(key_bytes))
     resp, err := client.Do(req)

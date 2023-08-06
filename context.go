@@ -7,7 +7,6 @@ import (
   "errors"
   "runtime"
   "crypto/sha512"
-  "crypto/elliptic"
   "crypto/ecdh"
   "encoding/binary"
 )
@@ -112,8 +111,6 @@ type Context struct {
   Signals map[uint64]SignalInfo
   // Map between database type hashes and the registered info
   Types map[uint64]*NodeInfo
-  // Curve used for signature operations
-  ECDSA elliptic.Curve
   // Curve used for ecdh operations
   ECDH ecdh.Curve
   // Routing map to all the nodes local to this context
@@ -252,8 +249,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Types: map[uint64]*NodeInfo{},
     Signals: map[uint64]SignalInfo{},
     Nodes: map[NodeID]*Node{},
-    ECDH: ecdh.P256(),
-    ECDSA: elliptic.P256(),
+    ECDH: ecdh.X25519(),
   }
 
   var err error
@@ -289,6 +285,16 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterSignal[BaseSignal, *BaseSignal](ctx, StopSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterSignal[BaseSignal, *BaseSignal](ctx, NewSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterSignal[BaseSignal, *BaseSignal](ctx, StartSignalType)
   if err != nil {
     return nil, err
   }

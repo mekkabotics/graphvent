@@ -10,8 +10,7 @@ import (
   "encoding/binary"
   "encoding/json"
   "sync/atomic"
-  "crypto/ecdsa"
-  "crypto/elliptic"
+  "crypto/ed25519"
   "crypto/sha512"
   "crypto/rand"
   "crypto/x509"
@@ -23,6 +22,7 @@ const (
   // Total length of the node database header, has magic to verify and type_hash to map to load function
   NODE_DB_HEADER_LEN = 28
   EXTENSION_DB_HEADER_LEN = 16
+  QSIGNAL_DB_HEADER_LEN = 40
 )
 
 var (
@@ -106,7 +106,7 @@ type QueuedSignal struct {
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
-  Key *ecdsa.PrivateKey
+  Key ed25519.PrivateKey
   ID NodeID
   Type NodeType
   Extensions map[ExtType]Extension
@@ -197,14 +197,15 @@ func nodeLoop(ctx *Context, node *Node) error {
     return fmt.Errorf("%s is already started, will not start again", node.ID)
   }
 
-  // Queue the signal for extensions to perform startup actions
-  node.QueueSignal(time.Now(), &StartSignal)
+  // Perform startup actions
+  node.Process(ctx, node.ID, &StartSignal)
 
   for true {
     var signal Signal
     var source NodeID
     select {
     case msg := <- node.MsgChan:
+      ctx.Log.Logf("signal", "NODE_MSG: %s - %+v", node.ID, msg)
       signal = msg.Signal
       source = msg.Source
       err := Allowed(ctx, msg.Source, signal.Permission(), node)
@@ -234,7 +235,7 @@ func nodeLoop(ctx *Context, node *Node) error {
 
       node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
       if node.NextSignal == nil {
-        ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL nil", node.ID, t, signal)
+        ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL nil@%+v", node.ID, t, signal, node.TimeoutChan)
       } else {
         ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL: %s@%s", node.ID, t, signal, node.NextSignal, node.NextSignal.Time)
       }
@@ -250,8 +251,7 @@ func nodeLoop(ctx *Context, node *Node) error {
         sig_data, err := sig.Signal.Serialize()
         if err != nil {
         } else {
-          sig_hash := sha512.Sum512(sig_data)
-          validated := ecdsa.VerifyASN1(sig.Principal, sig_hash[:], sig.Signature)
+          validated := ed25519.Verify(sig.Principal, sig_data, sig.Signature)
           if validated == true {
             err := Allowed(ctx, KeyID(sig.Principal), sig.Signal.Permission(), node)
             if err != nil {
@@ -270,6 +270,8 @@ func nodeLoop(ctx *Context, node *Node) error {
         }
       }
     }
+
+    ctx.Log.Logf("node", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
 
     // Handle special signal types
     if signal.Type() == StopSignalType {
@@ -349,8 +351,9 @@ func GetExt[T Extension](node *Node) (T, error) {
 
 func (node *Node) Serialize() ([]byte, error) {
   extensions := make([]ExtensionDB, len(node.Extensions))
+  qsignals := make([]QSignalDB, len(node.SignalQueue))
 
-  key_bytes, err := x509.MarshalECPrivateKey(node.Key)
+  key_bytes, err := x509.MarshalPKCS8PrivateKey(node.Key)
   if err != nil {
     return nil, err
   }
@@ -365,7 +368,7 @@ func (node *Node) Serialize() ([]byte, error) {
       NumQueuedSignals: uint32(len(node.SignalQueue)),
     },
     Extensions: extensions,
-    QueuedSignals: node.SignalQueue,
+    QueuedSignals: qsignals,
     KeyBytes: key_bytes,
   }
 
@@ -385,26 +388,45 @@ func (node *Node) Serialize() ([]byte, error) {
     i += 1
   }
 
+  for i, qsignal := range(node.SignalQueue) {
+    ser, err := qsignal.Signal.Serialize()
+    if err != nil {
+      return nil, err
+    }
+
+    node_db.QueuedSignals[i] = QSignalDB{
+      QSignalDBHeader{
+        qsignal.Signal.ID(),
+        qsignal.Time,
+        Hash(qsignal.Signal.Type()),
+        uint64(len(ser)),
+      },
+      ser,
+    }
+  }
+
   return node_db.Serialize(), nil
 }
 
-func KeyID(pub *ecdsa.PublicKey) NodeID {
-  ser := elliptic.Marshal(pub.Curve, pub.X, pub.Y)
-  str := uuid.NewHash(sha512.New(), ZeroUUID, ser, 3)
+func KeyID(pub ed25519.PublicKey) NodeID {
+  str := uuid.NewHash(sha512.New(), ZeroUUID, pub, 3)
   return NodeID(str)
 }
 
 // Create a new node in memory and start it's event loop
 // TODO: Change panics to errors
-func NewNode(ctx *Context, key *ecdsa.PrivateKey, node_type NodeType, buffer_size uint32, queued_signals []QueuedSignal, extensions ...Extension) *Node {
+func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, queued_signals []QueuedSignal, extensions ...Extension) *Node {
   var err error
+  var public ed25519.PublicKey
   if key == nil {
-    key, err = ecdsa.GenerateKey(ctx.ECDSA, rand.Reader)
+    public, key, err = ed25519.GenerateKey(rand.Reader)
     if err != nil {
       panic(err)
     }
+  } else {
+    public = key.Public().(ed25519.PublicKey)
   }
-  id := KeyID(&key.PublicKey)
+  id := KeyID(public)
   _, exists := ctx.Node(id)
   if exists == true {
     panic("Attempted to create an existing node")
@@ -432,9 +454,7 @@ func NewNode(ctx *Context, key *ecdsa.PrivateKey, node_type NodeType, buffer_siz
   }
 
   if queued_signals == nil {
-    queued_signals = []QueuedSignal{
-      QueuedSignal{uuid.New(), &NewSignal, time.Now()},
-    }
+    queued_signals = []QueuedSignal{}
   }
 
   next_signal, timeout_chan := SoonestSignal(queued_signals)
@@ -455,6 +475,8 @@ func NewNode(ctx *Context, key *ecdsa.PrivateKey, node_type NodeType, buffer_siz
   if err != nil {
     panic(err)
   }
+
+  node.Process(ctx, node.ID, &NewSignal)
 
   go runNode(ctx, node)
 
@@ -497,7 +519,7 @@ type NodeDBHeader struct {
 
 type NodeDB struct {
   Header NodeDBHeader
-  QueuedSignals []QueuedSignal
+  QueuedSignals []QSignalDB
   Extensions []ExtensionDB
   KeyBytes []byte
 }
@@ -551,9 +573,34 @@ func NewNodeDB(data []byte) (NodeDB, error) {
     ptr += int(EXTENSION_DB_HEADER_LEN + length)
   }
 
-  queued_signals := make([]QueuedSignal, num_queued_signals)
+  queued_signals := make([]QSignalDB, num_queued_signals)
   for i, _ := range(queued_signals) {
-    queued_signals[i] = QueuedSignal{}
+    cur := data[ptr:]
+    // TODO: load a header for each with the signal type and the signal length, so that it can be deserialized and incremented
+    // Right now causes segfault because any saved signal is loaded as nil
+    signal_id_bytes := cur[0:16]
+    unix_milli := binary.BigEndian.Uint64(cur[16:24])
+    type_hash := binary.BigEndian.Uint64(cur[24:32])
+    signal_size := binary.BigEndian.Uint64(cur[32:40])
+
+    signal_id, err := uuid.FromBytes(signal_id_bytes)
+    if err != nil {
+      return zero, err
+    }
+
+    signal_data := cur[QSIGNAL_DB_HEADER_LEN:(QSIGNAL_DB_HEADER_LEN+signal_size)]
+
+    queued_signals[i] = QSignalDB{
+      QSignalDBHeader{
+        signal_id,
+        time.UnixMilli(int64(unix_milli)),
+        type_hash,
+        signal_size,
+      },
+      signal_data,
+    }
+
+    ptr += QSIGNAL_DB_HEADER_LEN + int(signal_size)
   }
 
   return NodeDB{
@@ -592,8 +639,26 @@ func (node NodeDB) Serialize() []byte {
   for _, extension := range(node.Extensions) {
     ser = append(ser, extension.Serialize()...)
   }
+  for _, qsignal := range(node.QueuedSignals) {
+    ser = append(ser, qsignal.Serialize()...)
+  }
 
   return ser
+}
+
+func (header QSignalDBHeader) Serialize() []byte {
+  ret := make([]byte, QSIGNAL_DB_HEADER_LEN)
+  id_ser, _ := header.SignalID.MarshalBinary()
+  copy(ret, id_ser)
+  binary.BigEndian.PutUint64(ret[16:24], uint64(header.Time.UnixMilli()))
+  binary.BigEndian.PutUint64(ret[24:32], header.TypeHash)
+  binary.BigEndian.PutUint64(ret[32:40], header.Length)
+  return ret
+}
+
+func (qsignal QSignalDB) Serialize() []byte {
+  header_bytes := qsignal.Header.Serialize()
+  return append(header_bytes, qsignal.Data...)
 }
 
 func (header ExtensionDBHeader) Serialize() []byte {
@@ -606,6 +671,18 @@ func (header ExtensionDBHeader) Serialize() []byte {
 func (extension ExtensionDB) Serialize() []byte {
   header_bytes := extension.Header.Serialize()
   return append(header_bytes, extension.Data...)
+}
+
+type QSignalDBHeader struct {
+  SignalID uuid.UUID
+  Time time.Time
+  TypeHash uint64
+  Length uint64
+}
+
+type QSignalDB struct {
+  Header QSignalDBHeader
+  Data []byte
 }
 
 type ExtensionDBHeader struct {
@@ -663,16 +740,20 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
-  key, err := x509.ParseECPrivateKey(node_db.KeyBytes)
+  key_raw, err := x509.ParsePKCS8PrivateKey(node_db.KeyBytes)
   if err != nil {
     return nil, err
   }
 
-  if key.PublicKey.Curve != ctx.ECDSA {
-    return nil, fmt.Errorf("%s - wrong ec curve for private key: %+v, expected %+v", id, key.PublicKey.Curve, ctx.ECDSA)
+  var key ed25519.PrivateKey
+  switch k := key_raw.(type) {
+  case ed25519.PrivateKey:
+    key = k
+  default:
+    return nil, fmt.Errorf("Wrong type for private key loaded: %s - %s", id, reflect.TypeOf(k))
   }
 
-  key_id := KeyID(&key.PublicKey)
+  key_id := KeyID(key.Public().(ed25519.PublicKey))
   if key_id != id {
     return nil, fmt.Errorf("KeyID(%s) != %s", key_id, id)
   }
@@ -682,7 +763,22 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("Tried to load node %s of type 0x%x, which is not a known node type", id, node_db.Header.TypeHash)
   }
 
-  next_signal, timeout_chan := SoonestSignal(node_db.QueuedSignals)
+  signal_queue := make([]QueuedSignal, node_db.Header.NumQueuedSignals)
+  for i, qsignal := range(node_db.QueuedSignals) {
+    sig_info, exists := ctx.Signals[qsignal.Header.TypeHash]
+    if exists == false {
+      return nil, fmt.Errorf("0x%x is not a known signal type", qsignal.Header.TypeHash)
+    }
+
+    signal, err := sig_info.Load(ctx, qsignal.Data)
+    if err != nil {
+      return nil, err
+    }
+
+    signal_queue[i] = QueuedSignal{qsignal.Header.SignalID, signal, qsignal.Header.Time}
+  }
+
+  next_signal, timeout_chan := SoonestSignal(signal_queue)
   node := &Node{
     Key: key,
     ID: key_id,
@@ -691,7 +787,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     MsgChan: make(chan Msg, node_db.Header.BufferSize),
     BufferSize: node_db.Header.BufferSize,
     TimeoutChan: timeout_chan,
-    SignalQueue: node_db.QueuedSignals,
+    SignalQueue: signal_queue,
     NextSignal: next_signal,
   }
   ctx.AddNode(id, node)
