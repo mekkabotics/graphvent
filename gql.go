@@ -17,9 +17,10 @@ import (
   "github.com/gobwas/ws"
   "github.com/gobwas/ws/wsutil"
   "strings"
+  "crypto/ecdsa"
+  "crypto/elliptic"
   "crypto/ecdh"
   "crypto/ed25519"
-  "crypto/elliptic"
   "crypto/rand"
   "crypto/x509"
   "crypto/tls"
@@ -189,15 +190,16 @@ type ResolveContext struct {
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
-  username, key_bytes, ok := r.BasicAuth()
+  id_bytes, key_bytes, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
   }
 
-  auth_id, err := ParseID(username)
+  auth_uuid, err := uuid.FromBytes([]byte(id_bytes))
   if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username: %s", username)
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username")
   }
+  auth_id := NodeID(auth_uuid)
 
   key_raw, err := x509.ParsePKCS8PrivateKey([]byte(key_bytes))
   if err != nil {
@@ -916,7 +918,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  context.Mutation.AddFieldConfig("stopServer", &graphql.Field{
+  context.Mutation.AddFieldConfig("stop", &graphql.Field{
     Type: graphql.String,
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
       ctx, err := PrepResolve(p)
@@ -924,14 +926,13 @@ func NewGQLExtContext() *GQLExtContext {
         return nil, err
       }
 
-      sig := StringSignal{NewDirectSignal(GQLStateSignalType), "stop_server"}
-      err = Allowed(ctx.Context, ctx.User, sig.Permission(), ctx.Server)
+      sig, err := NewAuthorizedSignal(ctx.Key, &StopSignal)
       if err != nil {
-        return err, nil
+        return nil, err
       }
 
       response_chan := ctx.Ext.GetResponseChannel(sig.ID())
-      err = ctx.Context.Send(ctx.Server.ID, ctx.Server.ID, &sig)
+      err = ctx.Context.Send(ctx.Server.ID, []Message{Message{ctx.Server.ID, sig}})
       if err != nil {
         ctx.Ext.FreeResponseChannel(sig.ID())
         return nil, err
@@ -1016,8 +1017,8 @@ type GQLExt struct {
   resolver_response_lock sync.RWMutex `json:"-"`
 
   State string `json:"state"`
-  tls_key []byte `json:"tls_key"`
-  tls_cert []byte `json:"tls_cert"`
+  TLSKey []byte `json:"tls_key"`
+  TLSCert []byte `json:"tls_cert"`
   Listen string `json:"listen"`
 }
 
@@ -1052,12 +1053,14 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
   }
 }
 
-func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
+func (ext *GQLExt) Process(ctx *Context, node *Node, msg Message) []Message {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
+  signal := msg.Signal
+  messages := []Message{}
   if signal.Type() == ErrorSignalType {
     // TODO: Forward to resolver if waiting for it
     sig := signal.(*ErrorSignal)
-    response_chan := ext.FreeResponseChannel(sig.ID())
+    response_chan := ext.FreeResponseChannel(sig.UUID)
     if response_chan != nil {
       select {
       case response_chan <- sig:
@@ -1084,14 +1087,16 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
     }
   } else if signal.Type() == GQLStateSignalType {
     sig := signal.(*StringSignal)
+    ctx.Log.Logf("gql", "GQL_STATE_SIGNAL: %s - %+v", node.ID, sig.Str)
     switch sig.Str {
     case "start_server":
       if ext.State == "stopped" {
         err := ext.StartGQLServer(ctx, node)
         if err == nil {
           ext.State = "running"
-          resp := StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"}
-          ctx.Send(node.ID, source, &resp)
+          node.QueueSignal(time.Now(), NewStatusSignal("server_started", node.ID))
+        } else {
+          ctx.Log.Logf("gql", "GQL_START_ERROR: %s", err)
         }
       }
     case "stop_server":
@@ -1099,8 +1104,9 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
         err := ext.StopGQLServer()
         if err == nil {
           ext.State = "stopped"
-          resp := StringSignal{NewDirectSignal(GQLStateSignalType), "server_stopped"}
-          ctx.Send(node.ID, source, &resp)
+          node.QueueSignal(time.Now(), NewStatusSignal("server_stopped", node.ID))
+        } else {
+          ctx.Log.Logf("gql", "GQL_STOP_ERROR: %s", err)
         }
       }
     default:
@@ -1112,14 +1118,16 @@ func (ext *GQLExt) Process(ctx *Context, source NodeID, node *Node, signal Signa
     case "running":
       err := ext.StartGQLServer(ctx, node)
       if err == nil {
-        resp := StringSignal{NewDirectSignal(GQLStateSignalType), "server_started"}
-        ctx.Send(node.ID, source, &resp)
+        node.QueueSignal(time.Now(), NewStatusSignal("server_started", node.ID))
+      } else {
+        ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
       }
     case "stopped":
     default:
       ctx.Log.Logf("gql", "unknown state to restore from: %s", ext.State)
     }
   }
+  return messages
 }
 
 func (ext *GQLExt) Type() ExtType {
@@ -1147,12 +1155,13 @@ var ecdh_curve_ids = map[ecdh.Curve]uint8{
 }
 
 func (ext *GQLExt) Deserialize(ctx *Context, data []byte) error {
+  ext.resolver_response = map[uuid.UUID]chan Signal{}
   return json.Unmarshal(data, &ext)
 }
 
 func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, state string) (*GQLExt, error) {
   if tls_cert == nil || tls_key == nil {
-    _, ssl_key, err := ed25519.GenerateKey(rand.Reader)
+    ssl_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
     if err != nil {
       return nil, err
     }
@@ -1194,8 +1203,8 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, sta
     State: state,
     Listen: listen,
     resolver_response: map[uuid.UUID]chan Signal{},
-    tls_cert: tls_cert,
-    tls_key: tls_key,
+    TLSCert: tls_cert,
+    TLSKey: tls_key,
   }, nil
 }
 
@@ -1224,7 +1233,7 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
     return fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
   }
 
-  cert, err := tls.X509KeyPair(ext.tls_cert, ext.tls_key)
+  cert, err := tls.X509KeyPair(ext.TLSCert, ext.TLSKey)
   if err != nil {
     return err
   }

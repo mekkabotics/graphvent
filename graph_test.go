@@ -9,7 +9,6 @@ import (
 const SimpleListenerNodeType = NodeType("SIMPLE_LISTENER")
 
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
-  policy := NewAllNodesPolicy(Actions{MakeAction("status")})
   listener_extension := NewListenerExt(buffer)
   listener := NewNode(ctx,
                       nil,
@@ -17,7 +16,6 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
                       10,
                       nil,
                       listener_extension,
-                      NewACLExt(&policy),
                       NewLockableExt())
 
   return listener, listener_extension
@@ -32,7 +30,7 @@ func logTestContext(t * testing.T, components []string) *Context {
   ctx, err := NewContext(db, NewConsoleLogger(components))
   fatalErr(t, err)
 
-  err = ctx.RegisterNodeType(SimpleListenerNodeType, []ExtType{ACLExtType, ListenerExtType, LockableExtType})
+  err = ctx.RegisterNodeType(SimpleListenerNodeType, []ExtType{ListenerExtType, LockableExtType})
   fatalErr(t, err)
 
   return ctx

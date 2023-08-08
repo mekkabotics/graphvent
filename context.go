@@ -48,9 +48,30 @@ func LoadExtension[T any, E interface {
   return e, nil
 }
 
+type PolicyType string
+func (policy PolicyType) Prefix() string { return "POLICY: " }
+func (policy PolicyType) String() string { return string(policy) }
+
+type PolicyLoadFunc func(*Context,[]byte) (Policy, error)
+func LoadPolicy[T any, P interface {
+  *T
+  Policy
+}](ctx *Context, data []byte) (Policy, error) {
+  p := P(new(T))
+  err := p.Deserialize(ctx, data)
+  if err != nil {
+    return nil, err
+  }
+  return p, nil
+}
+
+type PolicyInfo struct {
+  Load PolicyLoadFunc
+  Type PolicyType
+}
+
 // ExtType and NodeType constants
 const (
-  ACLExtType = ExtType("ACL")
   ListenerExtType = ExtType("LISTENER")
   LockableExtType = ExtType("LOCKABLE")
   GQLExtType = ExtType("GQL")
@@ -62,6 +83,7 @@ const (
 
 var (
   NodeNotFoundError = errors.New("Node not found in DB")
+  ECDH = ecdh.X25519()
 )
 
 type SignalLoadFunc func(*Context,[]byte) (Signal, error)
@@ -107,12 +129,12 @@ type Context struct {
   Log Logger
   // Map between database extension hashes and the registered info
   Extensions map[uint64]ExtensionInfo
+  // Map between databse policy hashes and the registered info
+  Policies map[uint64]PolicyInfo
   // Map between serialized signal hashes and the registered info
   Signals map[uint64]SignalInfo
   // Map between database type hashes and the registered info
   Types map[uint64]*NodeInfo
-  // Curve used for ecdh operations
-  ECDH ecdh.Curve
   // Routing map to all the nodes local to this context
   NodesLock sync.RWMutex
   Nodes map[NodeID]*Node
@@ -216,28 +238,31 @@ func (ctx *Context) GetNode(id NodeID) (*Node, error) {
 // Stop every running loop
 func (ctx *Context) Stop() {
   for _, node := range(ctx.Nodes) {
-    node.MsgChan <- Msg{ZeroID, &StopSignal}
+    node.MsgChan <- Message{ZeroID, &StopSignal}
   }
 }
 
 // Route a Signal to dest. Currently only local context routing is supported
-func (ctx *Context) Send(source NodeID, dest NodeID, signal Signal) error {
-  target, err := ctx.GetNode(dest)
-  if err == nil {
-    select {
-    case target.MsgChan <- Msg{source, signal}:
-    default:
-      buf := make([]byte, 4096)
-      n := runtime.Stack(buf, false)
-      stack_str := string(buf[:n])
-      return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", dest, stack_str)
+func (ctx *Context) Send(source NodeID, messages []Message) error {
+  for _, msg := range(messages) {
+    target, err := ctx.GetNode(msg.NodeID)
+    if err == nil {
+      select {
+      case target.MsgChan <- Message{source, msg.Signal}:
+      default:
+        buf := make([]byte, 4096)
+        n := runtime.Stack(buf, false)
+        stack_str := string(buf[:n])
+        return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", msg.NodeID, stack_str)
+      }
+    } else if errors.Is(err, NodeNotFoundError) {
+      // TODO: Handle finding nodes in other contexts
+      return err
+    } else {
+      return err
     }
-    return nil
-  } else if errors.Is(err, NodeNotFoundError) {
-    // TODO: Handle finding nodes in other contexts
-    return err
   }
-  return err
+  return nil
 }
 
 // Create a new Context with the base library content added
@@ -249,15 +274,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Types: map[uint64]*NodeInfo{},
     Signals: map[uint64]SignalInfo{},
     Nodes: map[NodeID]*Node{},
-    ECDH: ecdh.X25519(),
   }
 
   var err error
-  err = RegisterExtension[ACLExt,*ACLExt](ctx, NewACLExtContext())
-  if err != nil {
-    return nil, err
-  }
-
   err = RegisterExtension[LockableExt,*LockableExt](ctx, nil)
   if err != nil {
     return nil, err
@@ -299,7 +318,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{ACLExtType, GroupExtType, GQLExtType})
+  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{GroupExtType, GQLExtType})
   if err != nil {
     return nil, err
   }

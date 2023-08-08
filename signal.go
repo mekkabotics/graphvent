@@ -28,7 +28,6 @@ const (
   ReadResultSignalType      = "READ_RESULT"
   LinkStartSignalType       = "LINK_START"
   ECDHSignalType            = "ECDH"
-  ECDHStateSignalType       = "ECDH_STATE"
   ECDHProxySignalType       = "ECDH_PROXY"
   GQLStateSignalType        = "GQL_STATE"
 
@@ -43,6 +42,7 @@ func (signal_type SignalType) Prefix() string { return "SIGNAL: " }
 
 type Signal interface {
   Serializable[SignalType]
+  String() string
   Direction() SignalDirection
   ID() uuid.UUID
   Permission() Action
@@ -70,12 +70,12 @@ func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.
   }
   for true {
     select {
-    case signal := <- listener.Chan:
-      if signal == nil {
+    case msg := <- listener.Chan:
+      if msg.Signal == nil {
         return zero, fmt.Errorf("LISTENER_CLOSED: %s", signal_type)
       }
-      if signal.Type() == signal_type {
-        sig, ok := signal.(S)
+      if msg.Signal.Type() == signal_type {
+        sig, ok := msg.Signal.(S)
         if ok == true {
           if check(sig) == true {
             return sig, nil
@@ -94,6 +94,11 @@ type BaseSignal struct {
   SignalDirection SignalDirection `json:"direction"`
   SignalType SignalType `json:"type"`
   UUID uuid.UUID `json:"id"`
+}
+
+func (signal *BaseSignal) String() string {
+  ser, _ := json.Marshal(signal)
+  return string(ser)
 }
 
 func (signal *BaseSignal) Deserialize(ctx *Context, data []byte) error {
@@ -129,21 +134,9 @@ func NewBaseSignal(signal_type SignalType, direction SignalDirection) BaseSignal
   return signal
 }
 
-func NewDownSignal(signal_type SignalType) BaseSignal {
-  return NewBaseSignal(signal_type, Down)
-}
-
-func NewUpSignal(signal_type SignalType) BaseSignal {
-  return NewBaseSignal(signal_type, Up)
-}
-
-func NewDirectSignal(signal_type SignalType) BaseSignal {
-  return NewBaseSignal(signal_type, Direct)
-}
-
-var NewSignal = NewDirectSignal(NewSignalType)
-var StartSignal = NewDirectSignal(StartSignalType)
-var StopSignal = NewDownSignal(StopSignalType)
+var NewSignal = NewBaseSignal(NewSignalType, Direct)
+var StartSignal = NewBaseSignal(StartSignalType, Direct)
+var StopSignal = NewBaseSignal(StopSignalType, Direct)
 
 type IDSignal struct {
   BaseSignal
@@ -154,88 +147,91 @@ func (signal *IDSignal) Serialize() ([]byte, error) {
   return json.Marshal(signal)
 }
 
-func NewIDSignal(signal_type SignalType, direction SignalDirection, id NodeID) IDSignal {
-  return IDSignal{
-    BaseSignal: NewBaseSignal(signal_type, direction),
-    NodeID: id,
-  }
-}
-
 type StringSignal struct {
   BaseSignal
   Str string `json:"state"`
+}
+
+func (signal *StringSignal) String() string {
+  ser, _ := json.Marshal(signal)
+  return string(ser)
 }
 
 func (signal *StringSignal) Serialize() ([]byte, error) {
   return json.Marshal(&signal)
 }
 
+type RespSignal struct {
+  BaseSignal
+  ReqID uuid.UUID
+}
+
 type ErrorSignal struct {
-  StringSignal
+  RespSignal
+  Error string
+}
+
+func (signal *ErrorSignal) String() string {
+  ser, _ := json.Marshal(signal)
+  return string(ser)
 }
 
 func (signal *ErrorSignal) Permission() Action {
   return ErrorSignalAction
 }
 
-func NewErrorSignal(req_id uuid.UUID, err string) ErrorSignal {
-  return ErrorSignal{
-    StringSignal{
-      NewDirectSignal(ErrorSignalType),
-      err,
+func NewErrorSignal(req_id uuid.UUID, err string) Signal {
+  return &ErrorSignal{
+    RespSignal{
+      NewBaseSignal(ErrorSignalType, Direct),
+      req_id,
     },
+    err,
   }
 }
 
 type IDStringSignal struct {
   BaseSignal
-  NodeID `json:"node_id"`
+  NodeID NodeID `json:"node_id"`
   Str string `json:"string"`
+}
+
+func (signal *IDStringSignal) String() string {
+  ser, _ := json.Marshal(signal)
+  return string(ser)
 }
 
 func (signal *IDStringSignal) Serialize() ([]byte, error) {
   return json.Marshal(signal)
 }
 
-func (signal *IDStringSignal) String() string {
-  ser, err := json.Marshal(signal)
-  if err != nil {
-    return "STATE_SER_ERR"
-  }
-  return string(ser)
-}
-
-func NewStatusSignal(status string, source NodeID) IDStringSignal {
-  return IDStringSignal{
-    BaseSignal: NewUpSignal(StatusSignalType),
+func NewStatusSignal(status string, source NodeID) Signal {
+  return &IDStringSignal{
+    BaseSignal: NewBaseSignal(StatusSignalType, Up),
     NodeID: source,
     Str: status,
   }
 }
 
-func NewLinkSignal(state string) StringSignal {
-  return StringSignal{
-    BaseSignal: NewDirectSignal(LinkSignalType),
+func NewLinkSignal(state string) Signal {
+  return &StringSignal{
+    BaseSignal: NewBaseSignal(LinkSignalType, Direct),
     Str: state,
   }
 }
 
-func NewIDStringSignal(signal_type SignalType, direction SignalDirection, state string, id NodeID) IDStringSignal {
-  return IDStringSignal{
-    BaseSignal: NewBaseSignal(signal_type, direction),
-    NodeID: id,
-    Str: state,
+func NewLinkStartSignal(link_type string, target NodeID) Signal {
+  return &IDStringSignal{
+    NewBaseSignal(LinkStartSignalType, Direct),
+    target,
+    link_type,
   }
 }
 
-func NewLinkStartSignal(link_type string, target NodeID) IDStringSignal {
-  return NewIDStringSignal(LinkStartSignalType, Direct, link_type, target)
-}
-
-func NewLockSignal(state string) StringSignal {
-  return StringSignal{
-    BaseSignal: NewDirectSignal(LockSignalType),
-    Str: state,
+func NewLockSignal(state string) Signal {
+  return &StringSignal{
+    NewBaseSignal(LockSignalType, Direct),
+    state,
   }
 }
 
@@ -259,22 +255,22 @@ func (signal *AuthorizedSignal) Permission() Action {
   return AuthorizedSignalAction
 }
 
-func NewAuthorizedSignal(principal ed25519.PrivateKey, signal Signal) (AuthorizedSignal, error) {
+func NewAuthorizedSignal(principal ed25519.PrivateKey, signal Signal) (Signal, error) {
   sig_data, err := signal.Serialize()
   if err != nil {
-    return AuthorizedSignal{}, err
+    return nil, err
   }
 
   sig, err := principal.Sign(rand.Reader, sig_data, crypto.Hash(0))
   if err != nil {
-    return AuthorizedSignal{}, err
+    return nil, err
   }
 
-  return AuthorizedSignal{
-    BaseSignal: NewDirectSignal(AuthorizedSignalType),
-    Principal: principal.Public().(ed25519.PublicKey),
-    Signal: signal,
-    Signature: sig,
+  return &AuthorizedSignal{
+    NewBaseSignal(AuthorizedSignalType, Direct),
+    principal.Public().(ed25519.PublicKey),
+    signal,
+    sig,
   }, nil
 }
 
@@ -284,13 +280,13 @@ func (signal *ReadSignal) Serialize() ([]byte, error) {
 
 func NewReadSignal(exts map[ExtType][]string) ReadSignal {
   return ReadSignal{
-    BaseSignal: NewDirectSignal(ReadSignalType),
-    Extensions: exts,
+    NewBaseSignal(ReadSignalType, Direct),
+    exts,
   }
 }
 
 type ReadResultSignal struct {
-  BaseSignal
+  RespSignal
   NodeType
   Extensions map[ExtType]map[string]interface{} `json:"extensions"`
 }
@@ -299,15 +295,14 @@ func (signal *ReadResultSignal) Permission() Action {
   return ReadResultSignalAction
 }
 
-func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]map[string]interface{}) ReadResultSignal {
-  return ReadResultSignal{
-    BaseSignal: BaseSignal{
-      Direct,
-      ReadResultSignalType,
+func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]map[string]interface{}) Signal {
+  return &ReadResultSignal{
+    RespSignal{
+      NewBaseSignal(ReadResultSignalType, Direct),
       req_id,
     },
-    NodeType: node_type,
-    Extensions: exts,
+    node_type,
+    exts,
   }
 }
 
@@ -341,28 +336,28 @@ func (signal *ECDHSignal) Serialize() ([]byte, error) {
   return json.Marshal(signal)
 }
 
-func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, error) {
-  ec_key, err := ctx.ECDH.GenerateKey(rand.Reader)
+func NewECDHReqSignal(node *Node) (Signal, *ecdh.PrivateKey, error) {
+  ec_key, err := ECDH.GenerateKey(rand.Reader)
   if err != nil {
-    return ECDHSignal{}, nil, err
+    return nil, nil, err
   }
 
   now := time.Now()
   time_bytes, err := now.MarshalJSON()
   if err != nil {
-    return ECDHSignal{}, nil, err
+    return nil, nil, err
   }
 
   sig_data := append(ec_key.PublicKey().Bytes(), time_bytes...)
 
   sig, err := node.Key.Sign(rand.Reader, sig_data, crypto.Hash(0))
   if err != nil {
-    return ECDHSignal{}, nil, err
+    return nil, nil, err
   }
 
-  return ECDHSignal{
+  return &ECDHSignal{
     StringSignal: StringSignal{
-      BaseSignal: NewDirectSignal(ECDHSignalType),
+      BaseSignal: NewBaseSignal(ECDHSignalType, Direct),
       Str: "req",
     },
     Time: now,
@@ -374,7 +369,7 @@ func NewECDHReqSignal(ctx *Context, node *Node) (ECDHSignal, *ecdh.PrivateKey, e
 
 const DEFAULT_ECDH_WINDOW = time.Second
 
-func NewECDHRespSignal(ctx *Context, node *Node, req *ECDHSignal) (ECDHSignal, []byte, error) {
+func NewECDHRespSignal(node *Node, req *ECDHSignal) (ECDHSignal, []byte, error) {
   now := time.Now()
 
   err := VerifyECDHSignal(now, req, DEFAULT_ECDH_WINDOW)
@@ -382,7 +377,7 @@ func NewECDHRespSignal(ctx *Context, node *Node, req *ECDHSignal) (ECDHSignal, [
     return ECDHSignal{}, nil, err
   }
 
-  ec_key, err := ctx.ECDH.GenerateKey(rand.Reader)
+  ec_key, err := ECDH.GenerateKey(rand.Reader)
   if err != nil {
     return ECDHSignal{}, nil, err
   }
@@ -406,7 +401,7 @@ func NewECDHRespSignal(ctx *Context, node *Node, req *ECDHSignal) (ECDHSignal, [
 
   return ECDHSignal{
     StringSignal: StringSignal{
-      BaseSignal: NewDirectSignal(ECDHSignalType),
+      BaseSignal: NewBaseSignal(ECDHSignalType, Direct),
       Str: "resp",
     },
     Time: now,
@@ -449,34 +444,34 @@ type ECDHProxySignal struct {
   Data []byte
 }
 
-func NewECDHProxySignal(source, dest NodeID, signal Signal, shared_secret []byte) (ECDHProxySignal, error) {
+func NewECDHProxySignal(source, dest NodeID, signal Signal, shared_secret []byte) (Signal, error) {
   if shared_secret == nil {
-    return ECDHProxySignal{}, fmt.Errorf("need shared_secret")
+    return nil, fmt.Errorf("need shared_secret")
   }
 
   aes_key, err := aes.NewCipher(shared_secret[:32])
   if err != nil {
-    return ECDHProxySignal{}, err
+    return nil, err
   }
 
   ser, err := SerializeSignal(signal, aes_key.BlockSize())
   if err != nil {
-    return ECDHProxySignal{}, err
+    return nil, err
   }
 
   iv := make([]byte, aes_key.BlockSize())
   n, err := rand.Reader.Read(iv)
   if err != nil {
-    return ECDHProxySignal{}, err
+    return nil, err
   } else if n != len(iv) {
-    return ECDHProxySignal{}, fmt.Errorf("Not enough bytes read for IV")
+    return nil, fmt.Errorf("Not enough bytes read for IV")
   }
 
   encrypter := cipher.NewCBCEncrypter(aes_key, iv)
   encrypter.CryptBlocks(ser, ser)
 
-  return ECDHProxySignal{
-    BaseSignal: NewDirectSignal(ECDHProxySignalType),
+  return &ECDHProxySignal{
+    BaseSignal: NewBaseSignal(ECDHProxySignalType, Direct),
     Source: source,
     Dest: dest,
     IV: iv,

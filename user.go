@@ -48,7 +48,7 @@ func (ext *GroupExt) Deserialize(ctx *Context, data []byte) error {
   return err
 }
 
-func (ext *GroupExt) Process(ctx *Context, princ_id NodeID, node *Node, signal Signal) {
-  return
+func (ext *GroupExt) Process(ctx *Context, node *Node, msg Message) []Message {
+  return nil
 }
 

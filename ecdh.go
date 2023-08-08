@@ -103,28 +103,30 @@ func (ext *ECDHExt) Field(name string) interface{} {
   })
 }
 
-func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, signal *ECDHSignal) {
+func (ext *ECDHExt) HandleECDHSignal(log Logger, node *Node, signal *ECDHSignal) []Message {
+  source := KeyID(signal.EDDSA)
+
+  messages := []Message{}
   switch signal.Str {
   case "req":
     state, exists := ext.ECDHStates[source]
     if exists == false {
       state = ECDHState{nil, nil}
     }
-    resp, shared_secret, err := NewECDHRespSignal(ctx, node, signal)
+    resp, shared_secret, err := NewECDHRespSignal(node, signal)
     if err == nil {
       state.SharedSecret = shared_secret
       ext.ECDHStates[source] = state
-      ctx.Log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
-      ctx.Send(node.ID, source, &resp)
+      log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
+      messages = append(messages, Message{source, &resp})
     } else {
-      ctx.Log.Logf("ecdh", "ECDH_REQ_ERR: %s", err)
-      // TODO: send error response
+      log.Logf("ecdh", "ECDH_REQ_ERR: %s", err)
+      messages = append(messages, Message{source, NewErrorSignal(signal.ID(), err.Error())})
     }
   case "resp":
     state, exists := ext.ECDHStates[source]
     if exists == false || state.ECKey == nil {
-      resp := NewErrorSignal(signal.ID(), "no_req")
-      ctx.Send(node.ID, source, &resp)
+      messages = append(messages, Message{source, NewErrorSignal(signal.ID(), "no_req")})
     } else {
       err := VerifyECDHSignal(time.Now(), signal, DEFAULT_ECDH_WINDOW)
       if err == nil {
@@ -133,55 +135,23 @@ func (ext *ECDHExt) HandleECDHSignal(ctx *Context, source NodeID, node *Node, si
           state.SharedSecret = shared_secret
           state.ECKey = nil
           ext.ECDHStates[source] = state
-          ctx.Log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
+          log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
         }
       }
     }
   default:
-    ctx.Log.Logf("ecdh", "unknown echd state %s", signal.Str)
+    log.Logf("ecdh", "unknown echd state %s", signal.Str)
   }
+  return messages
 }
 
-func (ext *ECDHExt) HandleStateSignal(ctx *Context, source NodeID, node *Node, signal *StringSignal) {
-}
-
-func (ext *ECDHExt) HandleECDHProxySignal(ctx *Context, source NodeID, node *Node, signal *ECDHProxySignal) {
-  state, exists := ext.ECDHStates[source]
-  if exists == false {
-    resp := NewErrorSignal(signal.ID(), "no_req")
-    ctx.Send(node.ID, source, &resp)
-  } else if state.SharedSecret == nil {
-    resp := NewErrorSignal(signal.ID(), "no_shared")
-    ctx.Send(node.ID, source, &resp)
-  } else {
-    unwrapped_signal, err := ParseECDHProxySignal(ctx, signal, state.SharedSecret)
-    if err != nil {
-      resp := NewErrorSignal(signal.ID(), err.Error())
-      ctx.Send(node.ID, source, &resp)
-    } else {
-      //TODO: Figure out what I was trying to do here and fix it
-      ctx.Send(signal.Source, signal.Dest, unwrapped_signal)
-    }
+func (ext *ECDHExt) Process(ctx *Context, node *Node, msg Message) []Message {
+  switch msg.Signal.Type() {
+  case ECDHSignalType:
+    sig := msg.Signal.(*ECDHSignal)
+    return ext.HandleECDHSignal(ctx.Log, node, sig)
   }
-}
-
-func (ext *ECDHExt) Process(ctx *Context, source NodeID, node *Node, signal Signal) {
-  switch signal.Direction() {
-  case Direct:
-    switch signal.Type() {
-    case ECDHProxySignalType:
-      ecdh_signal := signal.(*ECDHProxySignal)
-      ext.HandleECDHProxySignal(ctx, source, node, ecdh_signal)
-    case ECDHStateSignalType:
-      ecdh_signal := signal.(*StringSignal)
-      ext.HandleStateSignal(ctx, source, node, ecdh_signal)
-    case ECDHSignalType:
-      ecdh_signal := signal.(*ECDHSignal)
-      ext.HandleECDHSignal(ctx, source, node, ecdh_signal)
-    default:
-    }
-  default:
-  }
+  return nil
 }
 
 func (ext *ECDHExt) Type() ExtType {

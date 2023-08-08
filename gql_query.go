@@ -61,7 +61,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     resp_channels[read_signal.ID()] = response_chan
     node_ids[read_signal.ID()] = id
 
-    err = ctx.Context.Send(ctx.Server.ID, id, &auth_signal)
+    err = ctx.Context.Send(ctx.Server.ID, []Message{Message{id, auth_signal}})
     if err != nil {
       ctx.Ext.FreeResponseChannel(read_signal.ID())
       return nil, err
@@ -79,11 +79,12 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     case *ReadResultSignal:
       responses = append(responses, NodeResult{node_ids[sig_id], resp})
     case *ErrorSignal:
-      return nil, fmt.Errorf(resp.Str)
+      return nil, fmt.Errorf(resp.Error)
     default:
       return nil, fmt.Errorf("BAD_TYPE: %s", reflect.TypeOf(resp))
     }
   }
+  ctx.Context.Log.Logf("gql", "RESOLVED_NODES")
 
   return responses, nil
 }
