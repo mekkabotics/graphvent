@@ -24,7 +24,6 @@ const (
   LinkSignalType            = "LINK"
   LockSignalType            = "LOCK"
   ReadSignalType            = "READ"
-  AuthorizedSignalType      = "AUTHORIZED"
   ReadResultSignalType      = "READ_RESULT"
   LinkStartSignalType       = "LINK_START"
   ECDHSignalType            = "ECDH"
@@ -48,21 +47,7 @@ type Signal interface {
   Permission() Action
 }
 
-func WaitForResult(listener chan Signal, timeout time.Duration, id uuid.UUID) (Signal, error) {
-  timeout_channel := time.After(timeout)
-  select {
-  case result:=<-listener:
-    if result.ID() == id {
-      return result, nil
-    } else {
-      return result, fmt.Errorf("WRONG_ID: %s", result.ID())
-    }
-  case <-timeout_channel:
-    return nil, fmt.Errorf("timeout waiting for read response to %s", id)
-  }
-}
-
-func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
+func WaitForSignal[S Signal](ctx * Context, listener chan Signal, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
   var zero S
   var timeout_channel <- chan time.Time
   if timeout > 0 {
@@ -70,12 +55,12 @@ func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.
   }
   for true {
     select {
-    case msg := <- listener.Chan:
-      if msg.Signal == nil {
+    case signal := <- listener:
+      if signal == nil {
         return zero, fmt.Errorf("LISTENER_CLOSED: %s", signal_type)
       }
-      if msg.Signal.Type() == signal_type {
-        sig, ok := msg.Signal.(S)
+      if signal.Type() == signal_type {
+        sig, ok := signal.(S)
         if ok == true {
           if check(sig) == true {
             return sig, nil
@@ -88,7 +73,6 @@ func WaitForSignal[S Signal](ctx * Context, listener *ListenerExt, timeout time.
   }
   return zero, fmt.Errorf("LOOP_ENDED")
 }
-
 
 type BaseSignal struct {
   SignalDirection SignalDirection `json:"direction"`
@@ -244,42 +228,12 @@ type ReadSignal struct {
   Extensions map[ExtType][]string `json:"extensions"`
 }
 
-type AuthorizedSignal struct {
-  BaseSignal
-  Principal ed25519.PublicKey
-  Signal Signal
-  Signature []byte
-}
-
-func (signal *AuthorizedSignal) Permission() Action {
-  return AuthorizedSignalAction
-}
-
-func NewAuthorizedSignal(principal ed25519.PrivateKey, signal Signal) (Signal, error) {
-  sig_data, err := signal.Serialize()
-  if err != nil {
-    return nil, err
-  }
-
-  sig, err := principal.Sign(rand.Reader, sig_data, crypto.Hash(0))
-  if err != nil {
-    return nil, err
-  }
-
-  return &AuthorizedSignal{
-    NewBaseSignal(AuthorizedSignalType, Direct),
-    principal.Public().(ed25519.PublicKey),
-    signal,
-    sig,
-  }, nil
-}
-
 func (signal *ReadSignal) Serialize() ([]byte, error) {
   return json.Marshal(signal)
 }
 
-func NewReadSignal(exts map[ExtType][]string) ReadSignal {
-  return ReadSignal{
+func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
+  return &ReadSignal{
     NewBaseSignal(ReadSignalType, Direct),
     exts,
   }

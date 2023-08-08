@@ -14,40 +14,40 @@ const (
 
 type Policy interface {
   Serializable[PolicyType]
-  Allows(principal_id NodeID, action Action, node *Node) error
+  Allows(principal_id NodeID, action Action, node *Node)(Messages, error)
   // Merge with another policy of the same underlying type
   Merge(Policy) Policy
   // Make a copy of this policy
   Copy() Policy
 }
 
-func (policy AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
-  return policy.Actions.Allows(action)
+func (policy AllNodesPolicy) Allows(principal_id NodeID, action Action, node *Node)(Messages, error) {
+  return nil, policy.Actions.Allows(action)
 }
 
-func (policy PerNodePolicy) Allows(principal_id NodeID, action Action, node *Node) error {
+func (policy PerNodePolicy) Allows(principal_id NodeID, action Action, node *Node)(Messages, error) {
   for id, actions := range(policy.NodeActions) {
     if id != principal_id {
       continue
     }
-    return actions.Allows(action)
+    return nil, actions.Allows(action)
   }
-  return fmt.Errorf("%s is not in per node policy of %s", principal_id, node.ID)
+  return nil, fmt.Errorf("%s is not in per node policy of %s", principal_id, node.ID)
 }
 
-func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
+func (policy *RequirementOfPolicy) Allows(principal_id NodeID, action Action, node *Node)(Messages, error) {
   lockable_ext, err := GetExt[*LockableExt](node)
   if err != nil {
-    return err
+    return nil, err
   }
 
   for id, _ := range(lockable_ext.Requirements) {
     if id == principal_id {
-      return policy.Actions.Allows(action)
+      return nil, policy.Actions.Allows(action)
     }
   }
 
-  return fmt.Errorf("%s is not a requirement of %s", principal_id, node.ID)
+  return nil, fmt.Errorf("%s is not a requirement of %s", principal_id, node.ID)
 }
 
 type UserOfPolicy struct {
@@ -65,11 +65,11 @@ func NewUserOfPolicy(group_actions NodeActions) UserOfPolicy {
 }
 
 // Send a read signal to Group to check if principal_id is a member of it
-func (policy *UserOfPolicy) Allows(principal_id NodeID, action Action, node *Node) error {
+func (policy *UserOfPolicy) Allows(principal_id NodeID, action Action, node *Node) (Messages, error) {
   // Send a read signal to each of the groups in the map
   // Check for principal_id in any of the returned member lists(skipping errors)
   // Return an error in the default case
-  return fmt.Errorf("NOT_IMPLEMENTED")
+  return nil, fmt.Errorf("NOT_IMPLEMENTED")
 }
 
 func (policy *UserOfPolicy) Merge(p Policy) Policy {

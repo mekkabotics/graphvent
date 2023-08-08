@@ -235,25 +235,19 @@ func (ctx *Context) GetNode(id NodeID) (*Node, error) {
   return target, nil
 }
 
-// Stop every running loop
-func (ctx *Context) Stop() {
-  for _, node := range(ctx.Nodes) {
-    node.MsgChan <- Message{ZeroID, &StopSignal}
-  }
-}
-
 // Route a Signal to dest. Currently only local context routing is supported
-func (ctx *Context) Send(source NodeID, messages []Message) error {
+func (ctx *Context) Send(messages Messages) error {
   for _, msg := range(messages) {
-    target, err := ctx.GetNode(msg.NodeID)
+    target, err := ctx.GetNode(msg.Dest)
     if err == nil {
       select {
-      case target.MsgChan <- Message{source, msg.Signal}:
+      case target.MsgChan <- msg:
+        ctx.Log.Logf("signal", "Sent %s -> %+v", target.ID, msg)
       default:
         buf := make([]byte, 4096)
         n := runtime.Stack(buf, false)
         stack_str := string(buf[:n])
-        return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", msg.NodeID, stack_str)
+        return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", msg.Dest, stack_str)
       }
     } else if errors.Is(err, NodeNotFoundError) {
       // TODO: Handle finding nodes in other contexts

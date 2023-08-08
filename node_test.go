@@ -45,9 +45,12 @@ func TestNodeRead(t *testing.T) {
   read_sig := NewReadSignal(map[ExtType][]string{
     GroupExtType: []string{"members"},
   })
-  ctx.Send(n2.ID, []Message{{n1.ID, &read_sig}})
+  msgs := Messages{}
+  msgs = msgs.Add(ctx.Log, n2.ID, n2.Key, read_sig, n1.ID)
+  err = ctx.Send(msgs)
+  fatalErr(t, err)
 
-  res, err := WaitForSignal(ctx, n2_listener, 10*time.Millisecond, ReadResultSignalType, func(sig *ReadResultSignal) bool {
+  res, err := WaitForSignal(ctx, n2_listener.Chan, 10*time.Millisecond, ReadResultSignalType, func(sig *ReadResultSignal) bool {
     return true
   })
   fatalErr(t, err)
@@ -80,10 +83,12 @@ func TestECDH(t *testing.T) {
   }
   fatalErr(t, err)
   ctx.Log.Logf("test", "N1_EC: %+v", n1_ec)
-  err = ctx.Send(n1.ID, []Message{{n2.ID, ecdh_req}})
+  msgs := Messages{}
+  msgs = msgs.Add(ctx.Log, n1.ID, n1.Key, ecdh_req, n2.ID)
+  err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, n1_listener, 100*time.Millisecond, ECDHSignalType, func(sig *ECDHSignal) bool {
+  _, err = WaitForSignal(ctx, n1_listener.Chan, 100*time.Millisecond, ECDHSignalType, func(sig *ECDHSignal) bool {
     return sig.Str == "resp"
   })
   fatalErr(t, err)
@@ -92,6 +97,8 @@ func TestECDH(t *testing.T) {
   ecdh_sig, err := NewECDHProxySignal(n1.ID, n3.ID, &StopSignal, ecdh_ext.ECDHStates[n2.ID].SharedSecret)
   fatalErr(t, err)
 
-  err = ctx.Send(n1.ID, []Message{{n2.ID, ecdh_sig}})
+  msgs = Messages{}
+  msgs = msgs.Add(ctx.Log, n1.ID, n1.Key, ecdh_sig, n2.ID)
+  err = ctx.Send(msgs)
   fatalErr(t, err)
 }

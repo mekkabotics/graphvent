@@ -921,31 +921,7 @@ func NewGQLExtContext() *GQLExtContext {
   context.Mutation.AddFieldConfig("stop", &graphql.Field{
     Type: graphql.String,
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
-      if err != nil {
-        return nil, err
-      }
-
-      sig, err := NewAuthorizedSignal(ctx.Key, &StopSignal)
-      if err != nil {
-        return nil, err
-      }
-
-      response_chan := ctx.Ext.GetResponseChannel(sig.ID())
-      err = ctx.Context.Send(ctx.Server.ID, []Message{Message{ctx.Server.ID, sig}})
-      if err != nil {
-        ctx.Ext.FreeResponseChannel(sig.ID())
-        return nil, err
-      }
-
-      resp, err := WaitForResult(response_chan, 100*time.Millisecond, sig.ID())
-      if err != nil {
-        return nil, err
-      }
-
-      ser, err := resp.Serialize()
-
-      return string(ser), err
+      return nil, fmt.Errorf("NOT_IMPLEMENTED")
     },
   })
 
@@ -1053,10 +1029,9 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
   }
 }
 
-func (ext *GQLExt) Process(ctx *Context, node *Node, msg Message) []Message {
+func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
-  signal := msg.Signal
-  messages := []Message{}
+  messages := Messages{}
   if signal.Type() == ErrorSignalType {
     // TODO: Forward to resolver if waiting for it
     sig := signal.(*ErrorSignal)

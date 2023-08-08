@@ -10,6 +10,7 @@ import (
   "encoding/binary"
   "encoding/json"
   "sync/atomic"
+  "crypto"
   "crypto/ed25519"
   "crypto/sha512"
   "crypto/rand"
@@ -94,7 +95,7 @@ type Serializable[I comparable] interface {
 type Extension interface {
   Serializable[ExtType]
   Field(string)interface{}
-  Process(ctx *Context, node *Node, message Message)[]Message
+  Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages
 }
 
 // A QueuedSignal is a Signal that has been Queued to trigger at a set time
@@ -114,7 +115,7 @@ type Node struct {
   Policies map[PolicyType]Policy
 
   // Channel for this node to receive messages from the Context
-  MsgChan chan Message
+  MsgChan chan *Message
   // Size of MsgChan
   BufferSize uint32
   // Channel for this node to process delayed signals
@@ -126,16 +127,20 @@ type Node struct {
   NextSignal *QueuedSignal
 }
 
-func (node *Node) Allows(principal_id NodeID, action Action) error {
+func (node *Node) Allows(principal_id NodeID, action Action)(Messages, error) {
   errs := []error{}
+  var pends Messages = nil
   for _, policy := range(node.Policies) {
-    err := policy.Allows(principal_id, action, node)
+    msgs, err := policy.Allows(principal_id, action, node)
     if err == nil {
-      return nil
+      return nil, nil
     }
     errs = append(errs, err)
+    if msgs != nil {
+      pends = append(pends, msgs...)
+    }
   }
-  return fmt.Errorf("POLICY_CHECK_ERRORS: %s %s.%s - %+v", principal_id, node.ID, action, errs)
+  return pends, fmt.Errorf("POLICY_CHECK_ERRORS: %s %s.%s - %+v", principal_id, node.ID, action, errs)
 }
 
 func (node *Node) QueueSignal(time time.Time, signal Signal) uuid.UUID {
@@ -177,21 +182,16 @@ func runNode(ctx *Context, node *Node) {
   ctx.Log.Logf("node", "RUN_STOP: %s", node.ID)
 }
 
-func ReadNodeFields(ctx *Context, self *Node, princ NodeID, reqs map[ExtType][]string)map[ExtType]map[string]interface{} {
+func (node *Node) ReadFields(reqs map[ExtType][]string)map[ExtType]map[string]interface{} {
   exts := map[ExtType]map[string]interface{}{}
   for ext_type, field_reqs := range(reqs) {
     fields := map[string]interface{}{}
     for _, req := range(field_reqs) {
-      err := self.Allows(princ, MakeAction(ReadSignalType, ext_type, req))
-      if err != nil {
-        fields[req] = err
+      ext, exists := node.Extensions[ext_type]
+      if exists == false {
+        fields[req] = fmt.Errorf("%s does not have %s extension", node.ID, ext_type)
       } else {
-        ext, exists := self.Extensions[ext_type]
-        if exists == false {
-          fields[req] = fmt.Errorf("%s does not have %s extension", self.ID, ext_type)
-        } else {
-          fields[req] = ext.Field(req)
-        }
+        fields[req] = ext.Field(req)
       }
     }
     exts[ext_type] = fields
@@ -207,16 +207,41 @@ func nodeLoop(ctx *Context, node *Node) error {
   }
 
   // Perform startup actions
-  node.Process(ctx, Message{ZeroID, &StartSignal})
+  node.Process(ctx, ZeroID, &StartSignal)
 
   for true {
-    var msg Message
+    var signal Signal
+    var source NodeID
     select {
-    case msg = <- node.MsgChan:
-      ctx.Log.Logf("node_msg", "NODE_MSG: %s - %+v", node.ID, msg.Signal.Type())
+    case msg := <- node.MsgChan:
+      ctx.Log.Logf("node_msg", "NODE_MSG: %s - %+v", node.ID, msg.Signal)
+      ser, err := msg.Signal.Serialize()
+      if err != nil {
+        ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", node.ID, msg.Signal)
+        continue
+      }
+
+      sig_data := append(msg.Dest.Serialize(), msg.Source.Serialize()...)
+      sig_data = append(sig_data, ser...)
+      validated := ed25519.Verify(msg.Principal, sig_data, msg.Signature)
+      if validated == false {
+        ctx.Log.Logf("signal", "SIGNAL_VERIFY_ERR: %s - %+v", node.ID, msg)
+        continue
+      }
+
+      _, err = node.Allows(KeyID(msg.Principal), msg.Signal.Permission())
+      if err != nil {
+        ctx.Log.Logf("signal", "SIGNAL_POLICY_ERR: %s - %s - %e", node.ID, msg.Signal, err)
+        // TODO: send the msgs and set the state so that getting a response triggers a potential processing of the original signal
+        continue
+      }
+
+      signal = msg.Signal
+      source = msg.Source
+
     case <-node.TimeoutChan:
-      signal := node.NextSignal.Signal
-      msg = Message{node.ID, signal}
+      signal = node.NextSignal.Signal
+      source = node.ID
 
       t := node.NextSignal.Time
       i := -1
@@ -241,52 +266,28 @@ func nodeLoop(ctx *Context, node *Node) error {
       }
     }
 
-    // Unwrap Authorized Signals
-    if msg.Signal.Type() == AuthorizedSignalType {
-      sig, ok := msg.Signal.(*AuthorizedSignal)
-      if ok == false {
-        ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL: bad cast %+v", reflect.TypeOf(msg.Signal))
-      } else {
-        // Validate
-        sig_data, err := sig.Signal.Serialize()
-        if err != nil {
-        } else {
-          validated := ed25519.Verify(sig.Principal, sig_data, sig.Signature)
-          if validated == true {
-            err := node.Allows(KeyID(sig.Principal), sig.Signal.Permission())
-            if err != nil {
-              ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL_POLICY_ERR: %s", err)
-              ctx.Send(node.ID, []Message{Message{msg.NodeID, NewErrorSignal(sig.Signal.ID(), err.Error())}})
-            } else {
-              // Unwrap the signal without changing the source
-              msg = Message{msg.NodeID, sig.Signal}
-            }
-          } else {
-            ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL: failed to validate")
-            ctx.Send(node.ID, []Message{Message{msg.NodeID, NewErrorSignal(sig.ID(), "signature validation failed")}})
-          }
-        }
-      }
-    }
-
     ctx.Log.Logf("node_signal_queue", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
 
     // Handle special signal types
-    if msg.Signal.Type() == StopSignalType {
-      ctx.Send(node.ID, []Message{Message{msg.NodeID, NewErrorSignal(msg.Signal.ID(), "stopped")}})
-      node.Process(ctx, Message{node.ID, NewStatusSignal("stopped", node.ID)})
+    if signal.Type() == StopSignalType {
+      msgs := Messages{}
+      msgs = msgs.Add(ctx.Log, node.ID, node.Key, NewErrorSignal(signal.ID(), "stopped"), source)
+      ctx.Send(msgs)
+      node.Process(ctx, node.ID, NewStatusSignal("stopped", node.ID))
       break
-    } else if msg.Signal.Type() == ReadSignalType {
-      read_signal, ok := msg.Signal.(*ReadSignal)
+    } else if signal.Type() == ReadSignalType {
+      read_signal, ok := signal.(*ReadSignal)
       if ok == false {
-        ctx.Log.Logf("signal_read", "READ_SIGNAL: bad cast %+v", msg.Signal)
+        ctx.Log.Logf("signal_read", "READ_SIGNAL: bad cast %+v", signal)
       } else {
-        result := ReadNodeFields(ctx, node, msg.NodeID, read_signal.Extensions)
-        ctx.Send(node.ID, []Message{Message{msg.NodeID, NewReadResultSignal(read_signal.ID(), node.Type, result)}})
+        result := node.ReadFields(read_signal.Extensions)
+        msgs := Messages{}
+        msgs = msgs.Add(ctx.Log, node.ID, node.Key, NewReadResultSignal(read_signal.ID(), node.Type, result), source)
+        ctx.Send(msgs)
       }
     }
 
-    node.Process(ctx, msg)
+    node.Process(ctx, source, signal)
     // assume that processing a signal means that this nodes state changed
     // TODO: remove a lot of database writes by only writing when things change,
     //  so need to have Process return whether or not state changed
@@ -304,23 +305,60 @@ func nodeLoop(ctx *Context, node *Node) error {
 }
 
 type Message struct {
-  NodeID
-  Signal
+  Source NodeID
+  Dest NodeID
+  Principal ed25519.PublicKey
+  Signal Signal
+  Signature []byte
 }
 
-func (node *Node) Process(ctx *Context, message Message) error {
-  ctx.Log.Logf("node_process", "PROCESSING MESSAGE: %s - %+v", node.ID, message.Signal.Type())
-  messages := []Message{}
+type Messages []*Message
+func (msgs Messages) Add(log Logger, source NodeID, principal ed25519.PrivateKey, signal Signal, dest NodeID) Messages {
+  msg, err := NewMessage(dest, source, principal, signal)
+  if err != nil {
+    log.Logf("signal", "MESSAGE_CREATE_ERR: %s", err)
+  } else {
+    msgs = append(msgs, msg)
+  }
+  return msgs
+}
+
+func NewMessage(dest NodeID, source NodeID, principal ed25519.PrivateKey, signal Signal) (*Message, error) {
+  ser, err := signal.Serialize()
+  if err != nil {
+    return nil, err
+  }
+
+  sig_data := append(dest.Serialize(), source.Serialize()...)
+  sig_data = append(sig_data, ser...)
+
+  sig, err := principal.Sign(rand.Reader, sig_data, crypto.Hash(0))
+  if err != nil {
+    return nil, err
+  }
+
+  return &Message{
+    Dest: dest,
+    Source: source,
+    Principal: principal.Public().(ed25519.PublicKey),
+    Signal: signal,
+    Signature: sig,
+  }, nil
+}
+
+func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
+  ctx.Log.Logf("node_process", "PROCESSING MESSAGE: %s - %+v", node.ID, signal.Type())
+  messages := Messages{}
   for ext_type, ext := range(node.Extensions) {
     ctx.Log.Logf("node_process", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
     //TODO: add extension and node info to log
-    resp := ext.Process(ctx, node, message)
+    resp := ext.Process(ctx, node, source, signal)
     if resp != nil {
       messages = append(messages, resp...)
     }
   }
 
-  return ctx.Send(node.ID, messages)
+  return ctx.Send(messages)
 }
 
 func GetCtx[T Extension, C any](ctx *Context) (C, error) {
@@ -378,6 +416,7 @@ func (node *Node) Serialize() ([]byte, error) {
       NumQueuedSignals: uint32(len(node.SignalQueue)),
     },
     Extensions: extensions,
+    Policies: policies,
     QueuedSignals: qsignals,
     KeyBytes: key_bytes,
   }
@@ -489,7 +528,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     Type: node_type,
     Extensions: ext_map,
     Policies: policies,
-    MsgChan: make(chan Message, buffer_size),
+    MsgChan: make(chan *Message, buffer_size),
     BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},
   }
@@ -499,7 +538,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     panic(err)
   }
 
-  node.Process(ctx, Message{node.ID, &NewSignal})
+  node.Process(ctx, ZeroID, &NewSignal)
 
   go runNode(ctx, node)
 
@@ -833,7 +872,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     Type: node_type.Type,
     Extensions: map[ExtType]Extension{},
     Policies: policies,
-    MsgChan: make(chan Message, node_db.Header.BufferSize),
+    MsgChan: make(chan *Message, node_db.Header.BufferSize),
     BufferSize: node_db.Header.BufferSize,
     TimeoutChan: timeout_chan,
     SignalQueue: signal_queue,

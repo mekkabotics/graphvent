@@ -35,24 +35,25 @@ func TestLink(t *testing.T) {
                )
 
   // Link l2 as a requirement of l1
-  err := LinkRequirement(ctx, l1.ID, l2.ID)
+  err := LinkRequirement(ctx, l1, l2.ID)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkSignalType, func(sig *StringSignal) bool {
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, func(sig *StringSignal) bool {
     return sig.Str == "dep_done"
   })
   fatalErr(t, err)
 
-  sig1 := NewStatusSignal("TEST", l2.ID)
-  err = ctx.Send(l2.ID, []Message{{l2.ID, sig1}})
+  msgs := Messages{}
+  msgs = msgs.Add(ctx.Log, l2.ID, l2.Key, NewStatusSignal("TEST", l2.ID), l2.ID)
+  err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "TEST"
   })
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l2_listener, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
+  _, err = WaitForSignal(ctx, l2_listener.Chan, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "TEST"
   })
   fatalErr(t, err)
@@ -81,14 +82,14 @@ func TestLink10K(t *testing.T) {
   lockables := make([]*Node, 10)
   for i, _ := range(lockables) {
     lockables[i] = NewLockable()
-    LinkRequirement(ctx, l0.ID, lockables[i].ID)
+    LinkRequirement(ctx, l0, lockables[i].ID)
   }
 
   ctx.Log.Logf("test", "CREATED_10K")
 
 
   for range(lockables) {
-    _, err := WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkSignalType, func(sig *StringSignal) bool {
+    _, err := WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, func(sig *StringSignal) bool {
       return sig.Str == "dep_done"
     })
     fatalErr(t, err)
@@ -118,22 +119,22 @@ func TestLock(t *testing.T) {
 
 
   var err error
-  err = LinkRequirement(ctx, l1.ID, l2.ID)
+  err = LinkRequirement(ctx, l1, l2.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l1.ID, l3.ID)
+  err = LinkRequirement(ctx, l1, l3.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l1.ID, l4.ID)
+  err = LinkRequirement(ctx, l1, l4.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l1.ID, l5.ID)
+  err = LinkRequirement(ctx, l1, l5.ID)
   fatalErr(t, err)
 
-  err = LinkRequirement(ctx, l0.ID, l2.ID)
+  err = LinkRequirement(ctx, l0, l2.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l0.ID, l3.ID)
+  err = LinkRequirement(ctx, l0, l3.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l0.ID, l4.ID)
+  err = LinkRequirement(ctx, l0, l4.ID)
   fatalErr(t, err)
-  err = LinkRequirement(ctx, l0.ID, l5.ID)
+  err = LinkRequirement(ctx, l0, l5.ID)
   fatalErr(t, err)
 
   linked_as_req := func(sig *StringSignal) bool {
@@ -144,35 +145,35 @@ func TestLock(t *testing.T) {
     return sig.Str == "locked"
   }
 
-    _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+    _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l0_listener, time.Millisecond*10, LinkSignalType, linked_as_req)
+  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
   fatalErr(t, err)
 
   err = LockLockable(ctx, l1)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)
 
   err = UnlockLockable(ctx, l1)

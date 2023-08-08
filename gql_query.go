@@ -2,7 +2,6 @@ package graphvent
 import (
   "time"
   "reflect"
-  "fmt"
   "github.com/graphql-go/graphql"
   "github.com/graphql-go/graphql/language/ast"
   "github.com/google/uuid"
@@ -51,17 +50,15 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     }
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     read_signal := NewReadSignal(ext_fields)
-    auth_signal, err := NewAuthorizedSignal(ctx.Key, &read_signal)
-    if err != nil {
-      return nil, err
-    }
-
+    msgs := Messages{}
+    msgs = msgs.Add(ctx.Context.Log, ctx.Server.ID, ctx.Key, read_signal, id)
 
     response_chan := ctx.Ext.GetResponseChannel(read_signal.ID())
     resp_channels[read_signal.ID()] = response_chan
     node_ids[read_signal.ID()] = id
 
-    err = ctx.Context.Send(ctx.Server.ID, []Message{Message{id, auth_signal}})
+    // TODO: Send all at once instead of createing Messages for each
+    err = ctx.Context.Send(msgs)
     if err != nil {
       ctx.Ext.FreeResponseChannel(read_signal.ID())
       return nil, err
@@ -71,18 +68,13 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   responses := []NodeResult{}
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
-    response, err := WaitForResult(response_chan, time.Millisecond*100, sig_id)
+    response, err := WaitForSignal(ctx.Context, response_chan, time.Millisecond*100, ReadResultSignalType, func(sig *ReadResultSignal)bool{
+      return sig.ReqID == sig_id
+    })
     if err != nil {
       return nil, err
     }
-    switch resp := response.(type) {
-    case *ReadResultSignal:
-      responses = append(responses, NodeResult{node_ids[sig_id], resp})
-    case *ErrorSignal:
-      return nil, fmt.Errorf(resp.Error)
-    default:
-      return nil, fmt.Errorf("BAD_TYPE: %s", reflect.TypeOf(resp))
-    }
+    responses = append(responses, NodeResult{node_ids[sig_id], response})
   }
   ctx.Context.Log.Logf("gql", "RESOLVED_NODES")
 

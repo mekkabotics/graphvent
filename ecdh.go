@@ -103,10 +103,10 @@ func (ext *ECDHExt) Field(name string) interface{} {
   })
 }
 
-func (ext *ECDHExt) HandleECDHSignal(log Logger, node *Node, signal *ECDHSignal) []Message {
+func (ext *ECDHExt) HandleECDHSignal(log Logger, node *Node, signal *ECDHSignal) Messages {
   source := KeyID(signal.EDDSA)
 
-  messages := []Message{}
+  messages := Messages{}
   switch signal.Str {
   case "req":
     state, exists := ext.ECDHStates[source]
@@ -118,15 +118,15 @@ func (ext *ECDHExt) HandleECDHSignal(log Logger, node *Node, signal *ECDHSignal)
       state.SharedSecret = shared_secret
       ext.ECDHStates[source] = state
       log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
-      messages = append(messages, Message{source, &resp})
+      messages = messages.Add(log, node.ID, node.Key, &resp, source)
     } else {
       log.Logf("ecdh", "ECDH_REQ_ERR: %s", err)
-      messages = append(messages, Message{source, NewErrorSignal(signal.ID(), err.Error())})
+      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), err.Error()), source)
     }
   case "resp":
     state, exists := ext.ECDHStates[source]
     if exists == false || state.ECKey == nil {
-      messages = append(messages, Message{source, NewErrorSignal(signal.ID(), "no_req")})
+      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "no_req"), source)
     } else {
       err := VerifyECDHSignal(time.Now(), signal, DEFAULT_ECDH_WINDOW)
       if err == nil {
@@ -145,10 +145,10 @@ func (ext *ECDHExt) HandleECDHSignal(log Logger, node *Node, signal *ECDHSignal)
   return messages
 }
 
-func (ext *ECDHExt) Process(ctx *Context, node *Node, msg Message) []Message {
-  switch msg.Signal.Type() {
+func (ext *ECDHExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
+  switch signal.Type() {
   case ECDHSignalType:
-    sig := msg.Signal.(*ECDHSignal)
+    sig := signal.(*ECDHSignal)
     return ext.HandleECDHSignal(ctx.Log, node, sig)
   }
   return nil
