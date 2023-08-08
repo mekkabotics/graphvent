@@ -256,7 +256,7 @@ func nodeLoop(ctx *Context, node *Node) error {
             err := node.Allows(KeyID(sig.Principal), sig.Signal.Permission())
             if err != nil {
               ctx.Log.Logf("signal", "AUTHORIZED_SIGNAL_POLICY_ERR: %s", err)
-              ctx.Send(node.ID, []Message{Message{msg.NodeID, NewErrorSignal(sig.ID(), err.Error())}})
+              ctx.Send(node.ID, []Message{Message{msg.NodeID, NewErrorSignal(sig.Signal.ID(), err.Error())}})
             } else {
               // Unwrap the signal without changing the source
               msg = Message{msg.NodeID, sig.Signal}

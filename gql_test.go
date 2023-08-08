@@ -13,8 +13,8 @@ import (
   "bytes"
 )
 
-func TestGQL(t *testing.T) {
-  ctx := logTestContext(t, []string{"gql", "lockable", "node_timeout", "listener"})
+func TestGQLServer(t *testing.T) {
+  ctx := logTestContext(t, []string{"gql", "lockable", "signal"})
 
   TestNodeType := NodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
@@ -68,7 +68,7 @@ func TestGQL(t *testing.T) {
 
     key_bytes, err := x509.MarshalPKCS8PrivateKey(n1.Key)
     fatalErr(t, err)
-    req.SetBasicAuth(n1.ID.String(), string(key_bytes))
+    req.SetBasicAuth(string(n1.ID.Serialize()), string(key_bytes))
     resp, err := client.Do(req)
     fatalErr(t, err)
 
@@ -85,10 +85,11 @@ func TestGQL(t *testing.T) {
   ctx.Log.Logf("test", "RESP_2: %s", resp_2)
 
   stop_signal := StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "stop_server"}
-  ctx.Send(n1.ID, []Message{{gql.ID, &stop_signal}})
-  _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, GQLStateSignalType, func(sig *StringSignal) bool {
+  ctx.Send(gql.ID, []Message{{gql.ID, &stop_signal}})
+  _, err = WaitForSignal(ctx, listener_ext, 100*time.Millisecond, StatusSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "server_stopped"
   })
+  fatalErr(t, err)
 }
 
 func TestGQLDB(t *testing.T) {

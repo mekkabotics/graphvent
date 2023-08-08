@@ -197,7 +197,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
 
   auth_uuid, err := uuid.FromBytes([]byte(id_bytes))
   if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username")
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username %+v", id_bytes)
   }
   auth_id := NodeID(auth_uuid)
 
@@ -1060,7 +1060,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, msg Message) []Message {
   if signal.Type() == ErrorSignalType {
     // TODO: Forward to resolver if waiting for it
     sig := signal.(*ErrorSignal)
-    response_chan := ext.FreeResponseChannel(sig.UUID)
+    response_chan := ext.FreeResponseChannel(sig.ReqID)
     if response_chan != nil {
       select {
       case response_chan <- sig:
@@ -1074,7 +1074,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, msg Message) []Message {
     }
   } else if signal.Type() == ReadResultSignalType {
     sig := signal.(*ReadResultSignal)
-    response_chan := ext.FreeResponseChannel(sig.ID())
+    response_chan := ext.FreeResponseChannel(sig.ReqID)
     if response_chan != nil {
       select {
       case response_chan <- sig:
