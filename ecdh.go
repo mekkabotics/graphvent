@@ -118,15 +118,15 @@ func (ext *ECDHExt) HandleECDHSignal(log Logger, node *Node, signal *ECDHSignal)
       state.SharedSecret = shared_secret
       ext.ECDHStates[source] = state
       log.Logf("ecdh", "New shared secret for %s<->%s - %+v", node.ID, source, ext.ECDHStates[source].SharedSecret)
-      messages = messages.Add(log, node.ID, node.Key, &resp, source)
+      messages = messages.Add(node.ID, node.Key, &resp, source)
     } else {
       log.Logf("ecdh", "ECDH_REQ_ERR: %s", err)
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), err.Error()), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), err.Error()), source)
     }
   case "resp":
     state, exists := ext.ECDHStates[source]
     if exists == false || state.ECKey == nil {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "no_req"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "no_req"), source)
     } else {
       err := VerifyECDHSignal(time.Now(), signal, DEFAULT_ECDH_WINDOW)
       if err == nil {

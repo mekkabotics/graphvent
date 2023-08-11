@@ -23,7 +23,7 @@ const (
   // Total length of the node database header, has magic to verify and type_hash to map to load function
   NODE_DB_HEADER_LEN = 32
   EXTENSION_DB_HEADER_LEN = 16
-  QSIGNAL_DB_HEADER_LEN = 40
+  QSIGNAL_DB_HEADER_LEN = 24
   POLICY_DB_HEADER_LEN = 16
 )
 
@@ -100,9 +100,25 @@ type Extension interface {
 
 // A QueuedSignal is a Signal that has been Queued to trigger at a set time
 type QueuedSignal struct {
-  uuid.UUID
   Signal
   time.Time
+}
+
+type PendingACL struct {
+  Counter int
+  TimeoutID uuid.UUID
+  Action Tree
+  Principal NodeID
+  Messages Messages
+  Responses []Signal
+  Signal Signal
+  Source NodeID
+}
+
+type PendingSignal struct {
+  Policy PolicyType
+  Found bool
+  ID uuid.UUID
 }
 
 // Default message channel size for nodes
@@ -113,6 +129,9 @@ type Node struct {
   Type NodeType
   Extensions map[ExtType]Extension
   Policies map[PolicyType]Policy
+
+  PendingACLs map[uuid.UUID]PendingACL
+  PendingSignals map[uuid.UUID]PendingSignal
 
   // Channel for this node to receive messages from the Context
   MsgChan chan *Message
@@ -127,27 +146,51 @@ type Node struct {
   NextSignal *QueuedSignal
 }
 
-func (node *Node) Allows(principal_id NodeID, action Action)(Messages, error) {
-  errs := []error{}
-  var pends Messages = nil
-  for _, policy := range(node.Policies) {
-    msgs, err := policy.Allows(principal_id, action, node)
-    if err == nil {
-      return nil, nil
-    }
-    errs = append(errs, err)
-    if msgs != nil {
-      pends = append(pends, msgs...)
+type RuleResult int
+const (
+  Allow RuleResult = iota
+  Deny
+  Pending
+)
+
+func (node *Node) Allows(principal_id NodeID, action Tree)(map[PolicyType]Messages, RuleResult) {
+  pends := map[PolicyType]Messages{}
+  for policy_type, policy := range(node.Policies) {
+    msgs, resp := policy.Allows(principal_id, action, node)
+    if resp == Allow {
+      return nil, Allow
+    } else if resp == Pending {
+      pends[policy_type] = msgs
     }
   }
-  return pends, fmt.Errorf("POLICY_CHECK_ERRORS: %s %s.%s - %+v", principal_id, node.ID, action, errs)
+  if len(pends) != 0 {
+    return pends, Pending
+  }
+  return nil, Deny
 }
 
-func (node *Node) QueueSignal(time time.Time, signal Signal) uuid.UUID {
-  id := uuid.New()
-  node.SignalQueue = append(node.SignalQueue, QueuedSignal{id, signal, time})
+func (node *Node) QueueSignal(time time.Time, signal Signal) {
+  node.SignalQueue = append(node.SignalQueue, QueuedSignal{signal, time})
   node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
-  return id
+}
+
+func (node *Node) DequeueSignal(id uuid.UUID) error {
+  idx := -1
+  for i, q := range(node.SignalQueue) {
+    if q.Signal.ID() == id {
+      idx = i
+      break
+    }
+  }
+  if idx == -1 {
+    return fmt.Errorf("%s is not in SignalQueue", id)
+  }
+
+  node.SignalQueue[idx] = node.SignalQueue[len(node.SignalQueue)-1]
+  node.SignalQueue = node.SignalQueue[:len(node.SignalQueue)-1]
+  node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+
+  return nil
 }
 
 func (node *Node) ClearSignalQueue() {
@@ -229,11 +272,34 @@ func nodeLoop(ctx *Context, node *Node) error {
         continue
       }
 
-      _, err = node.Allows(KeyID(msg.Principal), msg.Signal.Permission())
-      if err != nil {
-        ctx.Log.Logf("signal", "SIGNAL_POLICY_ERR: %s - %s - %e", node.ID, msg.Signal, err)
-        // TODO: send the msgs and set the state so that getting a response triggers a potential processing of the original signal
-        continue
+      princ_id := KeyID(msg.Principal)
+      if princ_id != node.ID {
+        pends, resp := node.Allows(princ_id, msg.Signal.Permission())
+        if resp == Deny {
+          ctx.Log.Logf("policy", "SIGNAL_POLICY_DENY: %s->%s - %s", princ_id, node.ID, msg.Signal.Permission())
+          msgs := Messages{}
+          msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(msg.Signal.ID(), "acl denied"), source)
+          ctx.Send(msgs)
+          continue
+        } else if resp == Pending {
+          ctx.Log.Logf("policy", "SIGNAL_POLICY_PENDING: %s->%s - %s - %+v", princ_id, node.ID, msg.Signal.Permission(), pends)
+          timeout_signal := NewACLTimeoutSignal(msg.Signal.ID())
+          node.QueueSignal(time.Now().Add(100*time.Millisecond), timeout_signal)
+          msgs := Messages{}
+          for policy_type, sigs := range(pends) {
+            for _, m := range(sigs) {
+              msgs = append(msgs, m)
+              node.PendingSignals[m.Signal.ID()] = PendingSignal{policy_type, false, msg.Signal.ID()}
+            }
+          }
+          node.PendingACLs[msg.Signal.ID()] = PendingACL{len(msgs), timeout_signal.ID(), msg.Signal.Permission(), princ_id, msgs, []Signal{}, msg.Signal, msg.Source}
+          ctx.Send(msgs)
+          continue
+        } else if resp == Allow {
+          ctx.Log.Logf("policy", "SIGNAL_POLICY_ALLOW: %s->%s - %s", princ_id, node.ID, msg.Signal.Permission())
+        }
+      } else {
+        ctx.Log.Logf("policy", "SIGNAL_POLICY_SELF: %s - %s", node.ID, msg.Signal.Permission())
       }
 
       signal = msg.Signal
@@ -246,7 +312,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       t := node.NextSignal.Time
       i := -1
       for j, queued := range(node.SignalQueue) {
-        if queued.UUID == node.NextSignal.UUID {
+        if queued.Signal.ID() == node.NextSignal.Signal.ID() {
           i = j
           break
         }
@@ -260,29 +326,73 @@ func nodeLoop(ctx *Context, node *Node) error {
 
       node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
       if node.NextSignal == nil {
-        ctx.Log.Logf("node_timeout", "NODE_TIMEOUT(%s) - PROCESSING %s@%s - NEXT_SIGNAL nil@%+v", node.ID, signal.Type(), t, node.TimeoutChan)
+        ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %s@%s - NEXT_SIGNAL nil@%+v", node.ID, signal.Type(), t, node.TimeoutChan)
       } else {
-        ctx.Log.Logf("node_timeout", "NODE_TIMEOUT(%s) - PROCESSING %s@%s - NEXT_SIGNAL: %s@%s", node.ID, signal.Type(), t, node.NextSignal, node.NextSignal.Time)
+        ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %s@%s - NEXT_SIGNAL: %s@%s", node.ID, signal.Type(), t, node.NextSignal, node.NextSignal.Time)
       }
     }
 
-    ctx.Log.Logf("node_signal_queue", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
+    ctx.Log.Logf("node", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
+
+    info, waiting := node.PendingSignals[signal.ReqID()]
+    if waiting == true {
+      if info.Found == false {
+        info.Found = true
+        node.PendingSignals[signal.ReqID()] = info
+        ctx.Log.Logf("pending", "FOUND_PENDING_SIGNAL: %s - %s", node.ID, signal)
+        req_info, exists := node.PendingACLs[info.ID]
+        if exists == true {
+          req_info.Counter -= 1
+          req_info.Responses = append(req_info.Responses, signal)
+
+          // TODO: call the right policy ParseResponse to check if the updated state passes the ACL check
+          allowed := node.Policies[info.Policy].ContinueAllows(req_info, signal)
+          if allowed == Allow {
+            ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
+            signal = req_info.Signal
+            source = req_info.Source
+            err := node.DequeueSignal(req_info.TimeoutID)
+            if err != nil {
+              panic("dequeued a passed signal")
+            }
+            delete(node.PendingACLs, info.ID)
+          } else if req_info.Counter == 0 {
+            ctx.Log.Logf("policy", "DELAYED_POLICY_DENY: %s - %s", node.ID, req_info.Signal)
+            // Send the denied response
+            msgs := Messages{}
+            msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(req_info.Signal.ID(), "ACL_DENIED"), req_info.Source)
+            err := ctx.Send(msgs)
+            if err != nil {
+              ctx.Log.Logf("signal", "SEND_ERR: %s", err)
+            }
+            err = node.DequeueSignal(req_info.TimeoutID)
+            if err != nil {
+              panic("dequeued a passed signal")
+            }
+            delete(node.PendingACLs, info.ID)
+          } else {
+            node.PendingACLs[info.ID] = req_info
+            continue
+          }
+        }
+      }
+    }
 
     // Handle special signal types
     if signal.Type() == StopSignalType {
       msgs := Messages{}
-      msgs = msgs.Add(ctx.Log, node.ID, node.Key, NewErrorSignal(signal.ID(), "stopped"), source)
+      msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "stopped"), source)
       ctx.Send(msgs)
       node.Process(ctx, node.ID, NewStatusSignal("stopped", node.ID))
       break
     } else if signal.Type() == ReadSignalType {
       read_signal, ok := signal.(*ReadSignal)
       if ok == false {
-        ctx.Log.Logf("signal_read", "READ_SIGNAL: bad cast %+v", signal)
+        ctx.Log.Logf("signal", "READ_SIGNAL: bad cast %+v", signal)
       } else {
         result := node.ReadFields(read_signal.Extensions)
         msgs := Messages{}
-        msgs = msgs.Add(ctx.Log, node.ID, node.Key, NewReadResultSignal(read_signal.ID(), node.Type, result), source)
+        msgs = msgs.Add(node.ID, node.Key, NewReadResultSignal(read_signal.ID(), node.ID, node.Type, result), source)
         ctx.Send(msgs)
       }
     }
@@ -313,10 +423,10 @@ type Message struct {
 }
 
 type Messages []*Message
-func (msgs Messages) Add(log Logger, source NodeID, principal ed25519.PrivateKey, signal Signal, dest NodeID) Messages {
+func (msgs Messages) Add(source NodeID, principal ed25519.PrivateKey, signal Signal, dest NodeID) Messages {
   msg, err := NewMessage(dest, source, principal, signal)
   if err != nil {
-    log.Logf("signal", "MESSAGE_CREATE_ERR: %s", err)
+    panic(err)
   } else {
     msgs = append(msgs, msg)
   }
@@ -445,7 +555,6 @@ func (node *Node) Serialize() ([]byte, error) {
 
     node_db.QueuedSignals[i] = QSignalDB{
       QSignalDBHeader{
-        qsignal.Signal.ID(),
         qsignal.Time,
         Hash(qsignal.Signal.Type()),
         uint64(len(ser)),
@@ -528,6 +637,9 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     Type: node_type,
     Extensions: ext_map,
     Policies: policies,
+    //TODO serialize/deserialize these
+    PendingACLs: map[uuid.UUID]PendingACL{},
+    PendingSignals: map[uuid.UUID]PendingSignal{},
     MsgChan: make(chan *Message, buffer_size),
     BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},
@@ -556,7 +668,6 @@ type PolicyDB struct {
 }
 
 type QSignalDBHeader struct {
-  SignalID uuid.UUID
   Time time.Time
   TypeHash uint64
   Length uint64
@@ -671,21 +782,14 @@ func NewNodeDB(data []byte) (NodeDB, error) {
     cur := data[ptr:]
     // TODO: load a header for each with the signal type and the signal length, so that it can be deserialized and incremented
     // Right now causes segfault because any saved signal is loaded as nil
-    signal_id_bytes := cur[0:16]
-    unix_milli := binary.BigEndian.Uint64(cur[16:24])
-    type_hash := binary.BigEndian.Uint64(cur[24:32])
-    signal_size := binary.BigEndian.Uint64(cur[32:40])
-
-    signal_id, err := uuid.FromBytes(signal_id_bytes)
-    if err != nil {
-      return zero, err
-    }
+    unix_milli := binary.BigEndian.Uint64(cur[0:8])
+    type_hash := binary.BigEndian.Uint64(cur[8:16])
+    signal_size := binary.BigEndian.Uint64(cur[16:24])
 
     signal_data := cur[QSIGNAL_DB_HEADER_LEN:(QSIGNAL_DB_HEADER_LEN+signal_size)]
 
     queued_signals[i] = QSignalDB{
       QSignalDBHeader{
-        signal_id,
         time.UnixMilli(int64(unix_milli)),
         type_hash,
         signal_size,
@@ -742,11 +846,9 @@ func (node NodeDB) Serialize() []byte {
 
 func (header QSignalDBHeader) Serialize() []byte {
   ret := make([]byte, QSIGNAL_DB_HEADER_LEN)
-  id_ser, _ := header.SignalID.MarshalBinary()
-  copy(ret, id_ser)
-  binary.BigEndian.PutUint64(ret[16:24], uint64(header.Time.UnixMilli()))
-  binary.BigEndian.PutUint64(ret[24:32], header.TypeHash)
-  binary.BigEndian.PutUint64(ret[32:40], header.Length)
+  binary.BigEndian.PutUint64(ret[0:8], uint64(header.Time.UnixMilli()))
+  binary.BigEndian.PutUint64(ret[8:16], header.TypeHash)
+  binary.BigEndian.PutUint64(ret[16:24], header.Length)
   return ret
 }
 
@@ -862,7 +964,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
       return nil, err
     }
 
-    signal_queue[i] = QueuedSignal{qsignal.Header.SignalID, signal, qsignal.Header.Time}
+    signal_queue[i] = QueuedSignal{signal, qsignal.Header.Time}
   }
 
   next_signal, timeout_chan := SoonestSignal(signal_queue)
@@ -939,129 +1041,6 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   go runNode(ctx, node)
 
   return node, nil
-}
-
-func NewACLInfo(node *Node, resources []string) ACLMap {
-  return ACLMap{
-    node.ID: ACLInfo{
-      Node: node,
-      Resources: resources,
-    },
-  }
-}
-
-func NewACLMap(requests ...ACLMap) ACLMap {
-  reqs := ACLMap{}
-  for _, req := range(requests) {
-    for id, info := range(req) {
-      reqs[id] = info
-    }
-  }
-  return reqs
-}
-
-func ACLListM(m map[NodeID]*Node, resources[]string) ACLMap {
-  reqs := ACLMap{}
-  for _, node := range(m) {
-    reqs[node.ID] = ACLInfo{
-      Node: node,
-      Resources: resources,
-    }
-  }
-  return reqs
-}
-
-func ACLList(list []*Node, resources []string) ACLMap {
-  reqs := ACLMap{}
-  for _, node := range(list) {
-    reqs[node.ID] = ACLInfo{
-      Node: node,
-      Resources: resources,
-    }
-  }
-  return reqs
-}
-
-type NodeMap map[NodeID]*Node
-
-type ACLInfo struct {
-  Node *Node
-  Resources []string
-}
-
-type ACLMap map[NodeID]ACLInfo
-type ExtMap map[uint64]Extension
-
-// Context of running state usage(read/write)
-type StateContext struct {
-  // Type of the state context
-  Type string
-  // The wrapped graph context
-  Graph *Context
-  // Granted permissions in the context
-  Permissions map[NodeID]ACLMap
-  // Locked extensions in the context
-  Locked map[NodeID]*Node
-
-  // Context state for validation
-  Started bool
-  Finished bool
-}
-
-func ValidateStateContext(context *StateContext, Type string, Finished bool) error {
-  if context == nil {
-    return fmt.Errorf("context is nil")
-  }
-  if context.Finished != Finished {
-    return fmt.Errorf("context in wrong Finished state")
-  }
-  if context.Type != Type {
-    return fmt.Errorf("%s is not a %s context", context.Type, Type)
-  }
-  if context.Locked == nil || context.Graph == nil || context.Permissions == nil {
-    return fmt.Errorf("context is not initialized correctly")
-  }
-  return nil
-}
-
-func NewReadContext(ctx *Context) *StateContext {
-  return &StateContext{
-    Type: "read",
-    Graph: ctx,
-    Permissions: map[NodeID]ACLMap{},
-    Locked: map[NodeID]*Node{},
-    Started: false,
-    Finished: false,
-  }
-}
-
-func NewWriteContext(ctx *Context) *StateContext {
-  return &StateContext{
-    Type: "write",
-    Graph: ctx,
-    Permissions: map[NodeID]ACLMap{},
-    Locked: map[NodeID]*Node{},
-    Started: false,
-    Finished: false,
-  }
-}
-
-type StateFn func(*StateContext)(error)
-
-func del[K comparable](list []K, val K) []K {
-  idx := -1
-  for i, v := range(list) {
-    if v == val {
-      idx = i
-      break
-    }
-  }
-  if idx == -1 {
-    return nil
-  }
-
-  list[idx] = list[len(list)-1]
-  return list[:len(list)-1]
 }
 
 func IDMap[S any, T map[NodeID]S](m T)map[string]S {

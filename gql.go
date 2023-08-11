@@ -869,12 +869,10 @@ func NewGQLExtContext() *GQLExtContext {
           return nil, fmt.Errorf("can't parse requirements %+v as string, %s", val, reflect.TypeOf(val))
         }
 
-        ids := make([]NodeID, len(id_strs))
-        i := 0
+        ids := []NodeID{}
         for id, state := range(id_strs) {
           if state.Link == "linked" {
-            ids[i] = id
-            i++
+            ids = append(ids, id)
           }
         }
         return ids, nil
@@ -889,12 +887,10 @@ func NewGQLExtContext() *GQLExtContext {
           return nil, fmt.Errorf("can't parse dependencies %+v as string, %s", val, reflect.TypeOf(val))
         }
 
-        ids := make([]NodeID, len(id_strs))
-        i := 0
+        ids := []NodeID{}
         for id, state := range(id_strs) {
           if state.Link == "linked" {
-            ids[i] = id
-            i++
+            ids = append(ids, id)
           }
         }
         return ids, nil
@@ -1035,7 +1031,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
   if signal.Type() == ErrorSignalType {
     // TODO: Forward to resolver if waiting for it
     sig := signal.(*ErrorSignal)
-    response_chan := ext.FreeResponseChannel(sig.ReqID)
+    response_chan := ext.FreeResponseChannel(sig.ReqID())
     if response_chan != nil {
       select {
       case response_chan <- sig:
@@ -1049,7 +1045,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     }
   } else if signal.Type() == ReadResultSignalType {
     sig := signal.(*ReadResultSignal)
-    response_chan := ext.FreeResponseChannel(sig.ReqID)
+    response_chan := ext.FreeResponseChannel(sig.ReqID())
     if response_chan != nil {
       select {
       case response_chan <- sig:

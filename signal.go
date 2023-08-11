@@ -16,19 +16,20 @@ import (
 
 type SignalDirection int
 const (
-  StopSignalType SignalType = "STOP"
-  NewSignalType             = "NEW"
-  StartSignalType           = "START"
-  ErrorSignalType           = "ERROR"
-  StatusSignalType          = "STATUS"
-  LinkSignalType            = "LINK"
-  LockSignalType            = "LOCK"
-  ReadSignalType            = "READ"
-  ReadResultSignalType      = "READ_RESULT"
-  LinkStartSignalType       = "LINK_START"
-  ECDHSignalType            = "ECDH"
-  ECDHProxySignalType       = "ECDH_PROXY"
-  GQLStateSignalType        = "GQL_STATE"
+  StopSignalType       = SignalType("STOP")
+  NewSignalType        = SignalType("NEW")
+  StartSignalType      = SignalType("START")
+  ErrorSignalType      = SignalType("ERROR")
+  StatusSignalType     = SignalType("STATUS")
+  LinkSignalType       = SignalType("LINK")
+  LockSignalType       = SignalType("LOCK")
+  ReadSignalType       = SignalType("READ")
+  ReadResultSignalType = SignalType("READ_RESULT")
+  LinkStartSignalType  = SignalType("LINK_START")
+  ECDHSignalType       = SignalType("ECDH")
+  ECDHProxySignalType  = SignalType("ECDH_PROXY")
+  GQLStateSignalType   = SignalType("GQL_STATE")
+  ACLTimeoutSignalType = SignalType("ACL_TIMEOUT")
 
   Up SignalDirection = iota
   Down
@@ -44,7 +45,8 @@ type Signal interface {
   String() string
   Direction() SignalDirection
   ID() uuid.UUID
-  Permission() Action
+  ReqID() uuid.UUID
+  Permission() Tree
 }
 
 func WaitForSignal[S Signal](ctx * Context, listener chan Signal, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
@@ -78,6 +80,11 @@ type BaseSignal struct {
   SignalDirection SignalDirection `json:"direction"`
   SignalType SignalType `json:"type"`
   UUID uuid.UUID `json:"id"`
+  ReqUUID uuid.UUID `json:"req_uuid"`
+}
+
+func (signal *BaseSignal) ReqID() uuid.UUID {
+  return signal.ReqUUID
 }
 
 func (signal *BaseSignal) String() string {
@@ -97,8 +104,10 @@ func (signal *BaseSignal) Type() SignalType {
   return signal.SignalType
 }
 
-func (signal *BaseSignal) Permission() Action {
-  return MakeAction(signal.Type())
+func (signal *BaseSignal) Permission() Tree {
+  return Tree{
+    string(signal.Type()): Tree{},
+  }
 }
 
 func (signal *BaseSignal) Direction() SignalDirection {
@@ -110,8 +119,20 @@ func (signal *BaseSignal) Serialize() ([]byte, error) {
 }
 
 func NewBaseSignal(signal_type SignalType, direction SignalDirection) BaseSignal {
+  id := uuid.New()
+  signal := BaseSignal{
+    UUID: id,
+    ReqUUID: id,
+    SignalDirection: direction,
+    SignalType: signal_type,
+  }
+  return signal
+}
+
+func NewRespSignal(id uuid.UUID, signal_type SignalType, direction SignalDirection) BaseSignal {
   signal := BaseSignal{
     UUID: uuid.New(),
+    ReqUUID: id,
     SignalDirection: direction,
     SignalType: signal_type,
   }
@@ -145,13 +166,8 @@ func (signal *StringSignal) Serialize() ([]byte, error) {
   return json.Marshal(&signal)
 }
 
-type RespSignal struct {
-  BaseSignal
-  ReqID uuid.UUID
-}
-
 type ErrorSignal struct {
-  RespSignal
+  BaseSignal
   Error string
 }
 
@@ -160,18 +176,16 @@ func (signal *ErrorSignal) String() string {
   return string(ser)
 }
 
-func (signal *ErrorSignal) Permission() Action {
-  return ErrorSignalAction
-}
-
 func NewErrorSignal(req_id uuid.UUID, err string) Signal {
   return &ErrorSignal{
-    RespSignal{
-      NewBaseSignal(ErrorSignalType, Direct),
-      req_id,
-    },
+    NewRespSignal(req_id, ErrorSignalType, Direct),
     err,
   }
+}
+
+func NewACLTimeoutSignal(req_id uuid.UUID) Signal {
+  sig := NewRespSignal(req_id, ACLTimeoutSignalType, Direct)
+  return &sig
 }
 
 type IDStringSignal struct {
@@ -219,8 +233,12 @@ func NewLockSignal(state string) Signal {
   }
 }
 
-func (signal *StringSignal) Permission() Action {
-  return MakeAction(signal.Type(), signal.Str)
+func (signal *StringSignal) Permission() Tree {
+  return Tree{
+    string(signal.Type()): Tree{
+      signal.Str: Tree{},
+    },
+  }
 }
 
 type ReadSignal struct {
@@ -239,22 +257,35 @@ func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
   }
 }
 
+func (signal *ReadSignal) Permission() Tree {
+  ret := Tree{}
+  for ext, fields := range(signal.Extensions) {
+    field_tree := Tree{}
+    for _, field := range(fields) {
+      field_tree[field] = Tree{}
+    }
+    ret[ext.String()] = field_tree
+  }
+  return Tree{ReadSignalType.String(): ret}
+}
+
 type ReadResultSignal struct {
-  RespSignal
-  NodeType
+  BaseSignal
+  NodeID NodeID
+  NodeType NodeType
   Extensions map[ExtType]map[string]interface{} `json:"extensions"`
 }
 
-func (signal *ReadResultSignal) Permission() Action {
-  return ReadResultSignalAction
+func (signal *ReadResultSignal) Permission() Tree {
+  return Tree{
+    ReadResultSignalType.String(): Tree{},
+  }
 }
 
-func NewReadResultSignal(req_id uuid.UUID, node_type NodeType, exts map[ExtType]map[string]interface{}) Signal {
+func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, exts map[ExtType]map[string]interface{}) Signal {
   return &ReadResultSignal{
-    RespSignal{
-      NewBaseSignal(ReadResultSignalType, Direct),
-      req_id,
-    },
+    NewRespSignal(req_id, ReadResultSignalType, Direct),
+    node_id,
     node_type,
     exts,
   }

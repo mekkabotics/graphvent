@@ -15,7 +15,7 @@ func TestNodeDB(t *testing.T) {
 
   node := NewNode(ctx, nil, node_type, 10, nil, NewGroupExt(nil))
 
-  ctx.Nodes = NodeMap{}
+  ctx.Nodes = map[NodeID]*Node{}
   _, err = ctx.GetNode(node.ID)
   fatalErr(t, err)
 }
@@ -46,7 +46,7 @@ func TestNodeRead(t *testing.T) {
     GroupExtType: []string{"members"},
   })
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, n2.ID, n2.Key, read_sig, n1.ID)
+  msgs = msgs.Add(n2.ID, n2.Key, read_sig, n1.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
@@ -84,7 +84,7 @@ func TestECDH(t *testing.T) {
   fatalErr(t, err)
   ctx.Log.Logf("test", "N1_EC: %+v", n1_ec)
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, n1.ID, n1.Key, ecdh_req, n2.ID)
+  msgs = msgs.Add(n1.ID, n1.Key, ecdh_req, n2.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
@@ -98,7 +98,7 @@ func TestECDH(t *testing.T) {
   fatalErr(t, err)
 
   msgs = Messages{}
-  msgs = msgs.Add(ctx.Log, n1.ID, n1.Key, ecdh_sig, n2.ID)
+  msgs = msgs.Add(n1.ID, n1.Key, ecdh_sig, n2.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 }

@@ -139,21 +139,21 @@ func NewLockableExt() *LockableExt {
 // Send the signal to unlock a node from itself
 func UnlockLockable(ctx *Context, node *Node) error {
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, node.ID, node.Key, NewLockSignal("unlock"), node.ID)
+  msgs = msgs.Add(node.ID, node.Key, NewLockSignal("unlock"), node.ID)
   return ctx.Send(msgs)
 }
 
 // Send the signal to lock a node from itself
 func LockLockable(ctx *Context, node *Node) error {
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, node.ID, node.Key, NewLockSignal("lock"), node.ID)
+  msgs = msgs.Add(node.ID, node.Key, NewLockSignal("lock"), node.ID)
   return ctx.Send(msgs)
 }
 
 // Setup a node to send the initial requirement link signal, then send the signal
 func LinkRequirement(ctx *Context, dependency *Node, requirement NodeID) error {
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, dependency.ID, dependency.Key, NewLinkStartSignal("req", requirement), dependency.ID)
+  msgs = msgs.Add(dependency.ID, dependency.Key, NewLinkStartSignal("req", requirement), dependency.ID)
   return ctx.Send(msgs)
 }
 
@@ -166,16 +166,16 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
   switch state {
   case "unlock":
     if ext.Owner == nil {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_unlocked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_unlocked"), source)
     } else if source != *ext.Owner {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_owner"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_owner"), source)
     } else if ext.PendingOwner == nil {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_unlocking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_unlocking"), source)
     } else {
       if len(ext.Requirements) == 0 {
         ext.Owner = nil
         ext.PendingOwner = nil
-        messages = messages.Add(log, node.ID, node.Key, NewLockSignal("unlocked"), source)
+        messages = messages.Add(node.ID, node.Key, NewLockSignal("unlocked"), source)
       } else {
         ext.PendingOwner = nil
         for id, state := range(ext.Requirements) {
@@ -185,22 +185,22 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
             }
             state.Lock = "unlocking"
             ext.Requirements[id] = state
-            messages = messages.Add(log, node.ID, node.Key, NewLockSignal("unlock"), id)
+            messages = messages.Add(node.ID, node.Key, NewLockSignal("unlock"), id)
           }
         }
         if source != node.ID {
-          messages = messages.Add(log, node.ID, node.Key, NewLockSignal("unlocking"), source)
+          messages = messages.Add(node.ID, node.Key, NewLockSignal("unlocking"), source)
         }
       }
     }
   case "unlocking":
     state, exists := ext.Requirements[source]
     if exists == false {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
     } else if state.Link != "linked" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
     } else if state.Lock != "unlocking" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
     }
 
   case "unlocked":
@@ -210,11 +210,11 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
 
     state, exists := ext.Requirements[source]
     if exists == false {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
     } else if state.Link != "linked" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
     } else if state.Lock != "unlocking" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
     } else {
       state.Lock = "unlocked"
       ext.Requirements[source] = state
@@ -234,7 +234,7 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
         if linked == unlocked {
           previous_owner := *ext.Owner
           ext.Owner = nil
-          messages = messages.Add(log, node.ID, node.Key, NewLockSignal("unlocked"), previous_owner)
+          messages = messages.Add(node.ID, node.Key, NewLockSignal("unlocked"), previous_owner)
         }
       }
     }
@@ -245,11 +245,11 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
 
     state, exists := ext.Requirements[source]
     if exists == false {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
     } else if state.Link != "linked" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
     } else if state.Lock != "locking" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
     } else {
       state.Lock = "locked"
       ext.Requirements[source] = state
@@ -268,31 +268,31 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
 
         if linked == locked {
           ext.Owner = ext.PendingOwner
-          messages = messages.Add(log, node.ID, node.Key, NewLockSignal("locked"), *ext.Owner)
+          messages = messages.Add(node.ID, node.Key, NewLockSignal("locked"), *ext.Owner)
         }
       }
     }
   case "locking":
     state, exists := ext.Requirements[source]
     if exists == false {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
     } else if state.Link != "linked" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linked"), source)
     } else if state.Lock != "locking" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
     }
 
   case "lock":
     if ext.Owner != nil {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_locked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_locked"), source)
     } else if ext.PendingOwner != nil {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_locking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_locking"), source)
     } else {
       owner := source
       if len(ext.Requirements) == 0 {
         ext.Owner = &owner
         ext.PendingOwner = ext.Owner
-        messages = messages.Add(log, node.ID, node.Key, NewLockSignal("locked"), source)
+        messages = messages.Add(node.ID, node.Key, NewLockSignal("locked"), source)
       } else {
         ext.PendingOwner = &owner
         for id, state := range(ext.Requirements) {
@@ -303,11 +303,11 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
             }
             state.Lock = "locking"
             ext.Requirements[id] = state
-            messages = messages.Add(log, node.ID, node.Key, NewLockSignal("lock"), id)
+            messages = messages.Add(node.ID, node.Key, NewLockSignal("lock"), id)
           }
         }
         if source != node.ID {
-          messages = messages.Add(log, node.ID, node.Key, NewLockSignal("locking"), source)
+          messages = messages.Add(node.ID, node.Key, NewLockSignal("locking"), source)
         }
       }
     }
@@ -329,25 +329,25 @@ func (ext *LockableExt) HandleLinkStartSignal(log Logger, node *Node, source Nod
     state, exists := ext.Requirements[target]
     _, dep_exists := ext.Dependencies[target]
     if ext.Owner != nil {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_locked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_locked"), source)
     } else if ext.Owner != ext.PendingOwner {
       if ext.PendingOwner == nil {
-        messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "unlocking"), source)
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "unlocking"), source)
       } else {
-        messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "locking"), source)
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "locking"), source)
       }
     } else if exists == true {
       if state.Link == "linking" {
-        messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_linking_req"), source)
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_linking_req"), source)
       } else if state.Link == "linked" {
-        messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_req"), source)
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_req"), source)
       }
     } else if dep_exists == true {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_dep"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_dep"), source)
     } else {
       ext.Requirements[target] = LinkState{"linking", "unlocked", source}
-      messages = messages.Add(log, node.ID, node.Key, NewLinkSignal("linked_as_req"), target)
-      messages = messages.Add(log, node.ID, node.Key, NewLinkStartSignal("linking_req", target), source)
+      messages = messages.Add(node.ID, node.Key, NewLinkSignal("linked_as_req"), target)
+      messages = messages.Add(node.ID, node.Key, NewLinkStartSignal("linking_req", target), source)
     }
   }
   return messages
@@ -364,7 +364,7 @@ func (ext *LockableExt) HandleLinkSignal(log Logger, node *Node, source NodeID, 
   case "dep_done":
     state, exists := ext.Requirements[source]
     if exists == false {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_linking"), source)
     } else if state.Link == "linking" {
       state.Link = "linked"
       ext.Requirements[source] = state
@@ -374,16 +374,16 @@ func (ext *LockableExt) HandleLinkSignal(log Logger, node *Node, source NodeID, 
     state, exists := ext.Dependencies[source]
     if exists == false {
       ext.Dependencies[source] = LinkState{"linked", "unlocked", source}
-      messages = messages.Add(log, node.ID, node.Key, NewLinkSignal("dep_done"), source)
+      messages = messages.Add(node.ID, node.Key, NewLinkSignal("dep_done"), source)
     } else if state.Link == "linking" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_linking"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_linking"), source)
     } else if state.Link == "linked" {
-      messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_linked"), source)
+      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_linked"), source)
     } else if ext.PendingOwner != ext.Owner {
       if ext.Owner == nil {
-        messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "locking"), source)
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "locking"), source)
       } else {
-        messages = messages.Add(log, node.ID, node.Key, NewErrorSignal(signal.ID(), "unlocking"), source)
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "unlocking"), source)
       }
     }
 
@@ -403,7 +403,7 @@ func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal 
     owner_sent := false
     for dependency, state := range(ext.Dependencies) {
       if state.Link == "linked" {
-        messages = messages.Add(ctx.Log, node.ID, node.Key, signal, dependency)
+        messages = messages.Add(node.ID, node.Key, signal, dependency)
         if ext.Owner != nil {
           if dependency == *ext.Owner {
             owner_sent = true
@@ -414,13 +414,13 @@ func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal 
 
     if ext.Owner != nil && owner_sent == false {
       if *ext.Owner != node.ID {
-        messages = messages.Add(ctx.Log, node.ID, node.Key, signal, *ext.Owner)
+        messages = messages.Add(node.ID, node.Key, signal, *ext.Owner)
       }
     }
   case Down:
     for requirement, state := range(ext.Requirements) {
       if state.Link == "linked" {
-        messages = messages.Add(ctx.Log, node.ID, node.Key, signal, requirement)
+        messages = messages.Add(node.ID, node.Key, signal, requirement)
       }
     }
   case Direct:

@@ -51,7 +51,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     read_signal := NewReadSignal(ext_fields)
     msgs := Messages{}
-    msgs = msgs.Add(ctx.Context.Log, ctx.Server.ID, ctx.Key, read_signal, id)
+    msgs = msgs.Add(ctx.Server.ID, ctx.Key, read_signal, id)
 
     response_chan := ctx.Ext.GetResponseChannel(read_signal.ID())
     resp_channels[read_signal.ID()] = response_chan
@@ -69,7 +69,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
     response, err := WaitForSignal(ctx.Context, response_chan, time.Millisecond*100, ReadResultSignalType, func(sig *ReadResultSignal)bool{
-      return sig.ReqID == sig_id
+      return sig.ReqID() == sig_id
     })
     if err != nil {
       return nil, err

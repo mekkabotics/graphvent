@@ -10,42 +10,80 @@ import (
   "net"
   "crypto/tls"
   "crypto/x509"
+  "crypto/rand"
+  "crypto/ed25519"
   "bytes"
 )
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test", "policy", "pending"})
 
   TestNodeType := NodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
   fatalErr(t, err)
 
-  policy := NewAllNodesPolicy(Actions{
-    MakeAction(LinkSignalType, "+"),
-    MakeAction(LinkStartSignalType, "+"),
-    MakeAction(LockSignalType, "+"),
-    MakeAction(StatusSignalType, "+"),
-    MakeAction(ErrorSignalType, "+"),
-    MakeAction(ReadSignalType, "+"),
-    MakeAction(ReadResultSignalType, "+"),
-    MakeAction(GQLStateSignalType, "+"),
+  pub, gql_key, err := ed25519.GenerateKey(rand.Reader)
+  fatalErr(t, err)
+  gql_id := KeyID(pub)
+
+  group_policy_1 := NewAllNodesPolicy(Tree{
+    ReadSignalType.String(): Tree{
+      GroupExtType.String(): Tree{
+        "members": Tree{},
+      },
+    },
+    ReadResultSignalType.String(): nil,
+    ErrorSignalType.String(): nil,
+  })
+
+  group_policy_2 := NewMemberOfPolicy(NodeRules{
+    gql_id: Tree{
+      LinkSignalType.String(): nil,
+      LinkStartSignalType.String(): nil,
+      LockSignalType.String(): nil,
+      StatusSignalType.String(): nil,
+      ReadSignalType.String(): nil,
+      GQLStateSignalType.String(): nil,
+    },
+  })
+
+  user_policy_1 := NewAllNodesPolicy(Tree{
+    ReadResultSignalType.String(): nil,
+    ErrorSignalType.String(): nil,
+  })
+
+  user_policy_2 := NewMemberOfPolicy(NodeRules{
+    gql_id: Tree{
+      LinkSignalType.String(): nil,
+      ReadSignalType.String(): nil,
+    },
   })
 
   gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "stopped")
   fatalErr(t, err)
+
   listener_ext := NewListenerExt(10)
-  gql := NewNode(ctx, nil, GQLNodeType, 10, map[PolicyType]Policy{
-    AllNodesPolicyType: &policy,
-  }, NewLockableExt(), gql_ext, NewGroupExt(nil), listener_ext)
   n1 := NewNode(ctx, nil, TestNodeType, 10, map[PolicyType]Policy{
-    AllNodesPolicyType: &policy,
+    MemberOfPolicyType: &user_policy_2,
+    AllNodesPolicyType: &user_policy_1,
   }, NewLockableExt())
+
+  gql := NewNode(ctx, gql_key, GQLNodeType, 10, map[PolicyType]Policy{
+    MemberOfPolicyType: &group_policy_2,
+    AllNodesPolicyType: &group_policy_1,
+  }, NewLockableExt(), gql_ext, NewGroupExt(map[NodeID]string{
+    n1.ID: "user",
+    gql_id: "self",
+  }), listener_ext)
+
+  ctx.Log.Logf("test", "GQL:  %s", gql.ID)
+  ctx.Log.Logf("test", "NODE: %s", n1.ID)
 
   err = LinkRequirement(ctx, gql, n1.ID)
   fatalErr(t, err)
 
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "start_server"}, gql.ID)
+  msgs = msgs.Add(gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "start_server"}, gql.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
@@ -102,7 +140,7 @@ func TestGQLServer(t *testing.T) {
   ctx.Log.Logf("test", "RESP_2: %s", resp_2)
 
   msgs = Messages{}
-  msgs = msgs.Add(ctx.Log, gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "stop_server"}, gql.ID)
+  msgs = msgs.Add(gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "stop_server"}, gql.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(ctx, listener_ext.Chan, 100*time.Millisecond, StatusSignalType, func(sig *IDStringSignal) bool {
@@ -131,7 +169,7 @@ func TestGQLDB(t *testing.T) {
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
 
   msgs := Messages{}
-  msgs = msgs.Add(ctx.Log, gql.ID, gql.Key, &StopSignal, gql.ID)
+  msgs = msgs.Add(gql.ID, gql.Key, &StopSignal, gql.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(ctx, listener_ext.Chan, 100*time.Millisecond, StatusSignalType, func(sig *IDStringSignal) bool {
@@ -147,13 +185,13 @@ func TestGQLDB(t *testing.T) {
   ctx.Log.Logf("test", "SER_3: \n%s\n\n", ser3)
 
   // Clear all loaded nodes from the context so it loads them from the database
-  ctx.Nodes = NodeMap{}
+  ctx.Nodes = map[NodeID]*Node{}
   gql_loaded, err := LoadNode(ctx, gql.ID)
   fatalErr(t, err)
   listener_ext, err = GetExt[*ListenerExt](gql_loaded)
   fatalErr(t, err)
   msgs = Messages{}
-  msgs = msgs.Add(ctx.Log, gql_loaded.ID, gql_loaded.Key, &StopSignal, gql_loaded.ID)
+  msgs = msgs.Add(gql_loaded.ID, gql_loaded.Key, &StopSignal, gql_loaded.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(ctx, listener_ext.Chan, 100*time.Millisecond, StatusSignalType, func(sig *IDStringSignal) bool {

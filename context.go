@@ -74,9 +74,9 @@ type PolicyInfo struct {
 const (
   ListenerExtType = ExtType("LISTENER")
   LockableExtType = ExtType("LOCKABLE")
-  GQLExtType = ExtType("GQL")
-  GroupExtType = ExtType("GROUP")
-  ECDHExtType = ExtType("ECDH")
+  GQLExtType      = ExtType("GQL")
+  GroupExtType    = ExtType("GROUP")
+  ECDHExtType     = ExtType("ECDH")
 
   GQLNodeType = NodeType("GQL")
 )
