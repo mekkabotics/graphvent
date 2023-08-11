@@ -5,6 +5,7 @@ import (
   "time"
   "fmt"
   "encoding/json"
+  "encoding/base64"
   "io"
   "net/http"
   "net"
@@ -66,21 +67,18 @@ func TestGQLServer(t *testing.T) {
   n1 := NewNode(ctx, nil, TestNodeType, 10, map[PolicyType]Policy{
     MemberOfPolicyType: &user_policy_2,
     AllNodesPolicyType: &user_policy_1,
-  }, NewLockableExt())
+  }, NewLockableExt(nil))
 
   gql := NewNode(ctx, gql_key, GQLNodeType, 10, map[PolicyType]Policy{
     MemberOfPolicyType: &group_policy_2,
     AllNodesPolicyType: &group_policy_1,
-  }, NewLockableExt(), gql_ext, NewGroupExt(map[NodeID]string{
+  }, NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt(map[NodeID]string{
     n1.ID: "user",
     gql_id: "self",
   }), listener_ext)
 
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
   ctx.Log.Logf("test", "NODE: %s", n1.ID)
-
-  err = LinkRequirement(ctx, gql, n1.ID)
-  fatalErr(t, err)
 
   msgs := Messages{}
   msgs = msgs.Add(gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "start_server"}, gql.ID)
@@ -107,7 +105,7 @@ func TestGQLServer(t *testing.T) {
   }
 
   req_2 := GQLPayload{
-    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Members { ID } , Listen, Requirements { ID, TypeHash, Dependencies { ID } } } } }",
+    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Members { ID } , Listen, Requirements { ID, TypeHash Owner { ID } } } } }",
     Variables: map[string]interface{}{
       "id": gql.ID.String(),
     },
@@ -123,7 +121,7 @@ func TestGQLServer(t *testing.T) {
 
     key_bytes, err := x509.MarshalPKCS8PrivateKey(n1.Key)
     fatalErr(t, err)
-    req.SetBasicAuth(string(n1.ID.Serialize()), string(key_bytes))
+    req.SetBasicAuth(base64.StdEncoding.EncodeToString(n1.ID.Serialize()), base64.StdEncoding.EncodeToString(key_bytes))
     resp, err := client.Do(req)
     fatalErr(t, err)
 

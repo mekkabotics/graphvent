@@ -16,7 +16,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
                       10,
                       nil,
                       listener_extension,
-                      NewLockableExt())
+                      NewLockableExt(nil))
 
   return listener, listener_extension
 }

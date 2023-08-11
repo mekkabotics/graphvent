@@ -5,11 +5,7 @@ import (
 )
 
 type GroupExt struct {
-  Members map[NodeID]string
-}
-
-type GroupExtJSON struct {
-  Members map[string]string `json:"members"`
+  Members map[NodeID]string `json:"members"`
 }
 
 func (ext *GroupExt) Type() ExtType {
@@ -17,9 +13,7 @@ func (ext *GroupExt) Type() ExtType {
 }
 
 func (ext *GroupExt) Serialize() ([]byte, error) {
-  return json.Marshal(&GroupExtJSON{
-    Members: IDMap(ext.Members),
-  })
+  return json.Marshal(ext)
 }
 
 func (ext *GroupExt) Field(name string) interface{} {
@@ -41,11 +35,8 @@ func NewGroupExt(members map[NodeID]string) *GroupExt {
 }
 
 func (ext *GroupExt) Deserialize(ctx *Context, data []byte) error {
-  var j GroupExtJSON
-  err := json.Unmarshal(data, &j)
-
-  ext.Members, err = LoadIDMap(j.Members)
-  return err
+  ext.Members = map[NodeID]string{}
+  return json.Unmarshal(data, ext)
 }
 
 func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {

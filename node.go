@@ -35,12 +35,17 @@ var (
 
 // A NodeID uniquely identifies a Node
 type NodeID uuid.UUID
+
+func (id NodeID) MarshalText() ([]byte, error) {
+  return json.Marshal(id.String())
+}
+
+func (id *NodeID) UnmarshalText(data []byte) error {
+  return json.Unmarshal(data, id)
+}
+
 func (id *NodeID) MarshalJSON() ([]byte, error) {
-  str := ""
-  if id != nil {
-    str = id.String()
-  }
-  return json.Marshal(&str)
+  return json.Marshal(id.String())
 }
 
 func (id *NodeID) UnmarshalJSON(bytes []byte) error {
@@ -58,6 +63,8 @@ func (id NodeID) Serialize() []byte {
   ser, _ := (uuid.UUID)(id).MarshalBinary()
   return ser
 }
+
+
 
 func (id NodeID) String() string {
   return (uuid.UUID)(id).String()
@@ -1041,24 +1048,4 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   go runNode(ctx, node)
 
   return node, nil
-}
-
-func IDMap[S any, T map[NodeID]S](m T)map[string]S {
-  ret := map[string]S{}
-  for id, val := range(m) {
-    ret[id.String()] = val
-  }
-  return ret
-}
-
-func LoadIDMap[S any, T map[string]S](m T)(map[NodeID]S, error) {
-  ret := map[NodeID]S{}
-  for str, val := range(m) {
-    id, err := ParseID(str)
-    if err != nil {
-      return nil, err
-    }
-    ret[id] = val
-  }
-  return ret, nil
 }

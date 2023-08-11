@@ -18,29 +18,20 @@ func lockableTestContext(t *testing.T, logs []string) *Context {
 func TestLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"lockable"})
 
-  l1_listener := NewListenerExt(10)
-  l1 := NewNode(ctx, nil, TestLockableType, 10, nil,
-                 l1_listener,
-                 NewLockableExt(),
-               )
   l2_listener := NewListenerExt(10)
   l2 := NewNode(ctx, nil, TestLockableType, 10, nil,
                  l2_listener,
-                 NewLockableExt(),
+                 NewLockableExt(nil),
                )
-
-  // Link l2 as a requirement of l1
-  err := LinkRequirement(ctx, l1, l2.ID)
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, func(sig *StringSignal) bool {
-    return sig.Str == "dep_done"
-  })
-  fatalErr(t, err)
+  l1_listener := NewListenerExt(10)
+  NewNode(ctx, nil, TestLockableType, 10, nil,
+                 l1_listener,
+                 NewLockableExt([]NodeID{l2.ID}),
+               )
 
   msgs := Messages{}
   msgs = msgs.Add(l2.ID, l2.Key, NewStatusSignal("TEST", l2.ID), l2.ID)
-  err = ctx.Send(msgs)
+  err := ctx.Send(msgs)
   fatalErr(t, err)
 
   _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, StatusSignalType, func(sig *IDStringSignal) bool {
@@ -59,106 +50,57 @@ func TestLink10K(t *testing.T) {
 
   NewLockable := func()(*Node) {
     l := NewNode(ctx, nil, TestLockableType, 10, nil,
-                  NewLockableExt(),
+                  NewLockableExt(nil),
                 )
     return l
   }
 
-  NewListener := func()(*Node, *ListenerExt) {
-    listener := NewListenerExt(100000)
-    l := NewNode(ctx, nil, TestLockableType, 256, nil,
-                  listener,
-                  NewLockableExt(),
-                )
-    return l, listener
+  reqs := make([]NodeID, 10000)
+  for i, _ := range(reqs) {
+    new_lockable := NewLockable()
+    reqs[i] = new_lockable.ID
   }
-
-  l0, l0_listener := NewListener()
-  lockables := make([]*Node, 10)
-  for i, _ := range(lockables) {
-    lockables[i] = NewLockable()
-    LinkRequirement(ctx, l0, lockables[i].ID)
-  }
-
   ctx.Log.Logf("test", "CREATED_10K")
 
-
-  for range(lockables) {
-    _, err := WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, func(sig *StringSignal) bool {
-      return sig.Str == "dep_done"
-    })
-    fatalErr(t, err)
+  NewListener := func()(*ListenerExt) {
+    listener := NewListenerExt(100000)
+    NewNode(ctx, nil, TestLockableType, 256, nil,
+                  listener,
+                  NewLockableExt(reqs),
+                )
+    return listener
   }
+  NewListener()
+  ctx.Log.Logf("test", "CREATED_LISTENER")
 
-  ctx.Log.Logf("test", "LINKED_10K")
+  // TODO: Lock listener and wait for all the lock signals
+  //ctx.Log.Logf("test", "LOCKED_10K")
 }
 
 func TestLock(t *testing.T) {
   ctx := lockableTestContext(t, []string{})
 
-  NewLockable := func()(*Node, *ListenerExt) {
+  NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(100)
     l := NewNode(ctx, nil, TestLockableType, 10, nil,
                   listener,
-                  NewLockableExt(),
+                  NewLockableExt(reqs),
                 )
     return l, listener
   }
 
-  l0, l0_listener := NewLockable()
-  l1, l1_listener := NewLockable()
-  l2, _ := NewLockable()
-  l3, _ := NewLockable()
-  l4, _ := NewLockable()
-  l5, _ := NewLockable()
-
-
-  var err error
-  err = LinkRequirement(ctx, l1, l2.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l1, l3.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l1, l4.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l1, l5.ID)
-  fatalErr(t, err)
-
-  err = LinkRequirement(ctx, l0, l2.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l0, l3.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l0, l4.ID)
-  fatalErr(t, err)
-  err = LinkRequirement(ctx, l0, l5.ID)
-  fatalErr(t, err)
-
-  linked_as_req := func(sig *StringSignal) bool {
-    return sig.Str == "dep_done"
-  }
+  l2, _ := NewLockable(nil)
+  l3, _ := NewLockable(nil)
+  l4, _ := NewLockable(nil)
+  l5, _ := NewLockable(nil)
+  NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
+  l1, l1_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
 
   locked := func(sig *StringSignal) bool {
     return sig.Str == "locked"
   }
 
-    _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-  _, err = WaitForSignal(ctx, l0_listener.Chan, time.Millisecond*10, LinkSignalType, linked_as_req)
-  fatalErr(t, err)
-
-  err = LockLockable(ctx, l1)
+  err := LockLockable(ctx, l1)
   fatalErr(t, err)
   _, err = WaitForSignal(ctx, l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)

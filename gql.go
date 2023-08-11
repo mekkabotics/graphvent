@@ -10,6 +10,7 @@ import (
   "github.com/graphql-go/graphql/language/ast"
   "context"
   "encoding/json"
+  "encoding/base64"
   "io"
   "reflect"
   "fmt"
@@ -190,16 +191,26 @@ type ResolveContext struct {
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
-  id_bytes, key_bytes, ok := r.BasicAuth()
+  id_b64, key_b64, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
   }
 
+  id_bytes, err := base64.StdEncoding.DecodeString(id_b64)
+  if err != nil {
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID bytes from auth username: %+v", id_b64)
+  }
+
   auth_uuid, err := uuid.FromBytes([]byte(id_bytes))
   if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from auth username %+v", id_bytes)
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from id_bytes %+v", id_bytes)
   }
   auth_id := NodeID(auth_uuid)
+
+  key_bytes, err := base64.StdEncoding.DecodeString(key_b64)
+  if err != nil {
+    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse key bytes from auth password: %+v", key_b64)
+  }
 
   key_raw, err := x509.ParsePKCS8PrivateKey([]byte(key_bytes))
   if err != nil {
@@ -632,7 +643,7 @@ type ListField struct {
 type SelfField struct {
   ACLName string
   Extension ExtType
-  ResolveFn func(graphql.ResolveParams, interface{}) (NodeID, error)
+  ResolveFn func(graphql.ResolveParams, interface{}) (*NodeID, error)
 }
 
 func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, interfaces []string, fields []string, self_fields map[string]SelfField, list_fields map[string]ListField) error {
@@ -677,19 +688,22 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
         return nil, err
       }
 
-      var zero NodeID
       id, err := self_field.ResolveFn(p, val)
       if err != nil {
-        return zero, err
+        return nil, err
       }
 
-      nodes, err := ResolveNodes(ctx, p, []NodeID{id})
-      if err != nil {
-        return nil, err
-      } else if len(nodes) != 1 {
-        return nil, fmt.Errorf("wrong length of nodes returned")
+      if id != nil {
+        nodes, err := ResolveNodes(ctx, p, []NodeID{*id})
+        if err != nil {
+          return nil, err
+        } else if len(nodes) != 1 {
+          return nil, fmt.Errorf("wrong length of nodes returned")
+        }
+        return nodes[0], nil
+      } else {
+        return nil, nil
       }
-      return nodes[0], nil
     })
     if err != nil {
       return err
@@ -844,16 +858,10 @@ func NewGQLExtContext() *GQLExtContext {
     "Owner": SelfField{
       "owner",
       LockableExtType,
-      func(p graphql.ResolveParams, val interface{}) (NodeID, error) {
-        var zero NodeID
-        id_str, ok := val.(string)
+      func(p graphql.ResolveParams, val interface{}) (*NodeID, error) {
+        id, ok := val.(*NodeID)
         if ok == false {
-          return zero, fmt.Errorf("can't parse %+v as string", val)
-        }
-
-        id, err := ParseID(id_str)
-        if err != nil {
-          return zero, err
+          return nil, fmt.Errorf("can't parse %+v as *NodeID", val)
         }
 
         return id, nil
@@ -864,34 +872,14 @@ func NewGQLExtContext() *GQLExtContext {
       "requirements",
       LockableExtType,
       func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
-        id_strs, ok := val.(LinkMap)
+        id_strs, ok := val.(map[NodeID]string)
         if ok == false {
           return nil, fmt.Errorf("can't parse requirements %+v as string, %s", val, reflect.TypeOf(val))
         }
 
         ids := []NodeID{}
-        for id, state := range(id_strs) {
-          if state.Link == "linked" {
-            ids = append(ids, id)
-          }
-        }
-        return ids, nil
-      },
-    },
-    "Dependencies": ListField{
-      "dependencies",
-      LockableExtType,
-      func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
-        id_strs, ok := val.(LinkMap)
-        if ok == false {
-          return nil, fmt.Errorf("can't parse dependencies %+v as string, %s", val, reflect.TypeOf(val))
-        }
-
-        ids := []NodeID{}
-        for id, state := range(id_strs) {
-          if state.Link == "linked" {
-            ids = append(ids, id)
-          }
+        for id, _ := range(id_strs) {
+          ids = append(ids, id)
         }
         return ids, nil
       },
@@ -909,7 +897,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"Listen", "Owner", "Requirements", "Dependencies", "Members"})
+  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"Listen", "Owner", "Requirements", "Members"})
   if err != nil {
     panic(err)
   }
