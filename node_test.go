@@ -37,10 +37,16 @@ func TestNodeRead(t *testing.T) {
   ctx.Log.Logf("test", "N1: %s", n1_id)
   ctx.Log.Logf("test", "N2: %s", n2_id)
 
-  n2_listener := NewListenerExt(10)
-  n2 := NewNode(ctx, n2_key, node_type, 10, nil, NewGroupExt(nil), NewECDHExt(), n2_listener)
+  policy := NewAllNodesPolicy(nil)
 
-  n1 := NewNode(ctx, n1_key, node_type, 10, nil, NewGroupExt(nil), NewECDHExt())
+  n2_listener := NewListenerExt(10)
+  n2 := NewNode(ctx, n2_key, node_type, 10, map[PolicyType]Policy{
+    AllNodesPolicyType: &policy,
+  }, NewGroupExt(nil), NewECDHExt(), n2_listener)
+
+  n1 := NewNode(ctx, n1_key, node_type, 10, map[PolicyType]Policy{
+    AllNodesPolicyType: &policy,
+  }, NewGroupExt(nil), NewECDHExt())
 
   read_sig := NewReadSignal(map[ExtType][]string{
     GroupExtType: []string{"members"},
@@ -55,50 +61,4 @@ func TestNodeRead(t *testing.T) {
   })
   fatalErr(t, err)
   ctx.Log.Logf("test", "READ_RESULT: %+v", res)
-}
-
-func TestECDH(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "ecdh", "policy"})
-
-  node_type := NodeType("TEST")
-  err := ctx.RegisterNodeType(node_type, []ExtType{ECDHExtType})
-  fatalErr(t, err)
-
-  n1_listener := NewListenerExt(10)
-  n1 := NewNode(ctx, nil, node_type, 10, nil, NewECDHExt(), n1_listener)
-  n2 := NewNode(ctx, nil, node_type, 10, nil, NewECDHExt())
-  n3_listener := NewListenerExt(10)
-  n3 := NewNode(ctx, nil, node_type, 10, nil, NewECDHExt(), n3_listener)
-
-  ctx.Log.Logf("test", "N1: %s", n1.ID)
-  ctx.Log.Logf("test", "N2: %s", n2.ID)
-
-
-  ecdh_req, n1_ec, err := NewECDHReqSignal(n1)
-  ecdh_ext, err := GetExt[*ECDHExt](n1)
-  fatalErr(t, err)
-  ecdh_ext.ECDHStates[n2.ID] = ECDHState{
-    ECKey: n1_ec,
-    SharedSecret: nil,
-  }
-  fatalErr(t, err)
-  ctx.Log.Logf("test", "N1_EC: %+v", n1_ec)
-  msgs := Messages{}
-  msgs = msgs.Add(n1.ID, n1.Key, ecdh_req, n2.ID)
-  err = ctx.Send(msgs)
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(ctx, n1_listener.Chan, 100*time.Millisecond, ECDHSignalType, func(sig *ECDHSignal) bool {
-    return sig.Str == "resp"
-  })
-  fatalErr(t, err)
-  time.Sleep(10*time.Millisecond)
-
-  ecdh_sig, err := NewECDHProxySignal(n1.ID, n3.ID, &StopSignal, ecdh_ext.ECDHStates[n2.ID].SharedSecret)
-  fatalErr(t, err)
-
-  msgs = Messages{}
-  msgs = msgs.Add(n1.ID, n1.Key, ecdh_sig, n2.ID)
-  err = ctx.Send(msgs)
-  fatalErr(t, err)
 }

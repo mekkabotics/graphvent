@@ -6,6 +6,7 @@ import (
 
 const (
   MemberOfPolicyType = PolicyType("USER_OF")
+  RequirementOfPolicyType = PolicyType("REQUIEMENT_OF")
   PerNodePolicyType = PolicyType("PER_NODE")
   AllNodesPolicyType = PolicyType("ALL_NODES")
 )
@@ -42,6 +43,45 @@ func (policy *PerNodePolicy) ContinueAllows(current PendingACL, signal Signal) R
   return Deny
 }
 
+type RequirementOfPolicy struct {
+  PerNodePolicy
+}
+
+func (policy *RequirementOfPolicy) Type() PolicyType {
+  return RequirementOfPolicyType
+}
+
+func NewRequirementOfPolicy(dep_rules map[NodeID]Tree) RequirementOfPolicy {
+  return RequirementOfPolicy {
+    PerNodePolicy: NewPerNodePolicy(dep_rules),
+  }
+}
+
+func (policy *RequirementOfPolicy) ContinueAllows(current PendingACL, signal Signal) RuleResult {
+  sig, ok := signal.(*ReadResultSignal)
+  if ok == false {
+    return Deny
+  }
+
+  ext, ok := sig.Extensions[LockableExtType]
+  if ok == false {
+    return Deny
+  }
+
+  requirements, ok := ext["requirements"].(map[NodeID]string)
+  if ok == false {
+    return Deny
+  }
+
+  for req, _ := range(requirements) {
+    if req == current.Principal {
+      return policy.NodeRules[sig.NodeID].Allows(current.Action)
+    }
+  }
+
+  return Deny
+}
+
 type MemberOfPolicy struct {
   PerNodePolicy
 }
@@ -50,7 +90,7 @@ func (policy *MemberOfPolicy) Type() PolicyType {
   return MemberOfPolicyType
 }
 
-func NewMemberOfPolicy(group_rules NodeRules) MemberOfPolicy {
+func NewMemberOfPolicy(group_rules map[NodeID]Tree) MemberOfPolicy {
   return MemberOfPolicy{
     PerNodePolicy: NewPerNodePolicy(group_rules),
   }
@@ -148,16 +188,16 @@ func MergeTrees(first Tree, second Tree) Tree {
   return ret
 }
 
-func CopyNodeRules(rules NodeRules) NodeRules {
-  ret := NodeRules{}
+func CopyNodeRules(rules map[NodeID]Tree) map[NodeID]Tree {
+  ret := map[NodeID]Tree{}
   for id, r := range(rules) {
     ret[id] = r
   }
   return ret
 }
 
-func MergeNodeRules(first NodeRules, second NodeRules) NodeRules {
-  merged := NodeRules{}
+func MergeNodeRules(first map[NodeID]Tree, second map[NodeID]Tree) map[NodeID]Tree {
+  merged := map[NodeID]Tree{}
   for id, actions := range(first) {
     merged[id] = actions
   }
@@ -227,38 +267,9 @@ func (rule Tree) Allows(action Tree) RuleResult {
   }
 }
 
-type NodeRules map[NodeID]Tree
-
-func (rules NodeRules) MarshalJSON() ([]byte, error) {
-  tmp := map[string]Tree{}
-  for id, r := range(rules) {
-    tmp[id.String()] = r
-  }
-  return json.Marshal(tmp)
-}
-
-func (rules *NodeRules) UnmarshalJSON(data []byte) error {
-  tmp := map[string]Tree{}
-  err := json.Unmarshal(data, &tmp)
-  if err != nil {
-    return err
-  }
-
-  for id_str, r := range(tmp) {
-    id, err := ParseID(id_str)
-    if err != nil {
-      return err
-    }
-    ru := *rules
-    ru[id] = r
-  }
-
-  return nil
-}
-
-func NewPerNodePolicy(node_actions NodeRules) PerNodePolicy {
+func NewPerNodePolicy(node_actions map[NodeID]Tree) PerNodePolicy {
   if node_actions == nil {
-    node_actions = NodeRules{}
+    node_actions = map[NodeID]Tree{}
   }
 
   return PerNodePolicy{
@@ -267,7 +278,7 @@ func NewPerNodePolicy(node_actions NodeRules) PerNodePolicy {
 }
 
 type PerNodePolicy struct {
-  NodeRules NodeRules `json:"node_actions"`
+  NodeRules map[NodeID]Tree `json:"node_actions"`
 }
 
 func (policy *PerNodePolicy) Type() PolicyType {

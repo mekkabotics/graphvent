@@ -8,7 +8,6 @@ import (
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
   "encoding/binary"
-  "encoding/json"
   "sync/atomic"
   "crypto"
   "crypto/ed25519"
@@ -30,51 +29,22 @@ const (
 var (
   // Base NodeID, used as a special value
   ZeroUUID = uuid.UUID{}
-  ZeroID = NodeID(ZeroUUID)
+  ZeroID = NodeID{ZeroUUID}
 )
 
 // A NodeID uniquely identifies a Node
-type NodeID uuid.UUID
-
-func (id NodeID) MarshalText() ([]byte, error) {
-  return json.Marshal(id.String())
-}
-
-func (id *NodeID) UnmarshalText(data []byte) error {
-  return json.Unmarshal(data, id)
-}
-
-func (id *NodeID) MarshalJSON() ([]byte, error) {
-  return json.Marshal(id.String())
-}
-
-func (id *NodeID) UnmarshalJSON(bytes []byte) error {
-  var id_str string
-  err := json.Unmarshal(bytes, &id_str)
-  if err != nil {
-    return err
-  }
-
-  *id, err = ParseID(id_str)
-  return err
+type NodeID struct {
+  uuid.UUID
 }
 
 func (id NodeID) Serialize() []byte {
-  ser, _ := (uuid.UUID)(id).MarshalBinary()
+  ser, _ := id.MarshalBinary()
   return ser
 }
 
-
-
-func (id NodeID) String() string {
-  return (uuid.UUID)(id).String()
-}
-
-// Create an ID from a fixed length byte array
-// Ignore the error since we're enforcing 16 byte length at compile time
-func IDFromBytes(bytes [16]byte) NodeID {
-  id, _ := uuid.FromBytes(bytes[:])
-  return NodeID(id)
+func IDFromBytes(bytes []byte) (NodeID, error) {
+  id, err := uuid.FromBytes(bytes[:])
+  return NodeID{id}, err
 }
 
 // Parse an ID from a string
@@ -83,12 +53,12 @@ func ParseID(str string) (NodeID, error) {
   if err != nil {
     return NodeID{}, err
   }
-  return NodeID(id_uuid), nil
+  return NodeID{id_uuid}, nil
 }
 
 // Generate a random NodeID
 func RandID() NodeID {
-  return NodeID(uuid.New())
+  return NodeID{uuid.New()}
 }
 
 // A Serializable has a type that can be used to map to it, and a function to serialize` the current state
@@ -249,7 +219,7 @@ func (node *Node) ReadFields(reqs map[ExtType][]string)map[ExtType]map[string]in
   return exts
 }
 
-// Main Loop for Threads, starts a write context, so cannot be called from a write or read context
+// Main Loop for nodes
 func nodeLoop(ctx *Context, node *Node) error {
   started := node.Active.CompareAndSwap(false, true)
   if started == false {
@@ -352,7 +322,6 @@ func nodeLoop(ctx *Context, node *Node) error {
           req_info.Counter -= 1
           req_info.Responses = append(req_info.Responses, signal)
 
-          // TODO: call the right policy ParseResponse to check if the updated state passes the ACL check
           allowed := node.Policies[info.Policy].ContinueAllows(req_info, signal)
           if allowed == Allow {
             ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
@@ -385,7 +354,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       }
     }
 
-    // Handle special signal types
+    // Handle node signals
     if signal.Type() == StopSignalType {
       msgs := Messages{}
       msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "stopped"), source)
@@ -591,7 +560,7 @@ func (node *Node) Serialize() ([]byte, error) {
 
 func KeyID(pub ed25519.PublicKey) NodeID {
   str := uuid.NewHash(sha512.New(), ZeroUUID, pub, 3)
-  return NodeID(str)
+  return NodeID{str}
 }
 
 // Create a new node in memory and start it's event loop
@@ -652,6 +621,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     SignalQueue: []QueuedSignal{},
   }
   ctx.AddNode(id, node)
+
   err = WriteNode(ctx, node)
   if err != nil {
     panic(err)

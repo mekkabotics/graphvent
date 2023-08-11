@@ -1,13 +1,21 @@
 package graphvent
 
 import (
-  "encoding/json"
+  "encoding/binary"
 )
 
-type LockableExt struct {
-  Owner *NodeID `json:"owner"`
-  PendingOwner *NodeID `json:"pending_owner"`
-  Requirements map[NodeID]string `json:"requirements"`
+type ReqState int
+const (
+  Unlocked = ReqState(0)
+  Unlocking = ReqState(1)
+  Locked = ReqState(2)
+  Locking = ReqState(3)
+)
+
+type LockableExt struct{
+  Owner *NodeID
+  PendingOwner *NodeID
+  Requirements map[NodeID]ReqState
 }
 
 func (ext *LockableExt) Field(name string) interface{} {
@@ -29,17 +37,97 @@ func (ext *LockableExt) Type() ExtType {
 }
 
 func (ext *LockableExt) Serialize() ([]byte, error) {
-  return json.Marshal(ext)
+  ret := make([]byte, 8 + (16 * 2) + (17 * len(ext.Requirements)))
+  if ext.Owner != nil {
+    bytes, err := ext.Owner.MarshalBinary()
+    if err != nil {
+      return nil, err
+    }
+    copy(ret[0:16], bytes)
+  }
+
+  if ext.PendingOwner != nil {
+    bytes, err := ext.PendingOwner.MarshalBinary()
+    if err != nil {
+      return nil, err
+    }
+    copy(ret[16:32], bytes)
+  }
+
+  binary.BigEndian.PutUint64(ret[32:40], uint64(len(ext.Requirements)))
+
+  cur := 40
+  for req, state := range(ext.Requirements) {
+    bytes, err := req.MarshalBinary()
+    if err != nil {
+      return nil, err
+    }
+    copy(ret[cur:cur+16], bytes)
+    ret[cur+16] = byte(state)
+    cur += 17
+  }
+
+  return ret, nil
 }
 
 func (ext *LockableExt) Deserialize(ctx *Context, data []byte) error {
-  return json.Unmarshal(data, ext)
+  cur := 0
+  all_zero := true
+  for _, b := range(data[cur:cur+16]) {
+    if all_zero == true && b != 0x00 {
+      all_zero = false
+    }
+  }
+  if all_zero == false {
+    tmp, err := IDFromBytes(data[cur:cur+16])
+    if err != nil {
+      return err
+    }
+    ext.Owner = &tmp
+  }
+  cur += 16
+
+  all_zero = true
+  for _, b := range(data[cur:cur+16]) {
+    if all_zero == true && b != 0x00 {
+      all_zero = false
+    }
+  }
+  if all_zero == false {
+    tmp, err := IDFromBytes(data[cur:cur+16])
+    if err != nil {
+      return err
+    }
+    ext.PendingOwner = &tmp
+  }
+  cur += 16
+
+  num_requirements := int(binary.BigEndian.Uint64(data[cur:cur+8]))
+  cur += 8
+
+  if num_requirements != 0 {
+    ext.Requirements = map[NodeID]ReqState{}
+  }
+  for i := 0; i < num_requirements; i++ {
+    id, err := IDFromBytes(data[cur:cur+16])
+    if err != nil {
+      return err
+    }
+    cur += 16
+    state := ReqState(data[cur])
+    cur += 1
+    ext.Requirements[id] = state
+  }
+  return nil
 }
 
 func NewLockableExt(requirements []NodeID) *LockableExt {
-  reqs := map[NodeID]string{}
-  for _, id := range(requirements) {
-    reqs[id] = "unlocked"
+  var reqs map[NodeID]ReqState = nil
+  if requirements != nil {
+    reqs = map[NodeID]ReqState{}
+    for _, id := range(requirements) {
+      reqs[id] = Unlocked
+    }
   }
   return &LockableExt{
     Owner: nil,
@@ -84,10 +172,10 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
       } else {
         ext.PendingOwner = nil
         for id, state := range(ext.Requirements) {
-          if state != "locked" {
+          if state != Locked {
             panic("NOT_LOCKED")
           }
-          ext.Requirements[id] = "unlocking"
+          ext.Requirements[id] = Unlocking
           messages = messages.Add(node.ID, node.Key, NewLockSignal("unlock"), id)
         }
         if source != node.ID {
@@ -96,11 +184,13 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
       }
     }
   case "unlocking":
-    state, exists := ext.Requirements[source]
-    if exists == false {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
-    } else if state != "unlocking" {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
+    if ext.Requirements != nil {
+      state, exists := ext.Requirements[source]
+      if exists == false {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      } else if state != Unlocking {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
+      }
     }
 
   case "unlocked":
@@ -108,26 +198,28 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
       return nil
     }
 
-    state, exists := ext.Requirements[source]
-    if exists == false {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
-    } else if state != "unlocking" {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
-    } else {
-      ext.Requirements[source] = "unlocked"
+    if ext.Requirements != nil {
+      state, exists := ext.Requirements[source]
+      if exists == false {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      } else if state != Unlocking {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocking"), source)
+      } else {
+        ext.Requirements[source] = Unlocked
 
-      if ext.PendingOwner == nil {
-        unlocked := 0
-        for _, s := range(ext.Requirements) {
-          if s == "unlocked" {
-            unlocked += 1
+        if ext.PendingOwner == nil {
+          unlocked := 0
+          for _, s := range(ext.Requirements) {
+            if s == Unlocked {
+              unlocked += 1
+            }
           }
-        }
 
-        if len(ext.Requirements) == unlocked {
-          previous_owner := *ext.Owner
-          ext.Owner = nil
-          messages = messages.Add(node.ID, node.Key, NewLockSignal("unlocked"), previous_owner)
+          if len(ext.Requirements) == unlocked {
+            previous_owner := *ext.Owner
+            ext.Owner = nil
+            messages = messages.Add(node.ID, node.Key, NewLockSignal("unlocked"), previous_owner)
+          }
         }
       }
     }
@@ -136,34 +228,38 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
       return nil
     }
 
-    state, exists := ext.Requirements[source]
-    if exists == false {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
-    } else if state != "locking" {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
-    } else {
-      ext.Requirements[source] = "locked"
+    if ext.Requirements != nil {
+      state, exists := ext.Requirements[source]
+      if exists == false {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      } else if state != Locking {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
+      } else {
+        ext.Requirements[source] = Locked
 
-      if ext.PendingOwner != nil {
-        locked := 0
-        for _, s := range(ext.Requirements) {
-          if s == "locked" {
-            locked += 1
+        if ext.PendingOwner != nil {
+          locked := 0
+          for _, s := range(ext.Requirements) {
+            if s == Locked {
+              locked += 1
+            }
           }
-        }
 
-        if len(ext.Requirements) == locked {
-          ext.Owner = ext.PendingOwner
-          messages = messages.Add(node.ID, node.Key, NewLockSignal("locked"), *ext.Owner)
+          if len(ext.Requirements) == locked {
+            ext.Owner = ext.PendingOwner
+            messages = messages.Add(node.ID, node.Key, NewLockSignal("locked"), *ext.Owner)
+          }
         }
       }
     }
   case "locking":
-    state, exists := ext.Requirements[source]
-    if exists == false {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
-    } else if state != "locking" {
-      messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
+    if ext.Requirements != nil {
+      state, exists := ext.Requirements[source]
+      if exists == false {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      } else if state != Locking {
+        messages = messages.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locking"), source)
+      }
     }
 
   case "lock":
@@ -180,13 +276,14 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
       } else {
         ext.PendingOwner = &owner
         for id, state := range(ext.Requirements) {
-          log.Logf("lockable", "LOCK_REQ: %s sending 'lock' to %s", node.ID, id)
-          if state != "unlocked" {
+          log.Logf("lockable_detail", "LOCK_REQ: %s sending 'lock' to %s", node.ID, id)
+          if state != Unlocked {
             panic("NOT_UNLOCKED")
           }
-          ext.Requirements[id] = "locking"
+          ext.Requirements[id] = Locking
           messages = messages.Add(node.ID, node.Key, NewLockSignal("lock"), id)
         }
+        log.Logf("lockable", "LOCK_REQ: %s sending 'lock' to %d requirements", node.ID, len(ext.Requirements))
         if source != node.ID {
           messages = messages.Add(node.ID, node.Key, NewLockSignal("locking"), source)
         }
@@ -195,7 +292,6 @@ func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, 
   default:
     log.Logf("lockable", "LOCK_ERR: unkown state %s", state)
   }
-  log.Logf("lockable", "LOCK_MESSAGES: %+v", messages)
   return messages
 }
 

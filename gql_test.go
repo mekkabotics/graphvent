@@ -37,7 +37,7 @@ func TestGQLServer(t *testing.T) {
     ErrorSignalType.String(): nil,
   })
 
-  group_policy_2 := NewMemberOfPolicy(NodeRules{
+  group_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
     gql_id: Tree{
       LinkSignalType.String(): nil,
       LinkStartSignalType.String(): nil,
@@ -53,7 +53,7 @@ func TestGQLServer(t *testing.T) {
     ErrorSignalType.String(): nil,
   })
 
-  user_policy_2 := NewMemberOfPolicy(NodeRules{
+  user_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
     gql_id: Tree{
       LinkSignalType.String(): nil,
       ReadSignalType.String(): nil,

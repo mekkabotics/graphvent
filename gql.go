@@ -205,7 +205,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
   if err != nil {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from id_bytes %+v", id_bytes)
   }
-  auth_id := NodeID(auth_uuid)
+  auth_id := NodeID{auth_uuid}
 
   key_bytes, err := base64.StdEncoding.DecodeString(key_b64)
   if err != nil {
