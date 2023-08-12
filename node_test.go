@@ -56,7 +56,7 @@ func TestNodeRead(t *testing.T) {
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  res, err := WaitForSignal(ctx, n2_listener.Chan, 10*time.Millisecond, ReadResultSignalType, func(sig *ReadResultSignal) bool {
+  res, err := WaitForSignal(n2_listener.Chan, 10*time.Millisecond, ReadResultSignalType, func(sig *ReadResultSignal) bool {
     return true
   })
   fatalErr(t, err)

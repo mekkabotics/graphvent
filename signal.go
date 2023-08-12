@@ -49,7 +49,29 @@ type Signal interface {
   Permission() Tree
 }
 
-func WaitForSignal[S Signal](ctx * Context, listener chan Signal, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
+func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UUID) (Signal, error) {
+  var timeout_channel <- chan time.Time
+  if timeout > 0 {
+    timeout_channel = time.After(timeout)
+  }
+
+  for true {
+    select {
+    case signal := <- listener:
+      if signal == nil {
+        return nil, fmt.Errorf("LISTENER_CLOSED")
+      }
+      if signal.ReqID() == req_id {
+        return signal, nil
+      }
+    case <-timeout_channel:
+      return nil, fmt.Errorf("LISTENER_TIMEOUT")
+    }
+  }
+  return nil, fmt.Errorf("UNREACHABLE")
+}
+
+func WaitForSignal[S Signal](listener chan Signal, timeout time.Duration, signal_type SignalType, check func(S)bool) (S, error) {
   var zero S
   var timeout_channel <- chan time.Time
   if timeout > 0 {

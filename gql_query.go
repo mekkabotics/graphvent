@@ -68,7 +68,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   responses := []NodeResult{}
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
-    response, err := WaitForSignal(ctx.Context, response_chan, time.Millisecond*100, ReadResultSignalType, func(sig *ReadResultSignal)bool{
+    response, err := WaitForSignal(response_chan, time.Millisecond*100, ReadResultSignalType, func(sig *ReadResultSignal)bool{
       return sig.ReqID() == sig_id
     })
     if err != nil {
