@@ -25,7 +25,6 @@ const (
   LockSignalType       = SignalType("LOCK")
   ReadSignalType       = SignalType("READ")
   ReadResultSignalType = SignalType("READ_RESULT")
-  LinkStartSignalType  = SignalType("LINK_START")
   ECDHSignalType       = SignalType("ECDH")
   ECDHProxySignalType  = SignalType("ECDH_PROXY")
   ACLTimeoutSignalType = SignalType("ACL_TIMEOUT")
@@ -237,14 +236,6 @@ func NewLinkSignal(state string, id NodeID) Signal {
     BaseSignal: NewBaseSignal(LinkSignalType, Direct),
     NodeID: id,
     Str: state,
-  }
-}
-
-func NewLinkStartSignal(link_type string, target NodeID) Signal {
-  return &IDStringSignal{
-    NewBaseSignal(LinkStartSignalType, Direct),
-    target,
-    link_type,
   }
 }
 

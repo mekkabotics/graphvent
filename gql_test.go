@@ -42,7 +42,6 @@ func TestGQLServer(t *testing.T) {
   group_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
     gql_id: Tree{
       LinkSignalType.String(): nil,
-      LinkStartSignalType.String(): nil,
       LockSignalType.String(): nil,
       StatusSignalType.String(): nil,
       ReadSignalType.String(): nil,
