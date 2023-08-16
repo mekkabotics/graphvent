@@ -14,10 +14,12 @@ import (
   "crypto/rand"
   "crypto/ed25519"
   "bytes"
+  "golang.org/x/net/websocket"
+  "github.com/google/uuid"
 )
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "policy", "pending"})
+  ctx := logTestContext(t, []string{"test", "gql", "policy", "pending"})
 
   TestNodeType := NodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
@@ -44,7 +46,6 @@ func TestGQLServer(t *testing.T) {
       LockSignalType.String(): nil,
       StatusSignalType.String(): nil,
       ReadSignalType.String(): nil,
-      GQLStateSignalType.String(): nil,
     },
   })
 
@@ -60,7 +61,7 @@ func TestGQLServer(t *testing.T) {
     },
   })
 
-  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "stopped")
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
   fatalErr(t, err)
 
   listener_ext := NewListenerExt(10)
@@ -80,11 +81,6 @@ func TestGQLServer(t *testing.T) {
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
   ctx.Log.Logf("test", "NODE: %s", n1.ID)
 
-  msgs := Messages{}
-  msgs = msgs.Add(gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "start_server"}, gql.ID)
-  err = ctx.Send(msgs)
-  fatalErr(t, err)
-
   _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, StatusSignalType, func(sig *IDStringSignal) bool {
     return sig.Str == "server_started"
   })
@@ -96,6 +92,7 @@ func TestGQLServer(t *testing.T) {
   client := &http.Client{Transport: skipVerifyTransport}
   port := gql_ext.tcp_listener.Addr().(*net.TCPAddr).Port
   url := fmt.Sprintf("https://localhost:%d/gql", port)
+  ws_url := fmt.Sprintf("wss://127.0.0.1:%d/gqlws", port)
 
   req_1 := GQLPayload{
     Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash } }",
@@ -111,6 +108,12 @@ func TestGQLServer(t *testing.T) {
     },
   }
 
+  auth_username := base64.StdEncoding.EncodeToString(n1.ID.Serialize())
+  key_bytes, err := x509.MarshalPKCS8PrivateKey(n1.Key)
+  fatalErr(t, err)
+  auth_password := base64.StdEncoding.EncodeToString(key_bytes)
+  auth_b64 := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", auth_username, auth_password)))
+
   SendGQL := func(payload GQLPayload) []byte {
     ser, err := json.MarshalIndent(&payload, "", "  ")
     fatalErr(t, err)
@@ -119,9 +122,7 @@ func TestGQLServer(t *testing.T) {
     req, err := http.NewRequest("GET", url, req_data)
     fatalErr(t, err)
 
-    key_bytes, err := x509.MarshalPKCS8PrivateKey(n1.Key)
-    fatalErr(t, err)
-    req.SetBasicAuth(base64.StdEncoding.EncodeToString(n1.ID.Serialize()), base64.StdEncoding.EncodeToString(key_bytes))
+    req.SetBasicAuth(auth_username, auth_password)
     resp, err := client.Do(req)
     fatalErr(t, err)
 
@@ -137,12 +138,70 @@ func TestGQLServer(t *testing.T) {
   resp_2 := SendGQL(req_2)
   ctx.Log.Logf("test", "RESP_2: %s", resp_2)
 
-  msgs = Messages{}
-  msgs = msgs.Add(gql.ID, gql.Key, &StringSignal{NewBaseSignal(GQLStateSignalType, Direct), "stop_server"}, gql.ID)
+  sub_1 := GQLPayload{
+    Query: "subscription { Self }",
+  }
+
+  SubGQL := func(payload GQLPayload) {
+    config, err := websocket.NewConfig(ws_url, url)
+    fatalErr(t, err)
+    config.Protocol = append(config.Protocol, "graphql-ws")
+    config.TlsConfig = &tls.Config{InsecureSkipVerify: true}
+    config.Header.Add("Authorization", fmt.Sprintf("Basic %s", auth_b64))
+
+    ws, err := websocket.DialConfig(config)
+
+    fatalErr(t, err)
+
+    init := GQLWSMsg{
+      ID: uuid.New().String(),
+      Type: "connection_init",
+    }
+
+    ser, err := json.Marshal(&init)
+    fatalErr(t, err)
+
+    _, err = ws.Write(ser)
+    fatalErr(t, err)
+
+    resp := make([]byte, 1024)
+    n, err := ws.Read(resp)
+
+    var init_resp GQLWSMsg
+    err = json.Unmarshal(resp[:n], &init_resp)
+    fatalErr(t, err)
+
+    if init_resp.Type != "connection_ack" {
+      t.Fatal("Didn't receive connection_ack")
+    }
+
+    sub := GQLWSMsg{
+      ID: uuid.New().String(),
+      Type: "subscribe",
+      Payload: sub_1,
+    }
+
+    ser, err = json.Marshal(&sub)
+    fatalErr(t, err)
+    _, err = ws.Write(ser)
+    fatalErr(t, err)
+
+    for i := 0; i < 10; i++ {
+      n, err = ws.Read(resp)
+      fatalErr(t, err)
+
+      ctx.Log.Logf("test", "SUB_%d: %s", i, resp[:n])
+    }
+  }
+
+  SubGQL(sub_1)
+
+  msgs := Messages{}
+  msgs = msgs.Add(gql.ID, gql.Key, &StopSignal, gql.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, StatusSignalType, func(sig *IDStringSignal) bool {
-    return sig.Str == "server_stopped"
+    return sig.Str == "stopped"
   })
   fatalErr(t, err)
 }
@@ -157,7 +216,7 @@ func TestGQLDB(t *testing.T) {
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
-  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil, "start")
+  gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
   gql := NewNode(ctx, nil, GQLNodeType, 10, nil,

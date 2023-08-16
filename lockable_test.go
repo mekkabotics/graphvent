@@ -100,7 +100,7 @@ func TestLink10K(t *testing.T) {
               )
   ctx.Log.Logf("test", "CREATED_LISTENER")
 
-  err = LockLockable(ctx, node)
+  _, err = LockLockable(ctx, node, node.ID)
   fatalErr(t, err)
 
   _, err = WaitForSignal(listener.Chan, time.Millisecond*1000, LockSignalType, func(sig *StringSignal) bool {
@@ -118,7 +118,7 @@ func TestLink10K(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"lockable", "policy"})
+  ctx := lockableTestContext(t, []string{"lockable"})
 
   policy := NewAllNodesPolicy(nil)
 
@@ -138,26 +138,40 @@ func TestLock(t *testing.T) {
   l3, _ := NewLockable(nil)
   l4, _ := NewLockable(nil)
   l5, _ := NewLockable(nil)
-  NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
+  l0, l0_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
   l1, l1_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
 
   locked := func(sig *StringSignal) bool {
     return sig.Str == "locked"
   }
 
-  err := LockLockable(ctx, l1)
+  unlocked := func(sig *StringSignal) bool {
+    return sig.Str == "unlocked"
+  }
+
+  _, err := LockLockable(ctx, l0, l5.ID)
   fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
-  fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
-  fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
-  fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
-  fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, LockSignalType, locked)
   fatalErr(t, err)
 
-  err = UnlockLockable(ctx, l1)
+  id, err := LockLockable(ctx, l1, l1.ID)
   fatalErr(t, err)
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, ErrorSignalType, func(sig *ErrorSignal) bool {
+    return sig.Error == "not_unlocked" && sig.ReqID() == id
+  })
+  fatalErr(t, err)
+
+  _, err = UnlockLockable(ctx, l0, l5.ID)
+  fatalErr(t, err)
+  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, LockSignalType, unlocked)
+  fatalErr(t, err)
+
+  _, err = LockLockable(ctx, l1, l1.ID)
+  fatalErr(t, err)
+  for i := 0; i < 4; i++ {
+    _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, func(sig *StringSignal) bool {
+      return sig.Str == "locked"
+    })
+    fatalErr(t, err)
+  }
 }

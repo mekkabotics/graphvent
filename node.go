@@ -254,8 +254,9 @@ func nodeLoop(ctx *Context, node *Node) error {
         pends, resp := node.Allows(princ_id, msg.Signal.Permission())
         if resp == Deny {
           ctx.Log.Logf("policy", "SIGNAL_POLICY_DENY: %s->%s - %s", princ_id, node.ID, msg.Signal.Permission())
+          ctx.Log.Logf("policy", "SIGNAL_POLICY_SOURCE: %s", msg.Source)
           msgs := Messages{}
-          msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(msg.Signal.ID(), "acl denied"), source)
+          msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(msg.Signal.ID(), "acl denied"), msg.Source)
           ctx.Send(msgs)
           continue
         } else if resp == Pending {
@@ -369,6 +370,7 @@ func nodeLoop(ctx *Context, node *Node) error {
         result := node.ReadFields(read_signal.Extensions)
         msgs := Messages{}
         msgs = msgs.Add(node.ID, node.Key, NewReadResultSignal(read_signal.ID(), node.ID, node.Type, result), source)
+        msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(read_signal.ID(), "read_done"), source)
         ctx.Send(msgs)
       }
     }

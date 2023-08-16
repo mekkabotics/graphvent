@@ -238,6 +238,9 @@ func (ctx *Context) GetNode(id NodeID) (*Node, error) {
 // Route a Signal to dest. Currently only local context routing is supported
 func (ctx *Context) Send(messages Messages) error {
   for _, msg := range(messages) {
+    if msg.Dest == ZeroID {
+      panic("Can't send to null ID")
+    }
     target, err := ctx.GetNode(msg.Dest)
     if err == nil {
       select {

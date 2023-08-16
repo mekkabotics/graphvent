@@ -28,7 +28,6 @@ const (
   LinkStartSignalType  = SignalType("LINK_START")
   ECDHSignalType       = SignalType("ECDH")
   ECDHProxySignalType  = SignalType("ECDH_PROXY")
-  GQLStateSignalType   = SignalType("GQL_STATE")
   ACLTimeoutSignalType = SignalType("ACL_TIMEOUT")
 
   Up SignalDirection = iota

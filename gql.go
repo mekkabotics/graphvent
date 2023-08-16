@@ -808,12 +808,17 @@ func NewGQLExtContext() *GQLExtContext {
     Fields: graphql.Fields{},
   })
 
+  subscription := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Subscription",
+    Fields: graphql.Fields{},
+  })
+
   context := GQLExtContext{
     Schema: graphql.Schema{},
     Types: []graphql.Type{},
     Query: query,
     Mutation: mutation,
-    Subscription: nil,
+    Subscription: subscription,
     NodeTypes: map[NodeType]*graphql.Object{},
     Interfaces: map[string]*Interface{},
     Fields: map[string]Field{},
@@ -872,9 +877,9 @@ func NewGQLExtContext() *GQLExtContext {
       "requirements",
       LockableExtType,
       func(p graphql.ResolveParams, val interface{}) ([]NodeID, error) {
-        id_strs, ok := val.(map[NodeID]string)
+        id_strs, ok := val.(map[NodeID]ReqState)
         if ok == false {
-          return nil, fmt.Errorf("can't parse requirements %+v as string, %s", val, reflect.TypeOf(val))
+          return nil, fmt.Errorf("can't parse requirements %+v as map[NodeID]ReqState, %s", val, reflect.TypeOf(val))
         }
 
         ids := []NodeID{}
@@ -906,6 +911,20 @@ func NewGQLExtContext() *GQLExtContext {
     Type: graphql.String,
     Resolve: func(p graphql.ResolveParams) (interface{}, error) {
       return nil, fmt.Errorf("NOT_IMPLEMENTED")
+    },
+  })
+
+  context.Subscription.AddFieldConfig("Self", &graphql.Field{
+    Type: graphql.String,
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      return p.Source, nil
+    },
+    Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
+      c := make(chan interface{}, 10)
+      for i := 0; i < 10; i++ {
+        c <- fmt.Sprintf("test %d", i)
+      }
+      return c, nil
     },
   })
 
@@ -976,7 +995,6 @@ type GQLExt struct {
   resolver_response map[uuid.UUID]chan Signal `json:"-"`
   resolver_response_lock sync.RWMutex `json:"-"`
 
-  State string `json:"state"`
   TLSKey []byte `json:"tls_key"`
   TLSCert []byte `json:"tls_cert"`
   Listen string `json:"listen"`
@@ -990,6 +1008,13 @@ func (ext *GQLExt) Field(name string) interface{} {
   })
 }
 
+func (ext *GQLExt) FindResponseChannel(req_id uuid.UUID) chan Signal {
+  ext.resolver_response_lock.RLock()
+  response_chan, _ := ext.resolver_response[req_id]
+  ext.resolver_response_lock.RUnlock()
+  return response_chan
+}
+
 func (ext *GQLExt) GetResponseChannel(req_id uuid.UUID) chan Signal {
   response_chan := make(chan Signal, 1)
   ext.resolver_response_lock.Lock()
@@ -999,18 +1024,14 @@ func (ext *GQLExt) GetResponseChannel(req_id uuid.UUID) chan Signal {
 }
 
 func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
-  ext.resolver_response_lock.RLock()
-  response_chan, exists := ext.resolver_response[req_id]
-  ext.resolver_response_lock.RUnlock()
+  response_chan := ext.FindResponseChannel(req_id)
 
-  if exists == true {
+  if response_chan != nil {
     ext.resolver_response_lock.Lock()
     delete(ext.resolver_response, req_id)
     ext.resolver_response_lock.Unlock()
-    return response_chan
-  } else {
-    return nil
   }
+  return response_chan
 }
 
 func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
@@ -1033,7 +1054,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     }
   } else if signal.Type() == ReadResultSignalType {
     sig := signal.(*ReadResultSignal)
-    response_chan := ext.FreeResponseChannel(sig.ReqID())
+    response_chan := ext.FindResponseChannel(sig.ReqID())
     if response_chan != nil {
       select {
       case response_chan <- sig:
@@ -1044,46 +1065,13 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
-  } else if signal.Type() == GQLStateSignalType {
-    sig := signal.(*StringSignal)
-    ctx.Log.Logf("gql", "GQL_STATE_SIGNAL: %s - %+v", node.ID, sig.Str)
-    switch sig.Str {
-    case "start_server":
-      if ext.State == "stopped" {
-        err := ext.StartGQLServer(ctx, node)
-        if err == nil {
-          ext.State = "running"
-          node.QueueSignal(time.Now(), NewStatusSignal("server_started", node.ID))
-        } else {
-          ctx.Log.Logf("gql", "GQL_START_ERROR: %s", err)
-        }
-      }
-    case "stop_server":
-      if ext.State == "running" {
-        err := ext.StopGQLServer()
-        if err == nil {
-          ext.State = "stopped"
-          node.QueueSignal(time.Now(), NewStatusSignal("server_stopped", node.ID))
-        } else {
-          ctx.Log.Logf("gql", "GQL_STOP_ERROR: %s", err)
-        }
-      }
-    default:
-      ctx.Log.Logf("gql", "unknown gql state %s", sig.Str)
-    }
   } else if signal.Type() == StartSignalType {
-    ctx.Log.Logf("gql", "starting with state: %s", ext.State)
-    switch ext.State {
-    case "running":
-      err := ext.StartGQLServer(ctx, node)
-      if err == nil {
-        node.QueueSignal(time.Now(), NewStatusSignal("server_started", node.ID))
-      } else {
-        ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
-      }
-    case "stopped":
-    default:
-      ctx.Log.Logf("gql", "unknown state to restore from: %s", ext.State)
+    ctx.Log.Logf("gql", "starting gql server %s", node.ID)
+    err := ext.StartGQLServer(ctx, node)
+    if err == nil {
+      node.QueueSignal(time.Now(), NewStatusSignal("server_started", node.ID))
+    } else {
+      ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
   }
   return messages
@@ -1118,7 +1106,7 @@ func (ext *GQLExt) Deserialize(ctx *Context, data []byte) error {
   return json.Unmarshal(data, &ext)
 }
 
-func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, state string) (*GQLExt, error) {
+func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*GQLExt, error) {
   if tls_cert == nil || tls_key == nil {
     ssl_key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
     if err != nil {
@@ -1159,7 +1147,6 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte, sta
     tls_key = ssl_key_pem
   }
   return &GQLExt{
-    State: state,
     Listen: listen,
     resolver_response: map[uuid.UUID]chan Signal{},
     TLSCert: tls_cert,
