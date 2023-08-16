@@ -185,6 +185,37 @@ func (ext *LockableExt) HandleErrorSignal(log Logger, node *Node, source NodeID,
   return msgs
 }
 
+func (ext *LockableExt) HandleLinkSignal(log Logger, node *Node, source NodeID, signal *IDStringSignal) Messages {
+  id := signal.NodeID
+  action := signal.Str
+  msgs := Messages {}
+  if ext.State == Unlocked {
+    switch action {
+    case "add":
+      _, exists := ext.Requirements[id]
+      if exists == true {
+        msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_requirement"), source)
+      } else {
+        ext.Requirements[id] = Unlocked
+        msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "req_added"), source)
+      }
+    case "remove":
+      _, exists := ext.Requirements[id]
+      if exists == false {
+        msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
+      } else {
+        delete(ext.Requirements, id)
+        msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "req_removed"), source)
+      }
+    default:
+      msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "unknown_action"), source)
+    }
+  } else {
+    msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocked"), source)
+  }
+  return msgs
+}
+
 // Handle a LockSignal and update the extensions owner/requirement states
 func (ext *LockableExt) HandleLockSignal(log Logger, node *Node, source NodeID, signal *StringSignal) Messages {
   state := signal.Str
@@ -321,6 +352,8 @@ func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal 
     }
   case Direct:
     switch signal.Type() {
+    case LinkSignalType:
+      messages = ext.HandleLinkSignal(ctx.Log, node, source, signal.(*IDStringSignal))
     case LockSignalType:
       messages = ext.HandleLockSignal(ctx.Log, node, source, signal.(*StringSignal))
     case ErrorSignalType:

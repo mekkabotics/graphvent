@@ -232,9 +232,10 @@ func NewStatusSignal(status string, source NodeID) Signal {
   }
 }
 
-func NewLinkSignal(state string) Signal {
-  return &StringSignal{
+func NewLinkSignal(state string, id NodeID) Signal {
+  return &IDStringSignal{
     BaseSignal: NewBaseSignal(LinkSignalType, Direct),
+    NodeID: id,
     Str: state,
   }
 }
