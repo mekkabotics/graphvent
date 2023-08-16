@@ -18,7 +18,7 @@ func lockableTestContext(t *testing.T, logs []string) *Context {
 }
 
 func TestLink(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"listener"})
+  ctx := lockableTestContext(t, []string{"lockable"})
 
   l1_pub, l1_key, err := ed25519.GenerateKey(rand.Reader)
   fatalErr(t, err)
@@ -39,10 +39,20 @@ func TestLink(t *testing.T) {
   l1_listener := NewListenerExt(10)
   l1 := NewNode(ctx, l1_key, TestLockableType, 10, nil,
                  l1_listener,
-                 NewLockableExt([]NodeID{l2.ID}),
+                 NewLockableExt(nil),
                )
 
   msgs := Messages{}
+  msgs = msgs.Add(l1.ID, l1.Key, NewLinkSignal("add", l2.ID), l1.ID)
+  err = ctx.Send(msgs)
+  fatalErr(t, err)
+
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, ErrorSignalType, func(sig *ErrorSignal) bool {
+    return sig.Error == "req_added"
+  })
+  fatalErr(t, err)
+
+  msgs = Messages{}
   s := NewBaseSignal("TEST", Down)
   msgs = msgs.Add(l1.ID, l1.Key, &s, l1.ID)
   err = ctx.Send(msgs)
@@ -57,9 +67,36 @@ func TestLink(t *testing.T) {
     return sig.ID() == s.ID()
   })
   fatalErr(t, err)
+
+  msgs = Messages{}
+  msgs = msgs.Add(l1.ID, l1.Key, NewLinkSignal("remove", l2.ID), l1.ID)
+  err = ctx.Send(msgs)
+  fatalErr(t, err)
+
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, ErrorSignalType, func(sig *ErrorSignal) bool {
+    return sig.Error == "req_removed"
+  })
+  fatalErr(t, err)
+
+  msgs = Messages{}
+  s = NewBaseSignal("TEST", Down)
+  msgs = msgs.Add(l1.ID, l1.Key, &s, l1.ID)
+  err = ctx.Send(msgs)
+  fatalErr(t, err)
+
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, "TEST", func(sig *BaseSignal) bool {
+    return sig.ID() == s.ID()
+  })
+  fatalErr(t, err)
+
+  select {
+  case <- l2_listener.Chan:
+    t.Fatal("Recevied message on l2 after removing link")
+  default:
+  }
 }
 
-func TestLink10K(t *testing.T) {
+func Test10KLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test"})
 
   l_pub, listener_key, err := ed25519.GenerateKey(rand.Reader)

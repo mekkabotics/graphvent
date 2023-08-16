@@ -196,6 +196,9 @@ func (ext *LockableExt) HandleLinkSignal(log Logger, node *Node, source NodeID, 
       if exists == true {
         msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "already_requirement"), source)
       } else {
+        if ext.Requirements == nil {
+          ext.Requirements = map[NodeID]ReqState{}
+        }
         ext.Requirements[id] = Unlocked
         msgs = msgs.Add(node.ID, node.Key, NewErrorSignal(signal.ID(), "req_added"), source)
       }
