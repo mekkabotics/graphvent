@@ -196,10 +196,10 @@ func (signal *ErrorSignal) String() string {
   return string(ser)
 }
 
-func NewErrorSignal(req_id uuid.UUID, err string) Signal {
+func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) Signal {
   return &ErrorSignal{
     NewRespSignal(req_id, ErrorSignalType, Direct),
-    err,
+    fmt.Sprintf(fmt_string, args...),
   }
 }
 
