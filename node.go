@@ -609,6 +609,19 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     policies = map[PolicyType]Policy{}
   }
 
+  default_policy := NewAllNodesPolicy(Tree{
+    ErrorSignalType.String(): nil,
+    ReadResultSignalType.String(): nil,
+    StatusSignalType.String(): nil,
+  })
+
+  all_nodes_policy, exists := policies[AllNodesPolicyType]
+  if exists == true {
+    policies[AllNodesPolicyType] = all_nodes_policy.Merge(&default_policy)
+  } else {
+    policies[AllNodesPolicyType] = &default_policy
+  }
+
   node := &Node{
     Key: key,
     ID: id,
@@ -816,6 +829,9 @@ func (node NodeDB) Serialize() []byte {
   for _, extension := range(node.Extensions) {
     ser = append(ser, extension.Serialize()...)
   }
+  for _, policy := range(node.Policies) {
+    ser = append(ser, policy.Serialize()...)
+  }
   for _, qsignal := range(node.QueuedSignals) {
     ser = append(ser, qsignal.Serialize()...)
   }
@@ -848,6 +864,18 @@ func (extension ExtensionDB) Serialize() []byte {
   return append(header_bytes, extension.Data...)
 }
 
+func (header PolicyDBHeader) Serialize() []byte {
+  ret := make([]byte, POLICY_DB_HEADER_LEN)
+  binary.BigEndian.PutUint64(ret[0:8], header.TypeHash)
+  binary.BigEndian.PutUint64(ret[0:8], header.Length)
+  return ret
+}
+
+func (policy PolicyDB) Serialize() []byte {
+  header_bytes := policy.Header.Serialize()
+  return append(header_bytes, policy.Data...)
+}
+
 // Write a node to the database
 func WriteNode(ctx *Context, node *Node) error {
   ctx.Log.Logf("db", "DB_WRITE: %s", node.ID)
@@ -856,6 +884,8 @@ func WriteNode(ctx *Context, node *Node) error {
   if err != nil {
     return err
   }
+
+  ctx.Log.Logf("db_data", "DB_DATA: %+v", bytes)
 
   id_bytes := node.ID.Serialize()
   ctx.Log.Logf("db", "DB_WRITE_ID: %+v", id_bytes)

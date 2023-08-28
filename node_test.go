@@ -8,7 +8,7 @@ import (
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"signal", "node"})
+  ctx := logTestContext(t, []string{"signal", "node", "db"})
   node_type := NodeType("test")
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
@@ -21,7 +21,7 @@ func TestNodeDB(t *testing.T) {
 }
 
 func TestNodeRead(t *testing.T) {
-  ctx := logTestContext(t, []string{})
+  ctx := logTestContext(t, []string{"test"})
   node_type := NodeType("TEST")
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType, ECDHExtType})
   fatalErr(t, err)
@@ -37,15 +37,17 @@ func TestNodeRead(t *testing.T) {
   ctx.Log.Logf("test", "N1: %s", n1_id)
   ctx.Log.Logf("test", "N2: %s", n2_id)
 
-  policy := NewAllNodesPolicy(nil)
+  n1_policy := NewPerNodePolicy(map[NodeID]Tree{
+    n2_id: Tree{
+      ReadSignalType.String(): nil,
+    },
+  })
 
   n2_listener := NewListenerExt(10)
-  n2 := NewNode(ctx, n2_key, node_type, 10, map[PolicyType]Policy{
-    AllNodesPolicyType: &policy,
-  }, NewGroupExt(nil), NewECDHExt(), n2_listener)
+  n2 := NewNode(ctx, n2_key, node_type, 10, nil, NewGroupExt(nil), NewECDHExt(), n2_listener)
 
   n1 := NewNode(ctx, n1_key, node_type, 10, map[PolicyType]Policy{
-    AllNodesPolicyType: &policy,
+    PerNodePolicyType: &n1_policy,
   }, NewGroupExt(nil), NewECDHExt())
 
   read_sig := NewReadSignal(map[ExtType][]string{
