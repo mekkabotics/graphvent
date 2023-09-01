@@ -1,6 +1,8 @@
 module github.com/mekkanized/graphvent
 
-go 1.20
+go 1.21.0
+
+replace github.com/mekkanized/graphvent/signal v0.0.0 => ./signal
 
 require (
 	github.com/dgraph-io/badger/v3 v3.2103.5
@@ -11,6 +13,7 @@ require (
 )
 
 require (
+	capnproto.org/go/capnp/v3 v3.0.0-alpha-29 // indirect
 	github.com/cespare/xxhash v1.1.0 // indirect
 	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/dgraph-io/badger/v4 v4.1.0 // indirect
@@ -28,8 +31,11 @@ require (
 	github.com/klauspost/compress v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect
+	github.com/mekkanized/graphvent/signal v0.0.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	go.opencensus.io v0.22.5 // indirect
 	golang.org/x/net v0.7.0 // indirect
+	golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9 // indirect
 	golang.org/x/sys v0.6.0 // indirect
+	zenhack.net/go/util v0.0.0-20230414204917-531d38494cf5 // indirect
 )

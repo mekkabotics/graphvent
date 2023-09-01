@@ -12,16 +12,8 @@ func (ext *GroupExt) Type() ExtType {
   return GroupExtType
 }
 
-func (ext *GroupExt) Serialize() ([]byte, error) {
+func (ext *GroupExt) MarshalBinary() ([]byte, error) {
   return json.Marshal(ext)
-}
-
-func (ext *GroupExt) Field(name string) interface{} {
-  return ResolveFields(ext, name, map[string]func(*GroupExt)interface{}{
-    "members": func(ext *GroupExt) interface{} {
-      return ext.Members
-    },
-  })
 }
 
 func NewGroupExt(members map[NodeID]string) *GroupExt {

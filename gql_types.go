@@ -16,10 +16,10 @@ func AddNodeFields(object *graphql.Object) {
   })
 }
 
-func NewGQLNodeType(node_type NodeType, interfaces []*graphql.Interface, init func(*Type)) *Type {
+func NewGQLNodeType(gql_name string, node_type NodeType, interfaces []*graphql.Interface, init func(*Type)) *Type {
   var gql Type
   gql.Type = graphql.NewObject(graphql.ObjectConfig{
-    Name: string(node_type),
+    Name: gql_name,
     Interfaces: interfaces,
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
       node, ok := p.Value.(NodeResult)

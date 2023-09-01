@@ -36,7 +36,7 @@ func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTy
       return false
     }
 
-    node_type_def, exists := ctx.Context.Types[Hash(node.Result.NodeType)]
+    node_type_def, exists := ctx.Context.Nodes[node.Result.NodeType]
     if exists == false {
       return false
     } else {
@@ -73,7 +73,7 @@ func NodeInterfaceResolveType(required_extensions []ExtType, default_type **grap
     gql_type, exists := ctx.GQLContext.NodeTypes[node.Result.NodeType]
     ctx.Context.Log.Logf("gql", "GQL_INTERFACE_RESOLVE_TYPE(%+v): %+v - %t - %+v - %+v", node, gql_type, exists, required_extensions, *default_type)
     if exists == false {
-      node_type_def, exists := ctx.Context.Types[Hash(node.Result.NodeType)]
+      node_type_def, exists := ctx.Context.Nodes[node.Result.NodeType]
       if exists == false {
         return nil
       } else {

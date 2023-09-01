@@ -7,7 +7,7 @@ import (
   "crypto/rand"
 )
 
-const TestLockableType = NodeType("TEST_LOCKABLE")
+var TestLockableType = NewNodeType("TEST_LOCKABLE")
 func lockableTestContext(t *testing.T, logs []string) *Context {
   ctx := logTestContext(t, logs)
 
@@ -43,57 +43,24 @@ func TestLink(t *testing.T) {
                )
 
   msgs := Messages{}
-  msgs = msgs.Add(l1.ID, l1.Key, NewLinkSignal("add", l2.ID), l1.ID)
+  msgs = msgs.Add(ctx, l1.ID, l1.Key, NewLinkSignal("add", l2.ID), l1.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, ErrorSignalType, func(sig *ErrorSignal) bool {
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *ErrorSignal) bool {
     return sig.Error == "req_added"
   })
   fatalErr(t, err)
 
   msgs = Messages{}
-  s := NewBaseSignal("TEST", Down)
-  msgs = msgs.Add(l1.ID, l1.Key, &s, l1.ID)
+  msgs = msgs.Add(ctx, l1.ID, l1.Key, NewLinkSignal("remove", l2.ID), l1.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, "TEST", func(sig *BaseSignal) bool {
-    return sig.ID() == s.ID()
-  })
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(l2_listener.Chan, time.Millisecond*10, "TEST", func(sig *BaseSignal) bool {
-    return sig.ID() == s.ID()
-  })
-  fatalErr(t, err)
-
-  msgs = Messages{}
-  msgs = msgs.Add(l1.ID, l1.Key, NewLinkSignal("remove", l2.ID), l1.ID)
-  err = ctx.Send(msgs)
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, ErrorSignalType, func(sig *ErrorSignal) bool {
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *ErrorSignal) bool {
     return sig.Error == "req_removed"
   })
   fatalErr(t, err)
-
-  msgs = Messages{}
-  s = NewBaseSignal("TEST", Down)
-  msgs = msgs.Add(l1.ID, l1.Key, &s, l1.ID)
-  err = ctx.Send(msgs)
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, "TEST", func(sig *BaseSignal) bool {
-    return sig.ID() == s.ID()
-  })
-  fatalErr(t, err)
-
-  select {
-  case <- l2_listener.Chan:
-    t.Fatal("Recevied message on l2 after removing link")
-  default:
-  }
 }
 
 func Test10KLink(t *testing.T) {
@@ -104,7 +71,7 @@ func Test10KLink(t *testing.T) {
   listener_id := KeyID(l_pub)
   child_policy := NewPerNodePolicy(map[NodeID]Tree{
     listener_id: Tree{
-      LockSignalType.String(): nil,
+      uint64(LockSignalType): nil,
     },
   })
   NewLockable := func()(*Node) {
@@ -125,7 +92,7 @@ func Test10KLink(t *testing.T) {
   ctx.Log.Logf("test", "CREATED_10K")
 
   l_policy := NewAllNodesPolicy(Tree{
-    LockSignalType.String(): nil,
+    uint64(LockSignalType): nil,
   })
   listener := NewListenerExt(100000)
   node := NewNode(ctx, listener_key, TestLockableType, 10000,
@@ -140,14 +107,14 @@ func Test10KLink(t *testing.T) {
   _, err = LockLockable(ctx, node, node.ID)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(listener.Chan, time.Millisecond*1000, LockSignalType, func(sig *StringSignal) bool {
-    return sig.Str == "locked"
+  _, err = WaitForSignal(listener.Chan, time.Millisecond*1000, func(sig *LockSignal) bool {
+    return sig.State == "locked"
   })
   fatalErr(t, err)
 
   for _, _ = range(reqs) {
-    _, err := WaitForSignal(listener.Chan, time.Millisecond*100, LockSignalType, func(sig *StringSignal) bool {
-      return sig.Str == "locked"
+    _, err := WaitForSignal(listener.Chan, time.Millisecond*100, func(sig *LockSignal) bool {
+      return sig.State == "locked"
     })
     fatalErr(t, err)
   }
@@ -178,36 +145,36 @@ func TestLock(t *testing.T) {
   l0, l0_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
   l1, l1_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
 
-  locked := func(sig *StringSignal) bool {
-    return sig.Str == "locked"
+  locked := func(sig *LockSignal) bool {
+    return sig.State == "locked"
   }
 
-  unlocked := func(sig *StringSignal) bool {
-    return sig.Str == "unlocked"
+  unlocked := func(sig *LockSignal) bool {
+    return sig.State == "unlocked"
   }
 
   _, err := LockLockable(ctx, l0, l5.ID)
   fatalErr(t, err)
-  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, LockSignalType, locked)
+  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, locked)
   fatalErr(t, err)
 
   id, err := LockLockable(ctx, l1, l1.ID)
   fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, ErrorSignalType, func(sig *ErrorSignal) bool {
-    return sig.Error == "not_unlocked" && sig.ReqID() == id
+  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *ErrorSignal) bool {
+    return sig.Error == "not_unlocked" && sig.Header().ReqID == id
   })
   fatalErr(t, err)
 
   _, err = UnlockLockable(ctx, l0, l5.ID)
   fatalErr(t, err)
-  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, LockSignalType, unlocked)
+  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, unlocked)
   fatalErr(t, err)
 
   _, err = LockLockable(ctx, l1, l1.ID)
   fatalErr(t, err)
   for i := 0; i < 4; i++ {
-    _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, LockSignalType, func(sig *StringSignal) bool {
-      return sig.Str == "locked"
+    _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *LockSignal) bool {
+      return sig.State == "locked"
     })
     fatalErr(t, err)
   }

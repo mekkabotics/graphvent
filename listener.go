@@ -18,19 +18,8 @@ func NewListenerExt(buffer int) *ListenerExt {
   }
 }
 
-func (ext *ListenerExt) Field(name string) interface{} {
-  return ResolveFields(ext, name, map[string]func(*ListenerExt)interface{}{
-    "buffer": func(ext *ListenerExt) interface{} {
-      return ext.Buffer
-    },
-    "chan": func(ext *ListenerExt) interface{} {
-      return ext.Chan
-    },
-  })
-}
-
 // Simple load function, unmarshal the buffer int from json
-func (ext *ListenerExt) Deserialize(ctx *Context, data []byte) error {
+func (ext *ListenerExt) DeserializeListenerExt(ctx *Context, data []byte) error {
   err := json.Unmarshal(data, &ext.Buffer)
   ext.Chan = make(chan Signal, ext.Buffer)
   return err
@@ -51,6 +40,6 @@ func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal 
   return nil
 }
 
-func (ext *ListenerExt) Serialize() ([]byte, error) {
+func (ext *ListenerExt) MarshalBinary() ([]byte, error) {
   return json.Marshal(ext.Buffer)
 }

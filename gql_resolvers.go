@@ -81,6 +81,6 @@ func ResolveNodeID(p graphql.ResolveParams) (interface{}, error) {
 
 func ResolveNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
   return ResolveNodeResult(p, func(p graphql.ResolveParams, node NodeResult) (interface{}, error) {
-    return Hash(node.Result.NodeType), nil
+    return uint64(node.Result.NodeType), nil
   })
 }

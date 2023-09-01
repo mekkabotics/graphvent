@@ -1,12 +1,15 @@
 # Ignore everything
 *
+!/go-capnp
 
 # But not these files...
 !/.gitignore
 
 !*.go
+*.capnp.go
 !go.sum
 !go.mod
+!*.capnp
 
 !README.md
 !LICENSE

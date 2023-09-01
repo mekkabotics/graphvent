@@ -205,7 +205,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
   if err != nil {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from id_bytes %+v", id_bytes)
   }
-  auth_id := NodeID{auth_uuid}
+  auth_id := NodeID(auth_uuid)
 
   key_bytes, err := base64.StdEncoding.DecodeString(key_b64)
   if err != nil {
@@ -234,7 +234,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
     Ext: gql_ext,
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
-    GQLContext: ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext),
+    GQLContext: ctx.Extensions[GQLExtType].Data.(*GQLExtContext),
     Server: server,
     User: key_id,
     Key: key,
@@ -270,7 +270,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     query := GQLPayload{}
     json.Unmarshal(str, &query)
 
-    gql_context := ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext)
+    gql_context := ctx.Extensions[GQLExtType].Data.(*GQLExtContext)
 
     params := graphql.Params{
       Schema: gql_context.Schema,
@@ -401,7 +401,7 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
           }
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
-          gql_context := ctx.Extensions[Hash(GQLExtType)].Data.(*GQLExtContext)
+          gql_context := ctx.Extensions[GQLExtType].Data.(*GQLExtContext)
           params := graphql.Params{
             Schema: gql_context.Schema,
             Context: req_ctx,
@@ -543,7 +543,7 @@ func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
   return graphql.NewSchema(schemaConfig)
 }
 
-func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name string, ext_type ExtType, acl_name string, resolve_fn func(graphql.ResolveParams, T)(interface{}, error)) error {
+func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, ext_type ExtType, acl_name string, resolve_fn func(graphql.ResolveParams, SerializedValue)(interface{}, error)) error {
   if ctx == nil {
     return fmt.Errorf("ctx is nil")
   }
@@ -561,21 +561,19 @@ func RegisterField[T any](ctx *GQLExtContext, gql_type graphql.Type, gql_name st
     return ResolveNodeResult(p, func(p graphql.ResolveParams, result NodeResult) (interface{}, error) {
       ext, exists := result.Result.Extensions[ext_type]
       if exists == false {
-        return nil, fmt.Errorf("%s is not in the extensions of the result", ext_type)
+        return nil, fmt.Errorf("%+v is not in the extensions of the result", ext_type)
       }
 
-      val_if, exists := ext[acl_name]
+      val_ser, exists := ext[acl_name]
       if exists == false {
-        return nil, fmt.Errorf("%s is not in the fields of %s in the result", acl_name, ext_type)
+        return nil, fmt.Errorf("%s is not in the fields of %+v in the result", acl_name, ext_type)
       }
 
-      var zero T
-      val, ok := val_if.(T)
-      if ok == false {
-        return nil, fmt.Errorf("%s.%s is not %s", ext_type, acl_name, reflect.TypeOf(zero))
+      if val_ser.TypeStack[0] == uint64(ErrorType) {
+        return nil, fmt.Errorf(string(val_ser.Data))
       }
 
-      return resolve_fn(p, val)
+      return resolve_fn(p, val_ser)
     })
   }
 
@@ -681,8 +679,8 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
 
   for field_name, field := range(self_fields) {
     self_field := field
-    err := RegisterField(ctx, ctx_interface.Interface, field_name, self_field.Extension, self_field.ACLName,
-    func(p graphql.ResolveParams, val interface{})(interface{}, error) {
+    err := ctx.RegisterField(ctx_interface.Interface, field_name, self_field.Extension, self_field.ACLName,
+    func(p graphql.ResolveParams, val SerializedValue)(interface{}, error) {
       ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
@@ -715,7 +713,7 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
 
   for field_name, field := range(list_fields) {
     list_field := field
-    resolve_fn := func(p graphql.ResolveParams, val interface{})(interface{}, error) {
+    resolve_fn := func(p graphql.ResolveParams, val SerializedValue)(interface{}, error) {
       ctx, err := PrepResolve(p)
       if err != nil {
         return nil, err
@@ -736,7 +734,7 @@ func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, in
       return nodes, nil
     }
 
-    err := RegisterField(ctx, ctx_interface.List, field_name, list_field.Extension, list_field.ACLName, resolve_fn)
+    err := ctx.RegisterField(ctx_interface.List, field_name, list_field.Extension, list_field.ACLName, resolve_fn)
     if err != nil {
       return err
     }
@@ -764,7 +762,7 @@ func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, name string, inte
 
   _, exists := ctx.NodeTypes[node_type]
   if exists == true {
-    return fmt.Errorf("%s already in GQLExtContext.NodeTypes", node_type)
+    return fmt.Errorf("%+v already in GQLExtContext.NodeTypes", node_type)
   }
 
   node_interfaces, err := GQLInterfaces(ctx, interface_names)
@@ -830,19 +828,20 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = RegisterField(&context, context.Interfaces["Node"].List, "Members", GroupExtType, "members",
-                      func(p graphql.ResolveParams, val map[NodeID]string)(interface{}, error) {
+  err = context.RegisterField(context.Interfaces["Node"].List, "Members", GroupExtType, "members",
+                      func(p graphql.ResolveParams, val SerializedValue)(interface{}, error) {
                         ctx, err := PrepResolve(p)
                         if err != nil {
                           return nil, err
                         }
-                        node_list := make([]NodeID, len(val))
+                        /*node_list := make([]NodeID, len(val))
                         i := 0
                         for id, _ := range(val) {
                           node_list[i] = id
                           i += 1
                         }
-
+                        */
+                        node_list := []NodeID{}
                         nodes, err := ResolveNodes(ctx, p, node_list)
                         if err != nil {
                           return nil, err
@@ -895,7 +894,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = RegisterField(&context, graphql.String, "Listen", GQLExtType, "listen", func(p graphql.ResolveParams, listen string) (interface{}, error) {
+  err = context.RegisterField(graphql.String, "Listen", GQLExtType, "listen", func(p graphql.ResolveParams, listen SerializedValue) (interface{}, error) {
     return listen, nil
   })
   if err != nil {
@@ -1000,14 +999,6 @@ type GQLExt struct {
   Listen string `json:"listen"`
 }
 
-func (ext *GQLExt) Field(name string) interface{} {
-  return ResolveFields(ext, name, map[string]func(*GQLExt)interface{}{
-    "listen": func(ext *GQLExt) interface{} {
-      return ext.Listen
-    },
-  })
-}
-
 func (ext *GQLExt) FindResponseChannel(req_id uuid.UUID) chan Signal {
   ext.resolver_response_lock.RLock()
   response_chan, _ := ext.resolver_response[req_id]
@@ -1036,11 +1027,10 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
 
 func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
-  messages := Messages{}
-  if signal.Type() == ErrorSignalType {
+  switch sig := signal.(type) {
+  case *ErrorSignal:
     // TODO: Forward to resolver if waiting for it
-    sig := signal.(*ErrorSignal)
-    response_chan := ext.FreeResponseChannel(sig.ReqID())
+    response_chan := ext.FreeResponseChannel(sig.Header().ReqID)
     if response_chan != nil {
       select {
       case response_chan <- sig:
@@ -1052,9 +1042,8 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "received error signal response %+v with no mapped resolver", sig)
     }
-  } else if signal.Type() == ReadResultSignalType {
-    sig := signal.(*ReadResultSignal)
-    response_chan := ext.FindResponseChannel(sig.ReqID())
+  case *ReadResultSignal:
+    response_chan := ext.FindResponseChannel(sig.ReqID)
     if response_chan != nil {
       select {
       case response_chan <- sig:
@@ -1065,23 +1054,23 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
-  } else if signal.Type() == StartSignalType {
+  case *StartSignal:
     ctx.Log.Logf("gql", "starting gql server %s", node.ID)
     err := ext.StartGQLServer(ctx, node)
     if err == nil {
-      node.QueueSignal(time.Now(), NewStatusSignal("server_started", node.ID))
+      node.QueueSignal(time.Now(), NewStatusSignal(node.ID, "server_started"))
     } else {
       ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
   }
-  return messages
+  return nil
 }
 
 func (ext *GQLExt) Type() ExtType {
   return GQLExtType
 }
 
-func (ext *GQLExt) Serialize() ([]byte, error) {
+func (ext *GQLExt) MarshalBinary() ([]byte, error) {
   return json.Marshal(ext)
 }
 

@@ -6,7 +6,7 @@ import (
   badger "github.com/dgraph-io/badger/v3"
 )
 
-const SimpleListenerNodeType = NodeType("SIMPLE_LISTENER")
+var SimpleListenerNodeType = NewNodeType("SIMPLE_LISTENER")
 
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
   listener_extension := NewListenerExt(buffer)
