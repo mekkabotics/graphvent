@@ -8,9 +8,9 @@ import (
 
 var SimpleListenerNodeType = NewNodeType("SIMPLE_LISTENER")
 
-func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
+func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt, error) {
   listener_extension := NewListenerExt(buffer)
-  listener := NewNode(ctx,
+  listener, err := NewNode(ctx,
                       nil,
                       SimpleListenerNodeType,
                       10,
@@ -18,7 +18,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt) {
                       listener_extension,
                       NewLockableExt(nil))
 
-  return listener, listener_extension
+  return listener, listener_extension, err
 }
 
 func logTestContext(t * testing.T, components []string) *Context {

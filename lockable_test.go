@@ -28,19 +28,21 @@ func TestLink(t *testing.T) {
   })
 
   l2_listener := NewListenerExt(10)
-  l2 := NewNode(ctx, nil, TestLockableType, 10,
+  l2, err := NewNode(ctx, nil, TestLockableType, 10,
                 map[PolicyType]Policy{
                   PerNodePolicyType: &policy,
                 },
                   l2_listener,
                   NewLockableExt(nil),
                 )
+  fatalErr(t, err)
 
   l1_listener := NewListenerExt(10)
-  l1 := NewNode(ctx, l1_key, TestLockableType, 10, nil,
+  l1, err := NewNode(ctx, l1_key, TestLockableType, 10, nil,
                  l1_listener,
                  NewLockableExt(nil),
                )
+  fatalErr(t, err)
 
   msgs := Messages{}
   msgs = msgs.Add(ctx, l1.ID, l1.Key, NewLinkSignal("add", l2.ID), l1.ID)
@@ -75,12 +77,13 @@ func Test10KLink(t *testing.T) {
     },
   })
   NewLockable := func()(*Node) {
-    l := NewNode(ctx, nil, TestLockableType, 10,
+    l, err := NewNode(ctx, nil, TestLockableType, 10,
                   map[PolicyType]Policy{
                     PerNodePolicyType: &child_policy,
                   },
                   NewLockableExt(nil),
                 )
+    fatalErr(t, err)
     return l
   }
 
@@ -95,13 +98,14 @@ func Test10KLink(t *testing.T) {
     uint64(LockSignalType): nil,
   })
   listener := NewListenerExt(100000)
-  node := NewNode(ctx, listener_key, TestLockableType, 10000,
+  node, err := NewNode(ctx, listener_key, TestLockableType, 10000,
                 map[PolicyType]Policy{
                   AllNodesPolicyType: &l_policy,
                 },
                 listener,
                 NewLockableExt(reqs),
               )
+  fatalErr(t, err)
   ctx.Log.Logf("test", "CREATED_LISTENER")
 
   _, err = LockLockable(ctx, node, node.ID)
@@ -128,13 +132,14 @@ func TestLock(t *testing.T) {
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(100)
-    l := NewNode(ctx, nil, TestLockableType, 10,
+    l, err := NewNode(ctx, nil, TestLockableType, 10,
                   map[PolicyType]Policy{
                     AllNodesPolicyType: &policy,
                   },
                   listener,
                   NewLockableExt(reqs),
                 )
+    fatalErr(t, err)
     return l, listener
   }
 

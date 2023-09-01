@@ -64,18 +64,20 @@ func TestGQLServer(t *testing.T) {
   fatalErr(t, err)
 
   listener_ext := NewListenerExt(10)
-  n1 := NewNode(ctx, nil, TestNodeType, 10, map[PolicyType]Policy{
+  n1, err := NewNode(ctx, nil, TestNodeType, 10, map[PolicyType]Policy{
     MemberOfPolicyType: &user_policy_2,
     AllNodesPolicyType: &user_policy_1,
   }, NewLockableExt(nil))
+  fatalErr(t, err)
 
-  gql := NewNode(ctx, gql_key, GQLNodeType, 10, map[PolicyType]Policy{
+  gql, err := NewNode(ctx, gql_key, GQLNodeType, 10, map[PolicyType]Policy{
     MemberOfPolicyType: &group_policy_2,
     AllNodesPolicyType: &group_policy_1,
   }, NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt(map[NodeID]string{
     n1.ID: "user",
     gql_id: "self",
   }), listener_ext)
+  fatalErr(t, err)
 
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
   ctx.Log.Logf("test", "NODE: %s", n1.ID)
@@ -213,17 +215,19 @@ func TestGQLDB(t *testing.T) {
   TestUserNodeType := NewNodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
   fatalErr(t, err)
-  u1 := NewNode(ctx, nil, TestUserNodeType, 10, nil)
+  u1, err := NewNode(ctx, nil, TestUserNodeType, 10, nil)
+  fatalErr(t, err)
 
   ctx.Log.Logf("test", "U1_ID: %s", u1.ID)
 
   gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
-  gql := NewNode(ctx, nil, GQLNodeType, 10, nil,
+  gql, err := NewNode(ctx, nil, GQLNodeType, 10, nil,
                  gql_ext,
                  listener_ext,
                  NewGroupExt(nil))
+  fatalErr(t, err)
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
 
   msgs := Messages{}

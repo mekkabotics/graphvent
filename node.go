@@ -562,6 +562,7 @@ func (node *Node) Serialize(ctx *Context) (SerializedValue, error) {
     if err != nil {
       return SerializedValue{}, err
     }
+    ctx.Log.Logf("serialize", "SERIALIZED_EXTENSION: %+v", ext_bytes)
 
     node_bytes = append(node_bytes, ext_bytes...)
   }
@@ -581,13 +582,13 @@ func KeyID(pub ed25519.PublicKey) NodeID {
 
 // Create a new node in memory and start it's event loop
 // TODO: Change panics to errors
-func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, policies map[PolicyType]Policy, extensions ...Extension) *Node {
+func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, policies map[PolicyType]Policy, extensions ...Extension) (*Node, error) {
   var err error
   var public ed25519.PublicKey
   if key == nil {
     public, key, err = ed25519.GenerateKey(rand.Reader)
     if err != nil {
-      panic(err)
+      return nil, err
     }
   } else {
     public = key.Public().(ed25519.PublicKey)
@@ -595,23 +596,23 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
   id := KeyID(public)
   _, exists := ctx.Node(id)
   if exists == true {
-    panic("Attempted to create an existing node")
+    return nil, fmt.Errorf("Attempted to create an existing node")
   }
 
   def, exists := ctx.Nodes[node_type]
   if exists == false {
-    panic("Node type %s not registered in Context")
+    return nil, fmt.Errorf("Node type %+v not registered in Context", node_type)
   }
 
   ext_map := map[ExtType]Extension{}
   for _, ext := range(extensions) {
     ext_type, exists := ctx.ExtensionTypes[reflect.TypeOf(ext)]
     if exists == false {
-      panic(fmt.Sprintf("%+v is not a known Extension", reflect.TypeOf(ext)))
+      return nil, fmt.Errorf(fmt.Sprintf("%+v is not a known Extension", reflect.TypeOf(ext)))
     }
     _, exists = ext_map[ext_type]
     if exists == true {
-      panic("Cannot add the same extension to a node twice")
+      return nil, fmt.Errorf("Cannot add the same extension to a node twice")
     }
     ext_map[ext_type] = ext
   }
@@ -619,7 +620,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
   for _, required_ext := range(def.Extensions) {
     _, exists := ext_map[required_ext]
     if exists == false {
-      panic(fmt.Sprintf("%+v requires %+v", node_type, required_ext))
+      return nil, fmt.Errorf(fmt.Sprintf("%+v requires %+v", node_type, required_ext))
     }
   }
 
@@ -657,14 +658,14 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
 
   err = WriteNode(ctx, node)
   if err != nil {
-    panic(err)
+    return nil, err
   }
 
   node.Process(ctx, ZeroID, NewCreateSignal())
 
   go runNode(ctx, node)
 
-  return node
+  return node, nil
 }
 
 // Write a node to the database

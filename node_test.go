@@ -13,7 +13,8 @@ func TestNodeDB(t *testing.T) {
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
 
-  node := NewNode(ctx, nil, node_type, 10, nil, NewGroupExt(nil), NewLockableExt(nil))
+  node, err := NewNode(ctx, nil, node_type, 10, nil, NewGroupExt(nil), NewLockableExt(nil))
+  fatalErr(t, err)
 
   ctx.nodeMap = map[NodeID]*Node{}
   _, err = ctx.getNode(node.ID)
@@ -44,11 +45,13 @@ func TestNodeRead(t *testing.T) {
   })
 
   n2_listener := NewListenerExt(10)
-  n2 := NewNode(ctx, n2_key, node_type, 10, nil, NewGroupExt(nil), n2_listener)
+  n2, err := NewNode(ctx, n2_key, node_type, 10, nil, NewGroupExt(nil), n2_listener)
+  fatalErr(t, err)
 
-  n1 := NewNode(ctx, n1_key, node_type, 10, map[PolicyType]Policy{
+  n1, err := NewNode(ctx, n1_key, node_type, 10, map[PolicyType]Policy{
     PerNodePolicyType: &n1_policy,
   }, NewGroupExt(nil))
+  fatalErr(t, err)
 
   read_sig := NewReadSignal(map[ExtType][]string{
     GroupExtType: {"members"},
