@@ -5,7 +5,7 @@ import (
 )
 
 type GroupExt struct {
-  Members map[NodeID]string
+  Members map[NodeID]string `gv:"0"`
 }
 
 func (ext *GroupExt) Type() ExtType {

@@ -17,9 +17,9 @@ const (
 )
 
 type SignalHeader struct {
-  Direction SignalDirection
-  ID uuid.UUID
-  ReqID uuid.UUID
+  Direction SignalDirection `gv:"0"`
+  ID uuid.UUID `gv:"1"`
+  ReqID uuid.UUID `gv:"2"`
 }
 
 type Signal interface {

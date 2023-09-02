@@ -8,12 +8,27 @@ import (
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"signal", "node", "db", "db_data", "serialize"})
+  ctx := logTestContext(t, []string{"signal", "node", "db", "db_data", "serialize", "listener"})
   node_type := NewNodeType("test")
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
 
-  node, err := NewNode(ctx, nil, node_type, 10, nil, NewGroupExt(nil), NewLockableExt(nil))
+  node_listener := NewListenerExt(10)
+  node, err := NewNode(ctx, nil, node_type, 10, nil, NewGroupExt(nil), NewLockableExt(nil), node_listener)
+  fatalErr(t, err)
+
+  _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
+    return sig.Status == "started" && sig.Source == node.ID
+  })
+
+  msgs := Messages{}
+  msgs = msgs.Add(ctx, node.ID, node.Key, NewStopSignal(), node.ID)
+  err = ctx.Send(msgs)
+  fatalErr(t, err)
+
+  _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
+    return sig.Status == "stopped" && sig.Source == node.ID
+  })
   fatalErr(t, err)
 
   ctx.nodeMap = map[NodeID]*Node{}

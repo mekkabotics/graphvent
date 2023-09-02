@@ -7,13 +7,11 @@ import (
   "github.com/google/uuid"
   badger "github.com/dgraph-io/badger/v3"
   "fmt"
-  "encoding/binary"
   "sync/atomic"
   "crypto"
   "crypto/ed25519"
   "crypto/sha512"
   "crypto/rand"
-  "crypto/x509"
 )
 
 const (
@@ -90,25 +88,25 @@ type PendingSignal struct {
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
-  Key ed25519.PrivateKey
+  Key ed25519.PrivateKey `gv:"0"`
   ID NodeID
-  Type NodeType
-  Extensions map[ExtType]Extension
-  Policies map[PolicyType]Policy
+  Type NodeType `gv:"1"`
+  Extensions map[ExtType]Extension `gv:"3"`
+  Policies map[PolicyType]Policy `gv:"4"`
 
-  PendingACLs map[uuid.UUID]PendingACL
-  PendingSignals map[uuid.UUID]PendingSignal
+  PendingACLs map[uuid.UUID]PendingACL `gv:"6"`
+  PendingSignals map[uuid.UUID]PendingSignal `gv:"7"`
 
   // Channel for this node to receive messages from the Context
   MsgChan chan *Message
   // Size of MsgChan
-  BufferSize uint32
+  BufferSize uint32 `gv:"2"`
   // Channel for this node to process delayed signals
   TimeoutChan <-chan time.Time
 
   Active atomic.Bool
 
-  SignalQueue []QueuedSignal
+  SignalQueue []QueuedSignal `gv:"5"`
   NextSignal *QueuedSignal
 }
 
@@ -251,12 +249,7 @@ func nodeLoop(ctx *Context, node *Node) error {
     select {
     case msg := <- node.MsgChan:
       ctx.Log.Logf("node_msg", "NODE_MSG: %s - %+v", node.ID, msg.Signal)
-      signal_type, exists := ctx.SignalTypes[reflect.TypeOf(msg.Signal).Elem()]
-      if exists == false {
-        ctx.Log.Logf("signal", "SIGNAL_NOT_REGISTERED: %+v", reflect.TypeOf(msg.Signal).Elem())
-      }
-
-      signal_ser, err := SerializeSignal(ctx, signal, signal_type)
+      signal_ser, err := SerializeValue(ctx, reflect.ValueOf(msg.Signal))
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", err, msg.Signal)
       }
@@ -280,6 +273,8 @@ func nodeLoop(ctx *Context, node *Node) error {
       sig_data = append(sig_data, ser...)
       validated := ed25519.Verify(msg.Principal, sig_data, msg.Signature)
       if validated == false {
+        println(fmt.Sprintf("SIGNAL: %s", msg.Signal))
+        println(fmt.Sprintf("VERIFY_DIGEST: %+v", sig_data))
         ctx.Log.Logf("signal", "SIGNAL_VERIFY_ERR: %s - %+v", node.ID, msg)
         continue
       }
@@ -393,7 +388,7 @@ func nodeLoop(ctx *Context, node *Node) error {
     switch sig := signal.(type) {
     case *StopSignal:
       msgs := Messages{}
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.ID, "stopped"), source)
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewStatusSignal(node.ID, "stopped"), source)
       ctx.Send(msgs)
       node.Process(ctx, node.ID, NewStatusSignal(node.ID, "stopped"))
       run = false
@@ -403,6 +398,8 @@ func nodeLoop(ctx *Context, node *Node) error {
       msgs = msgs.Add(ctx, node.ID, node.Key, NewReadResultSignal(sig.ID, node.ID, node.Type, result), source)
       msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.ID, "read_done"), source)
       ctx.Send(msgs)
+    default:
+      println(fmt.Sprintf("NOT_SPECIAL_SIGNAL: %+v", reflect.TypeOf(sig)))
     }
 
     node.Process(ctx, source, signal)
@@ -442,12 +439,7 @@ func (msgs Messages) Add(ctx *Context, source NodeID, principal ed25519.PrivateK
 }
 
 func NewMessage(ctx *Context, dest NodeID, source NodeID, principal ed25519.PrivateKey, signal Signal) (*Message, error) {
-  signal_type, exists := ctx.SignalTypes[reflect.TypeOf(signal)]
-  if exists == false {
-    return nil, fmt.Errorf("Cannot put %+v in a message, not a known signal type", reflect.TypeOf(signal))
-  }
-
-  signal_ser, err := SerializeSignal(ctx, signal, signal_type)
+  signal_ser, err := SerializeValue(ctx, reflect.ValueOf(signal))
   if err != nil {
     return nil, err
   }
@@ -527,61 +519,12 @@ func GetExt[T Extension](node *Node, ext_type ExtType) (T, error) {
   return ret, nil
 }
 
-func (node *Node) Serialize(ctx *Context) (SerializedValue, error) {
-  if node == nil {
-    return SerializedValue{}, fmt.Errorf("Cannot serialize nil Node")
-  }
-
-  node_bytes := make([]byte, 8 * 3)
-  binary.BigEndian.PutUint64(node_bytes[0:8], uint64(len(node.Extensions)))
-  binary.BigEndian.PutUint64(node_bytes[8:16], uint64(len(node.Policies)))
-  binary.BigEndian.PutUint64(node_bytes[16:24], uint64(len(node.SignalQueue)))
-
-  key_bytes, err := x509.MarshalPKCS8PrivateKey(node.Key)
-  if err != nil {
-    return SerializedValue{}, err
-  }
-
-  key_val := SerializedValue{
-    TypeStack: []uint64{uint64(NodeKeyType)},
-    Data: key_bytes,
-  }
-  key_ser, err := key_val.MarshalBinary()
-  if err != nil {
-    return SerializedValue{}, err
-  }
-  node_bytes = append(node_bytes, key_ser...)
-
-  for ext_type, ext := range(node.Extensions) {
-    ctx.Log.Logf("serialize", "SERIALIZING_EXTENSION: %+v", ext)
-    ext_ser, err := SerializeExtension(ctx, ext, ext_type)
-    if err != nil {
-      return SerializedValue{}, err
-    }
-    ext_bytes, err := ext_ser.MarshalBinary()
-    if err != nil {
-      return SerializedValue{}, err
-    }
-    ctx.Log.Logf("serialize", "SERIALIZED_EXTENSION: %+v", ext_bytes)
-
-    node_bytes = append(node_bytes, ext_bytes...)
-  }
-
-  node_value := SerializedValue{
-    TypeStack: []uint64{uint64(node.Type)},
-    Data: node_bytes,
-  }
-
-  return node_value, nil
-}
-
 func KeyID(pub ed25519.PublicKey) NodeID {
   id := uuid.NewHash(sha512.New(), ZeroUUID, pub, 3)
   return NodeID(id)
 }
 
 // Create a new node in memory and start it's event loop
-// TODO: Change panics to errors
 func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, policies map[PolicyType]Policy, extensions ...Extension) (*Node, error) {
   var err error
   var public ed25519.PublicKey
@@ -647,7 +590,6 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     Type: node_type,
     Extensions: ext_map,
     Policies: policies,
-    //TODO serialize/deserialize these
     PendingACLs: map[uuid.UUID]PendingACL{},
     PendingSignals: map[uuid.UUID]PendingSignal{},
     MsgChan: make(chan *Message, buffer_size),
@@ -672,7 +614,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
 func WriteNode(ctx *Context, node *Node) error {
   ctx.Log.Logf("db", "DB_WRITE: %s", node.ID)
 
-  node_serialized, err := node.Serialize(ctx)
+  node_serialized, err := SerializeValue(ctx, reflect.ValueOf(node))
   if err != nil {
     return err
   }
@@ -694,7 +636,6 @@ func WriteNode(ctx *Context, node *Node) error {
   })
 }
 
-//TODO: fix after capnp
 func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   ctx.Log.Logf("db", "LOADING_NODE: %s", id)
   var bytes []byte
@@ -720,18 +661,27 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
-  num_extensions := binary.BigEndian.Uint64(bytes[0:8])
-  num_policies := binary.BigEndian.Uint64(bytes[8:16])
-  num_signals := binary.BigEndian.Uint64(bytes[16:24])
-  print(num_extensions)
-  print(num_policies)
-  print(num_signals)
+  node_value, err := ParseSerializedValue(ctx, bytes)
+  if err != nil {
+    return nil, err
+  }
+  node_if, remaining, err := DeserializeValue(ctx, node_value, 1)
+  if err != nil {
+    return nil, err
+  }
 
-  /*
-  ctx.AddNode(id, node)
+  if remaining != nil {
+    return nil, fmt.Errorf("%d bytes left after desrializing *Node", len(remaining))
+  }
+
+  node, ok := node_if[0].(*Node)
+  if ok == false {
+    return nil, fmt.Errorf("Deserialized %+v when expecting *Node", reflect.TypeOf(node_if).Elem())
+  }
+
+  ctx.AddNode(id, node) 
   ctx.Log.Logf("db", "DB_NODE_LOADED: %s", id)
   go runNode(ctx, node)
-  */
 
   return nil, nil
 }

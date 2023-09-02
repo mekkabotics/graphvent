@@ -64,12 +64,12 @@ func (policy *RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingA
     return Deny
   }
 
-  reqs_if, err := DeserializeValue(ctx, reqs_ser)
+  reqs_if, _, err := DeserializeValue(ctx, reqs_ser, 1)
   if err != nil {
     return Deny
   }
 
-  requirements, ok := reqs_if.(map[NodeID]ReqState)
+  requirements, ok := reqs_if[0].(map[NodeID]ReqState)
   if ok == false {
     return Deny
   }
@@ -113,17 +113,17 @@ func (policy *MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, s
     return Deny
   }
 
-  members_if, err := DeserializeValue(ctx, members_ser)
+  members_if, _, err := DeserializeValue(ctx, members_ser, 1)
   if err != nil {
     return Deny
   }
 
-  members, ok := members_if.(map[NodeID]string)
+  members, ok := members_if[0].(map[NodeID]string)
   if ok == false {
     return Deny
   }
 
-  for member, _ := range(members) {
+  for member := range(members) {
     if member == current.Principal {
       return policy.NodeRules[sig.NodeID].Allows(current.Action)
     }
@@ -139,7 +139,7 @@ func (policy *MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action T
     if id == node.ID {
       ext, err := GetExt[*GroupExt](node, GroupExtType)
       if err == nil {
-        for member, _ := range(ext.Members) {
+        for member := range(ext.Members) {
           if member == principal_id {
             if rule.Allows(action) == Allow {
               return nil, Allow

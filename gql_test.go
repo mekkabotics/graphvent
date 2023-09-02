@@ -16,6 +16,7 @@ import (
   "bytes"
   "golang.org/x/net/websocket"
   "github.com/google/uuid"
+  "reflect"
 )
 
 func TestGQLServer(t *testing.T) {
@@ -210,7 +211,7 @@ func TestGQLServer(t *testing.T) {
 }
 
 func TestGQLDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test", "signal", "node"})
 
   TestUserNodeType := NewNodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
@@ -239,10 +240,12 @@ func TestGQLDB(t *testing.T) {
   })
   fatalErr(t, err)
 
-  ser1, err := gql.Serialize(ctx)
-  ser2, err := u1.Serialize(ctx)
-  ctx.Log.Logf("test", "SER_1: \n%s\n\n", ser1)
-  ctx.Log.Logf("test", "SER_2: \n%s\n\n", ser2)
+  ser1, err := SerializeValue(ctx, reflect.ValueOf(gql))
+  fatalErr(t, err)
+  ctx.Log.Logf("test", "SER_1: \n%+v\n\n", ser1)
+  ser2, err := SerializeValue(ctx, reflect.ValueOf(u1))
+  fatalErr(t, err)
+  ctx.Log.Logf("test", "SER_2: \n%+v\n\n", ser2)
 
   // Clear all loaded nodes from the context so it loads them from the database
   ctx.nodeMap = map[NodeID]*Node{}
