@@ -661,11 +661,11 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
-  node_value, err := ParseSerializedValue(ctx, bytes)
+  value, err := ParseSerializedValue(ctx, bytes)
   if err != nil {
     return nil, err
   }
-  node_if, remaining, err := DeserializeValue(ctx, node_value, 1)
+  _, node_val, remaining, err := DeserializeValue(ctx, value.TypeStack, value.Data, 1)
   if err != nil {
     return nil, err
   }
@@ -674,9 +674,9 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("%d bytes left after desrializing *Node", len(remaining))
   }
 
-  node, ok := node_if[0].(*Node)
+  node, ok := node_val[0].Interface().(*Node)
   if ok == false {
-    return nil, fmt.Errorf("Deserialized %+v when expecting *Node", reflect.TypeOf(node_if).Elem())
+    return nil, fmt.Errorf("Deserialized %+v when expecting *Node", reflect.TypeOf(node_val).Elem())
   }
 
   ctx.AddNode(id, node) 

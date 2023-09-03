@@ -64,12 +64,12 @@ func (policy *RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingA
     return Deny
   }
 
-  reqs_if, _, err := DeserializeValue(ctx, reqs_ser, 1)
+  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser.TypeStack, reqs_ser.Data, 1)
   if err != nil {
     return Deny
   }
 
-  requirements, ok := reqs_if[0].(map[NodeID]ReqState)
+  requirements, ok := reqs_if[0].Interface().(map[NodeID]ReqState)
   if ok == false {
     return Deny
   }
@@ -113,12 +113,12 @@ func (policy *MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, s
     return Deny
   }
 
-  members_if, _, err := DeserializeValue(ctx, members_ser, 1)
+  _, members_if, _, err := DeserializeValue(ctx, members_ser.TypeStack, members_ser.Data, 1)
   if err != nil {
     return Deny
   }
 
-  members, ok := members_if[0].(map[NodeID]string)
+  members, ok := members_if[0].Interface().(map[NodeID]string)
   if ok == false {
     return Deny
   }
