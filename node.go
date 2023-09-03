@@ -398,8 +398,6 @@ func nodeLoop(ctx *Context, node *Node) error {
       msgs = msgs.Add(ctx, node.ID, node.Key, NewReadResultSignal(sig.ID, node.ID, node.Type, result), source)
       msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.ID, "read_done"), source)
       ctx.Send(msgs)
-    default:
-      println(fmt.Sprintf("NOT_SPECIAL_SIGNAL: %+v", reflect.TypeOf(sig)))
     }
 
     node.Process(ctx, source, signal)
@@ -661,17 +659,22 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
-  value, err := ParseSerializedValue(ctx, bytes)
+  value, remaining, err := ParseSerializedValue(bytes)
   if err != nil {
     return nil, err
+  } else if len(remaining) != 0 {
+    return nil, fmt.Errorf("%d bytes left after parsing node from DB", len(remaining))
   }
-  _, node_val, remaining, err := DeserializeValue(ctx, value.TypeStack, value.Data, 1)
+  _, node_val, remaining_data, err := DeserializeValue(ctx, value, 1)
   if err != nil {
     return nil, err
   }
 
-  if remaining != nil {
-    return nil, fmt.Errorf("%d bytes left after desrializing *Node", len(remaining))
+  if len(remaining_data.TypeStack) != 0 {
+    return nil, fmt.Errorf("%d entries left in typestack after deserializing *Node", len(remaining_data.TypeStack))
+  }
+  if len(remaining_data.Data) != 0 {
+    return nil, fmt.Errorf("%d bytes left after desrializing *Node", len(remaining_data.Data))
   }
 
   node, ok := node_val[0].Interface().(*Node)

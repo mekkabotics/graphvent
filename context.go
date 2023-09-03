@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+ "math"
 	"reflect"
 	"runtime"
 	"sync"
@@ -100,7 +101,7 @@ type NodeInfo struct {
 }
 
 type TypeSerialize func(*Context,uint64,reflect.Type,*reflect.Value) (SerializedValue, error)
-type TypeDeserialize func(*Context,[]uint64,[]byte) (reflect.Type, *reflect.Value, []byte, error)
+type TypeDeserialize func(*Context,SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error)
 type TypeInfo struct {
   Type reflect.Type
   Serialize TypeSerialize
@@ -379,9 +380,9 @@ func (value SerializedValue) SerializedSize() uint64 {
   return uint64((len(value.TypeStack) + 2) * 8)
 }
 
-func ParseSerializedValue(ctx *Context, data []byte) (SerializedValue, error) {
+func ParseSerializedValue(data []byte) (SerializedValue, []byte, error) {
   if len(data) < 8 {
-    return SerializedValue{}, fmt.Errorf("SerializedValue required to have at least 8 bytes when serialized")
+    return SerializedValue{}, nil, fmt.Errorf("SerializedValue required to have at least 8 bytes when serialized")
   }
   num_types := int(binary.BigEndian.Uint64(data[0:8]))
   data_size := int(binary.BigEndian.Uint64(data[8:16]))
@@ -393,20 +394,22 @@ func ParseSerializedValue(ctx *Context, data []byte) (SerializedValue, error) {
   }
 
   types_end := 8*(num_types + 2)
+  data_end := types_end + data_size
   return SerializedValue{
     type_stack,
-    data[types_end:(types_end+data_size)],
-  }, nil
+    data[types_end:data_end],
+  }, data[data_end:], nil
 }
 
-func DeserializeValue(ctx *Context, type_stack []uint64, data []byte, n int) (reflect.Type, []reflect.Value, []byte, error) {
+func DeserializeValue(ctx *Context, value SerializedValue, n int) (reflect.Type, []reflect.Value, SerializedValue, error) {
+  ctx.Log.Logf("serialize", "DeserializeValue: %+v - %d", value, n)
   ret := make([]reflect.Value, n)
 
   var deserialize TypeDeserialize = nil
   var reflect_type reflect.Type = nil
 
-  ctx_type := type_stack[0]
-  type_stack = type_stack[1:]
+  ctx_type := value.TypeStack[0]
+  value.TypeStack = value.TypeStack[1:]
 
   type_info, exists := ctx.Types[SerializedType(ctx_type)]
   if exists == true {
@@ -415,41 +418,38 @@ func DeserializeValue(ctx *Context, type_stack []uint64, data []byte, n int) (re
   } else {
     kind, exists := ctx.KindTypes[SerializedType(ctx_type)]
     if exists == false {
-      return nil, nil, nil, fmt.Errorf("Cannot deserialize 0x%x: unknown type/kind", ctx_type)
+      return nil, nil, SerializedValue{}, fmt.Errorf("Cannot deserialize 0x%x: unknown type/kind", ctx_type)
     }
     kind_info := ctx.Kinds[kind]
     deserialize = kind_info.Deserialize
   }
 
-  remaining_data := data
-  var value_type reflect.Type = nil
-  var err error = nil
-  if data == nil {
-    reflect_type, _, _, err = deserialize(ctx, type_stack, nil)
+  ctx.Log.Logf("serialize", "Deserializing: %d x %d", ctx_type, n)
+
+  if value.Data == nil {
+    reflect_type, _, val, err := deserialize(ctx, value)
     if err != nil {
-      return nil, nil, nil, err
+      return nil, nil, SerializedValue{}, err
     }
-  } else {
-    for i := 0; i < n; i += 1 {
-      var elem *reflect.Value
-      var elem_type reflect.Type = nil
-      elem_type, elem, remaining_data, err = deserialize(ctx, type_stack, remaining_data)
-      if err != nil {
-        return nil, nil, nil, err
-      }
-      if value_type == nil {
-        value_type = elem_type
-      }
-      if len(remaining_data) == 0 {
-        remaining_data = nil
-      }
-      if elem == nil {
-        return nil, nil, nil, fmt.Errorf("root deserialize returned no value")
-      }
-      ret[i] = *elem
-    }
+    return reflect_type, nil, val, nil
   }
-  return reflect_type, ret, remaining_data, nil
+
+  val := SerializedValue{
+    value.TypeStack,
+    value.Data,
+  }
+  for i := 0; i < n; i += 1 {
+    val.TypeStack = value.TypeStack 
+    var elem *reflect.Value
+    var err error
+    reflect_type, elem, val, err = deserialize(ctx, val)
+    if err != nil {
+      return nil, nil, SerializedValue{}, err
+    }
+    ret[i] = *elem
+  }
+  ctx.Log.Logf("serialize", "DeserializeValue: DONE %+v - %+v", val, ret)
+  return reflect_type, ret, val, nil
 }
 
 // Create a new Context with the base library content added
@@ -496,38 +496,36 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         append([]uint64{ctx_type}, elem.TypeStack...),
         data,
       }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte) (reflect.Type, *reflect.Value, []byte, error) {
-    // TODO: figure out how to deal with the case where the pointer value is nil
-    // In that case need to figure out the type of the pointer to create the nil pointer, which involves continuing to recuse the type stack without parsing any data
-    if data == nil {
-      elem_type, _, _, err := DeserializeValue(ctx, type_stack, nil, 1)
+  }, func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
+    if value.Data == nil {
+      elem_type, _, _, err := DeserializeValue(ctx, value, 1)
       if err != nil {
-        return nil, nil, nil, err
+        return nil, nil, SerializedValue{}, err
       }
-      return elem_type, nil, nil, nil
+      return reflect.PointerTo(elem_type), nil, value, nil
+    } else if len(value.Data) < 1 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize pointer")
     } else {
-      if len(data) < 1 {
-        return nil, nil, nil, fmt.Errorf("Not enough data to deserialize pointer")
-      }
-      pointer_flags := data[0]
+      pointer_flags := value.Data[0]
+      value.Data = value.Data[1:]
       if pointer_flags == 0x00 {
-        _, elem_value, remaining_data, err := DeserializeValue(ctx, type_stack, data[1:], 1)
+        _, elem_value, remaining_data, err := DeserializeValue(ctx, value, 1)
         if err != nil {
-          return nil, nil, nil, err
+          return nil, nil, SerializedValue{}, err
         }
         pointer_value := elem_value[0].Addr()
         return pointer_value.Type(), &pointer_value, remaining_data, nil
       } else if pointer_flags == 0x01 {
-        elem_type, _, _, err := DeserializeValue(ctx, type_stack, nil, 1) 
+        elem_type, _, remaining_data, err := DeserializeValue(ctx, value, 1)
         if err != nil {
-          return nil, nil, nil, err
+          return nil, nil, SerializedValue{}, err
         }
 
         pointer_type := reflect.PointerTo(elem_type)
         pointer_value := reflect.New(pointer_type).Elem()
-        return pointer_type, &pointer_value, data[1:], nil
+        return pointer_type, &pointer_value, remaining_data, nil
       } else {
-        return nil, nil, nil, fmt.Errorf("unknown pointer flags: %d", pointer_flags)
+        return nil, nil, SerializedValue{}, fmt.Errorf("unknown pointer flags: %d", pointer_flags)
       }
     }
   })
@@ -537,56 +535,57 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
   err = ctx.RegisterKind(reflect.Struct, NewSerializedType("struct"),
   func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
-    var m map[int][]byte = nil
-    if value != nil {
-      m = map[int][]byte{}
+    // TODO: Switch from serializing each field as a []byte of a SerializedValue.MarshalBinary to just running serializeValue and adding the TypeStack and Data together
+    serialized_value := SerializedValue{
+      []uint64{ctx_type},
+      nil,
     }
     num_fields := 0
+    field_values := map[int]SerializedValue{}
     for _, field := range(reflect.VisibleFields(reflect_type)) {
       gv_tag, tagged_gv := field.Tag.Lookup("gv")
       if tagged_gv == false {
         continue
       } else if gv_tag == "" {
         continue
-      } else if m != nil {
+      } else {
+        // Add to the type stack and data stack
         field_index, err := strconv.Atoi(gv_tag)
         if err != nil {
           return SerializedValue{}, err
         }
         num_fields += 1
-
-        field_value := value.FieldByIndex(field.Index)
-        field_ser, err := serializeValue(ctx, field.Type, &field_value)
-        if err != nil {
-          return SerializedValue{}, err
-        }
-
-        m[field_index], err = field_ser.MarshalBinary()
-        if err != nil {
-          return SerializedValue{}, nil
+        if value == nil {
+          field_ser, err := serializeValue(ctx, field.Type, nil)
+          if err != nil {
+            return SerializedValue{}, err
+          }
+          field_values[field_index] = field_ser
+        } else {
+          field_value := value.FieldByIndex(field.Index)
+          field_ser, err := serializeValue(ctx, field.Type, &field_value)
+          if err != nil {
+            return SerializedValue{}, err
+          }
+          field_values[field_index] = field_ser
         }
       }
     }
-    field_list := make([][]byte, num_fields)
-    for i := range(field_list) {
-      var exists bool = false
-      field_list[i], exists = m[i]
+
+    for i := 0; i < num_fields; i += 1 {
+      field_value, exists := field_values[i]
       if exists == false {
         return SerializedValue{}, fmt.Errorf("%+v missing gv:%d", reflect_type, i)
       }
+      serialized_value.TypeStack = append(serialized_value.TypeStack, field_value.TypeStack...)
+      if value != nil {
+        serialized_value.Data = append(serialized_value.Data, field_value.Data...)
+      }
     }
 
-    list_value := reflect.ValueOf(field_list)
-    list_serial, err := serializeValue(ctx, list_value.Type(), &list_value)
-    if err != nil {
-      return SerializedValue{}, err
-    }
-    return SerializedValue{
-      []uint64{ctx_type},
-      list_serial.Data,
-    }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize struct not implemented")
+    return serialized_value, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return nil, nil, SerializedValue{}, fmt.Errorf("deserialize struct not implemented")
   })
   if err != nil {
     return nil, err
@@ -597,22 +596,127 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     var data []byte = nil
     if value != nil {
       data = make([]byte, 8)
-      binary.BigEndian.PutUint64(data, value.Uint())
+      binary.BigEndian.PutUint64(data, uint64(value.Int()))
     }
     return SerializedValue{
       []uint64{ctx_type},
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    if len(data) < 8 {
-      return nil, nil, nil, fmt.Errorf("invalid length: %d/8", len(data))
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(0), nil, value, nil
     }
-    remaining_data := data[8:]
-    if len(remaining_data) == 0 {
-      remaining_data = nil
+    if len(value.Data) < 8 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("invalid length: %d/8", len(value.Data))
     }
-    int_val := reflect.ValueOf(binary.BigEndian.Uint64(data[0:8]))
-    return int_val.Type(), &int_val, remaining_data, nil 
+    int_val := reflect.ValueOf(int(binary.BigEndian.Uint64(value.Data[0:8])))
+    value.Data = value.Data[8:]
+    return int_val.Type(), &int_val, value, nil 
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Bool, NewSerializedType("bool"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      b := value.Bool()
+      if b == true {
+        data = []byte{0x01}
+      } else {
+        data = []byte{0x00}
+      }
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(true), nil, value, nil
+    } else if len(value.Data) == 0 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("not enough data to deserialize bool")
+    } else {
+      b := value.Data[0]
+      value.Data = value.Data[1:]
+      var val reflect.Value
+      switch b {
+      case 0x00:
+        val = reflect.ValueOf(false)
+      case 0x01:
+        val = reflect.ValueOf(true)
+      default:
+        return nil, nil, SerializedValue{}, fmt.Errorf("unknown boolean 0x%x", b)
+      }
+      return reflect.TypeOf(true), &val, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Float64, NewSerializedType("float64"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      // TODO: fix if underlying memory layout of float32 changes(or if it's architecture-dependent)
+      data = make([]byte, 8)
+      val := math.Float64bits(float64(value.Float()))
+      binary.BigEndian.PutUint64(data, val) 
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(float64(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 8 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize float32")
+      }
+      val_int := binary.BigEndian.Uint64(value.Data[0:8])
+      value.Data = value.Data[8:]
+      val := math.Float64frombits(val_int)
+
+      float_val := reflect.ValueOf(val)
+
+      return float_val.Type(), &float_val, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Float32, NewSerializedType("float32"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      // TODO: fix if underlying memory layout of float32 changes(or if it's architecture-dependent)
+      data = make([]byte, 4)
+      val := math.Float32bits(float32(value.Float()))
+      binary.BigEndian.PutUint32(data, val) 
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(float32(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 4 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize float32")
+      }
+      val_int := binary.BigEndian.Uint32(value.Data[0:4])
+      value.Data = value.Data[4:]
+      val := math.Float32frombits(val_int)
+
+      float_value := reflect.ValueOf(val)
+
+      return float_value.Type(), &float_value, value, nil
+    }
   })
   if err != nil {
     return nil, err
@@ -628,8 +732,19 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{ctx_type},
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize uint32 unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(uint32(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 4 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint32")
+      }
+      val := binary.BigEndian.Uint32(value.Data[0:4])
+      value.Data = value.Data[4:]
+      int_value := reflect.ValueOf(val)
+
+      return int_value.Type(), &int_value, value, nil
+    }
   })
   if err != nil {
     return nil, err
@@ -651,8 +766,22 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{uint64(ctx_type)},
       append(data, []byte(str)...),
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize string unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(""), nil, value, nil
+    } else if len(value.Data) < 8 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize string")
+    } else {
+      str_len := binary.BigEndian.Uint64(value.Data[0:8])
+      value.Data = value.Data[8:]
+      if len(value.Data) < int(str_len) {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize string of length %d(%d)", str_len, len(value.Data))
+      }
+      string_bytes := value.Data[:str_len]
+      value.Data = value.Data[str_len:]
+      str_value := reflect.ValueOf(string(string_bytes))
+      return reflect.TypeOf(""), &str_value, value, nil
+    }
   })
   if err != nil {
     return nil, err
@@ -693,8 +822,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       append([]uint64{ctx_type}, elem.TypeStack...),
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize array unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return nil, nil, SerializedValue{}, fmt.Errorf("deserialize array unimplemented")
   })
   if err != nil {
     return nil, err
@@ -721,8 +850,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       append([]uint64{ctx_type}, type_stack...),
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize interface unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return nil, nil, SerializedValue{}, fmt.Errorf("deserialize interface unimplemented")
   })
   if err != nil {
     return nil, err
@@ -796,13 +925,122 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       type_stack,
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize map unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      var key_type, elem_type reflect.Type
+      key_type, _, value, err = DeserializeValue(ctx, value, 1)
+      if err != nil {
+        return nil, nil, SerializedValue{}, err
+      }
+      elem_type, _, value, err = DeserializeValue(ctx, value, 1)
+      if err != nil {
+        return nil, nil, SerializedValue{}, err
+      }
+      return reflect.MapOf(key_type, elem_type), nil, value, nil
+    } else if len(value.Data) < 8 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize map")
+    } else {
+      map_len := binary.BigEndian.Uint64(value.Data[0:8])
+      value.Data = value.Data[8:]
+      if map_len == 0xFFFFFFFFFFFFFFFF {
+        temp_value := SerializedValue{
+          value.TypeStack,
+          nil,
+        }
+
+        var key_type, elem_type reflect.Type
+        key_type, _, temp_value, err = DeserializeValue(ctx, temp_value, 1)
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        elem_type, _, temp_value, err = DeserializeValue(ctx, temp_value, 1)
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+
+        map_type := reflect.MapOf(key_type, elem_type)
+        map_value := reflect.New(map_type).Elem()
+
+        return map_type, &map_value, SerializedValue{
+          temp_value.TypeStack,
+          value.Data,
+        }, nil
+      } else if map_len == 0x00 {
+        temp_value := SerializedValue{
+          value.TypeStack,
+          nil,
+        }
+
+        var key_type, elem_type reflect.Type
+        key_type, _, temp_value, err = DeserializeValue(ctx, temp_value, 1)
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        elem_type, _, temp_value, err = DeserializeValue(ctx, temp_value, 1)
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+
+        map_type := reflect.MapOf(key_type, elem_type)
+        map_value := reflect.MakeMap(map_type)
+
+        return map_type, &map_value, SerializedValue{
+          temp_value.TypeStack,
+          value.Data,
+        }, nil
+      } else {
+        var key_type, elem_type reflect.Type
+        var key_values, elem_values []reflect.Value
+        key_type, key_values, value, err = DeserializeValue(ctx, value, int(map_len))
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        elem_type, elem_values, value, err = DeserializeValue(ctx, value, int(map_len))
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+
+        map_type := reflect.MapOf(key_type, elem_type)
+        map_value := reflect.MakeMap(map_type)
+
+        for i := 0; i < int(map_len); i += 1 {
+          map_value.SetMapIndex(key_values[i], elem_values[i])
+        }
+
+        return map_type, &map_value, value, nil
+      }
+    }
   })
   if err != nil {
     return nil, err
   }
 
+  err = ctx.RegisterKind(reflect.Int8, NewSerializedType("int8"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      data = []byte{byte(value.Int())}
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(int8(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 1 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize int8")
+      }
+      i := int8(value.Data[0])
+      value.Data = value.Data[1:]
+      val := reflect.ValueOf(i)
+      return val.Type(), &val, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
 
   err = ctx.RegisterKind(reflect.Uint8, NewSerializedType("uint8"),
   func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
@@ -814,8 +1052,134 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{ctx_type},
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize uint8 unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(uint8(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 1 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint8")
+      }
+      i := uint8(value.Data[0])
+      value.Data = value.Data[1:]
+      val := reflect.ValueOf(i)
+      return val.Type(), &val, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Uint16, NewSerializedType("uint16"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      data = make([]byte, 2)
+      binary.BigEndian.PutUint16(data, uint16(value.Uint()))
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(uint16(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 2 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint16")
+      }
+      val := binary.BigEndian.Uint16(value.Data[0:2])
+      value.Data = value.Data[2:]
+      i := reflect.ValueOf(val)
+
+      return i.Type(), &i, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Int16, NewSerializedType("int16"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      data = make([]byte, 2)
+      binary.BigEndian.PutUint16(data, uint16(value.Int()))
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(int16(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 2 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint16")
+      }
+      val := int16(binary.BigEndian.Uint16(value.Data[0:2]))
+      value.Data = value.Data[2:]
+      i := reflect.ValueOf(val)
+
+      return i.Type(), &i, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Int32, NewSerializedType("int32"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      data = make([]byte, 4)
+      binary.BigEndian.PutUint32(data, uint32(value.Int()))
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(int32(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 4 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint16")
+      }
+      val := int32(binary.BigEndian.Uint32(value.Data[0:4]))
+      value.Data = value.Data[4:]
+      i := reflect.ValueOf(val)
+
+      return i.Type(), &i, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Uint, NewSerializedType("uint"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      data = make([]byte, 8)
+      binary.BigEndian.PutUint64(data, value.Uint())
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(uint(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 8 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint64")
+      }
+      val := uint(binary.BigEndian.Uint64(value.Data[0:8]))
+      value.Data = value.Data[8:]
+      i := reflect.ValueOf(val)
+
+      return i.Type(), &i, value, nil
+    }
   })
   if err != nil {
     return nil, err
@@ -832,8 +1196,48 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{ctx_type},
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("deserialize uint64 unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(uint64(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 8 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint64")
+      }
+      val := binary.BigEndian.Uint64(value.Data[0:8])
+      value.Data = value.Data[8:]
+      i := reflect.ValueOf(val)
+
+      return i.Type(), &i, value, nil
+    }
+  })
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterKind(reflect.Int64, NewSerializedType("int64"),
+  func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
+    var data []byte = nil
+    if value != nil {
+      data = make([]byte, 8)
+      binary.BigEndian.PutUint64(data, uint64(value.Int()))
+    }
+    return SerializedValue{
+      []uint64{ctx_type},
+      data,
+    }, nil
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return reflect.TypeOf(int64(0)), nil, value, nil
+    } else {
+      if len(value.Data) < 8 {
+        return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize uint64")
+      }
+      val := int64(binary.BigEndian.Uint64(value.Data[0:8]))
+      value.Data = value.Data[8:]
+      i := reflect.ValueOf(val)
+
+      return i.Type(), &i, value, nil
+    }
   })
   if err != nil {
     return nil, err
@@ -842,6 +1246,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   err = ctx.RegisterKind(reflect.Slice, NewSerializedType("slice"),
   func(ctx *Context, ctx_type uint64, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte
+    var type_stack []uint64 = nil
     if value == nil {
       data = nil
     } else if value.IsZero() {
@@ -851,7 +1256,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     } else {
       data := make([]byte, 8)
       binary.BigEndian.PutUint64(data, uint64(value.Len()))
-      var type_stack []uint64
       for i := 0; i < value.Len(); i += 1 {
         val := value.Index(i)
         element, err := serializeValue(ctx, reflect_type.Elem(), &val)
@@ -864,20 +1268,66 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         data = append(data, element.Data...)
       }
       return SerializedValue{
-        append([]uint64{ctx_type}, type_stack...),
+        type_stack,
         data,
       }, nil
     }
-    elem, err := serializeValue(ctx, reflect_type.Elem(), nil)
+    element, err := serializeValue(ctx, reflect_type.Elem(), nil)
     if err != nil {
       return SerializedValue{}, err
     }
     return SerializedValue{
-      elem.TypeStack,
+      append([]uint64{ctx_type}, element.TypeStack...),
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("not implemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      elem_type, _, _, err := DeserializeValue(ctx, value, 1)
+      if err != nil {
+        return nil, nil, SerializedValue{}, err
+      }
+      return reflect.SliceOf(elem_type), nil, value, nil
+    } else if len(value.Data) < 8 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize slice")
+    } else {
+      slice_length := binary.BigEndian.Uint64(value.Data[0:8])
+      value.Data = value.Data[8:]
+      if slice_length == 0xFFFFFFFFFFFFFFFF {
+        elem_type, _, remaining, err := DeserializeValue(ctx, SerializedValue{
+          value.TypeStack,
+          nil,
+        }, 1)
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        reflect_type := reflect.SliceOf(elem_type)
+        reflect_value := reflect.New(reflect_type).Elem()
+        return reflect_type, &reflect_value, SerializedValue{
+          remaining.TypeStack,
+          value.Data,
+        }, nil
+      } else if slice_length == 0x00 {
+        elem_type, _, remaining, err := DeserializeValue(ctx, value, 1)
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        reflect_value := reflect.MakeSlice(reflect.SliceOf(elem_type), 0, 0)
+        return reflect_value.Type(), &reflect_value, SerializedValue{
+          remaining.TypeStack,
+          value.Data,
+        }, nil
+      } else {
+        elem_type, elements, remaining_data, err := DeserializeValue(ctx, value, int(slice_length))
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        reflect_value := reflect.MakeSlice(reflect.SliceOf(elem_type), 0, int(slice_length))
+        for i := 0; i < int(slice_length); i += 1 {
+          reflect_value = reflect.Append(reflect_value, elements[i])
+        }
+        return reflect_value.Type(), &reflect_value, remaining_data, nil
+      }
+    }
   })
   if err != nil {
     return nil, err
@@ -900,8 +1350,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{uint64(ctx_type)},
       append(data, []byte(str)...),
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return nil, nil, SerializedValue{}, fmt.Errorf("unimplemented")
   })
 
   err = ctx.RegisterType(reflect.TypeOf(RandID()), NewSerializedType("NodeID"),
@@ -918,8 +1368,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{ctx_type},
       id_ser,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return nil, nil, nil, fmt.Errorf("unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return nil, nil, SerializedValue{}, fmt.Errorf("unimplemented")
   })
   if err != nil {
     return nil, err
@@ -936,8 +1386,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{ctx_type},
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return reflect.TypeOf(Up), nil, nil, fmt.Errorf("unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return reflect.TypeOf(Up), nil, SerializedValue{}, fmt.Errorf("unimplemented")
   })
   if err != nil {
     return nil, err
@@ -954,8 +1404,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       []uint64{ctx_type},
       data,
     }, nil
-  }, func(ctx *Context, type_stack []uint64, data []byte)(reflect.Type, *reflect.Value, []byte, error){
-    return reflect.TypeOf(ReqState(0)), nil, nil, fmt.Errorf("unimplemented")
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    return reflect.TypeOf(ReqState(0)), nil, SerializedValue{}, fmt.Errorf("unimplemented")
   })
   if err != nil {
     return nil, err

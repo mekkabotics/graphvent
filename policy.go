@@ -64,7 +64,7 @@ func (policy *RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingA
     return Deny
   }
 
-  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser.TypeStack, reqs_ser.Data, 1)
+  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser, 1)
   if err != nil {
     return Deny
   }
@@ -113,7 +113,7 @@ func (policy *MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, s
     return Deny
   }
 
-  _, members_if, _, err := DeserializeValue(ctx, members_ser.TypeStack, members_ser.Data, 1)
+  _, members_if, _, err := DeserializeValue(ctx, members_ser, 1)
   if err != nil {
     return Deny
   }
