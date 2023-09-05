@@ -260,7 +260,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   var err error
-  err = ctx.RegisterKind(reflect.Pointer, NewSerializedType("pointer"),
+  err = ctx.RegisterKind(reflect.Pointer, PointerType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
     var data []byte
     var elem_value *reflect.Value = nil
@@ -323,7 +323,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Struct, NewSerializedType("struct"),
+  err = ctx.RegisterKind(reflect.Struct, StructType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     serialized_value := SerializedValue{
       []SerializedType{ctx_type},
@@ -364,7 +364,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int, NewSerializedType("int"),
+  err = ctx.RegisterKind(reflect.Int, IntType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -390,7 +390,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Bool, NewSerializedType("bool"),
+  err = ctx.RegisterKind(reflect.Bool, BoolType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -429,11 +429,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Float64, NewSerializedType("float64"),
+  err = ctx.RegisterKind(reflect.Float64, Float64Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
-      // TODO: fix if underlying memory layout of float32 changes(or if it's architecture-dependent)
       data = make([]byte, 8)
       val := math.Float64bits(float64(value.Float()))
       binary.BigEndian.PutUint64(data, val) 
@@ -462,11 +461,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Float32, NewSerializedType("float32"),
+  err = ctx.RegisterKind(reflect.Float32, Float32Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
-      // TODO: fix if underlying memory layout of float32 changes(or if it's architecture-dependent)
       data = make([]byte, 4)
       val := math.Float32bits(float32(value.Float()))
       binary.BigEndian.PutUint32(data, val) 
@@ -495,7 +493,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint32, NewSerializedType("uint32"),
+  err = ctx.RegisterKind(reflect.Uint32, UInt32Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     data := make([]byte, 4)
     if value != nil {
@@ -523,7 +521,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.String, NewSerializedType("string"),
+  err = ctx.RegisterKind(reflect.String, StringType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     if value == nil {
       return SerializedValue{
@@ -561,7 +559,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
 
-  err = ctx.RegisterKind(reflect.Array, NewSerializedType("array"),
+  err = ctx.RegisterKind(reflect.Array, ArrayType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte
     if value == nil {
@@ -602,7 +600,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Interface, NewSerializedType("interface"),
+  err = ctx.RegisterKind(reflect.Interface, InterfaceType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte
     type_stack := []SerializedType{}
@@ -631,7 +629,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
 
-  err = ctx.RegisterKind(reflect.Map, NewSerializedType("map"),
+  err = ctx.RegisterKind(reflect.Map, MapType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte
     type_stack := []SerializedType{ctx_type}
@@ -720,7 +718,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int8, NewSerializedType("int8"),
+  err = ctx.RegisterKind(reflect.Int8, Int8Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -747,7 +745,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint8, NewSerializedType("uint8"),
+  err = ctx.RegisterKind(reflect.Uint8, UInt8Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -774,7 +772,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint16, NewSerializedType("uint16"),
+  err = ctx.RegisterKind(reflect.Uint16, UInt16Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -803,7 +801,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int16, NewSerializedType("int16"),
+  err = ctx.RegisterKind(reflect.Int16, Int16Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -832,7 +830,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int32, NewSerializedType("int32"),
+  err = ctx.RegisterKind(reflect.Int32, Int32Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -861,7 +859,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint, NewSerializedType("uint"),
+  err = ctx.RegisterKind(reflect.Uint, UIntType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -890,7 +888,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint64, NewSerializedType("SerializedType"),
+  err = ctx.RegisterKind(reflect.Uint64, UInt64Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -919,7 +917,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int64, NewSerializedType("int64"),
+  err = ctx.RegisterKind(reflect.Int64, Int64Type,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte = nil
     if value != nil {
@@ -1074,7 +1072,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, nil, SerializedValue{}, fmt.Errorf("unimplemented")
   })
 
-  err = ctx.RegisterType(reflect.TypeOf(RandID()), NewSerializedType("NodeID"),
+  err = ctx.RegisterType(reflect.TypeOf(RandID()), NodeIDType,
   func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
     var id_ser []byte = nil
     if value != nil {
@@ -1095,7 +1093,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(Up), NewSerializedType("SignalDirection"),
+  err = ctx.RegisterType(reflect.TypeOf(Up), SignalDirectionType,
   func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
     var data []byte = nil
     if value != nil {
@@ -1113,7 +1111,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(ReqState(0)), NewSerializedType("ReqState"),
+  err = ctx.RegisterType(reflect.TypeOf(ReqState(0)), ReqStateType,
   func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
     var data []byte = nil
     if value != nil {
