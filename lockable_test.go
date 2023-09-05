@@ -73,7 +73,7 @@ func Test10KLink(t *testing.T) {
   listener_id := KeyID(l_pub)
   child_policy := NewPerNodePolicy(map[NodeID]Tree{
     listener_id: Tree{
-      uint64(LockSignalType): nil,
+      SerializedType(LockSignalType): nil,
     },
   })
   NewLockable := func()(*Node) {
@@ -95,7 +95,7 @@ func Test10KLink(t *testing.T) {
   ctx.Log.Logf("test", "CREATED_10K")
 
   l_policy := NewAllNodesPolicy(Tree{
-    uint64(LockSignalType): nil,
+    SerializedType(LockSignalType): nil,
   })
   listener := NewListenerExt(100000)
   node, err := NewNode(ctx, listener_key, TestLockableType, 10000,

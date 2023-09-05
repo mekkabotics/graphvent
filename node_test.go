@@ -55,7 +55,7 @@ func TestNodeRead(t *testing.T) {
 
   n1_policy := NewPerNodePolicy(map[NodeID]Tree{
     n2_id: {
-      uint64(ReadSignalType): nil,
+      SerializedType(ReadSignalType): nil,
     },
   })
 

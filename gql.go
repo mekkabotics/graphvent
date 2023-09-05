@@ -569,7 +569,7 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
         return nil, fmt.Errorf("%s is not in the fields of %+v in the result", acl_name, ext_type)
       }
 
-      if val_ser.TypeStack[0] == uint64(ErrorType) {
+      if val_ser.TypeStack[0] == ErrorType {
         return nil, fmt.Errorf(string(val_ser.Data))
       }
 

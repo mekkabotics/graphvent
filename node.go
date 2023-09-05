@@ -206,7 +206,7 @@ func NewErrorField(fstring string, args ...interface{}) SerializedValue {
     panic(err)
   }
   return SerializedValue{
-    TypeStack: []uint64{uint64(ErrorType)},
+    TypeStack: []SerializedType{ErrorType},
     Data: str_ser,
   }
 }
@@ -570,9 +570,9 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
   }
 
   default_policy := NewAllNodesPolicy(Tree{
-    uint64(ErrorSignalType): nil,
-    uint64(ReadResultSignalType): nil,
-    uint64(StatusSignalType): nil,
+    SerializedType(ErrorSignalType): nil,
+    SerializedType(ReadResultSignalType): nil,
+    SerializedType(StatusSignalType): nil,
   })
 
   all_nodes_policy, exists := policies[AllNodesPolicyType]
@@ -665,7 +665,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
   } else if len(remaining) != 0 {
     return nil, fmt.Errorf("%d bytes left after parsing node from DB", len(remaining))
   }
-  _, node_val, remaining_data, err := DeserializeValue(ctx, value, 1)
+  _, node_val, remaining_data, err := DeserializeValue(ctx, value)
   if err != nil {
     return nil, err
   }
@@ -677,7 +677,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("%d bytes left after desrializing *Node", len(remaining_data.Data))
   }
 
-  node, ok := node_val[0].Interface().(*Node)
+  node, ok := node_val.Interface().(*Node)
   if ok == false {
     return nil, fmt.Errorf("Deserialized %+v when expecting *Node", reflect.TypeOf(node_val).Elem())
   }

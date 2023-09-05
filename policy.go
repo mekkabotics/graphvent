@@ -64,12 +64,12 @@ func (policy *RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingA
     return Deny
   }
 
-  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser, 1)
+  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser)
   if err != nil {
     return Deny
   }
 
-  requirements, ok := reqs_if[0].Interface().(map[NodeID]ReqState)
+  requirements, ok := reqs_if.Interface().(map[NodeID]ReqState)
   if ok == false {
     return Deny
   }
@@ -113,12 +113,12 @@ func (policy *MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, s
     return Deny
   }
 
-  _, members_if, _, err := DeserializeValue(ctx, members_ser, 1)
+  _, members_if, _, err := DeserializeValue(ctx, members_ser)
   if err != nil {
     return Deny
   }
 
-  members, ok := members_if[0].Interface().(map[NodeID]string)
+  members, ok := members_if.Interface().(map[NodeID]string)
   if ok == false {
     return Deny
   }
@@ -249,7 +249,7 @@ func (policy *AllNodesPolicy) Copy() Policy {
   }
 }
 
-type Tree map[uint64]Tree
+type Tree map[SerializedType]Tree
 
 func (rule Tree) Allows(action Tree) RuleResult {
   // If the current rule is nil, it's a wildcard and any action being processed is allowed
@@ -311,6 +311,6 @@ func (policy *AllNodesPolicy) Type() PolicyType {
 }
 
 var DefaultPolicy = NewAllNodesPolicy(Tree{
-  uint64(ErrorSignalType): nil,
-  uint64(ReadResultSignalType): nil,
+  SerializedType(ErrorSignalType): nil,
+  SerializedType(ReadResultSignalType): nil,
 })

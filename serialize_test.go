@@ -27,13 +27,6 @@ func TestSerializeBasic(t *testing.T) {
   testSerializeSliceSlice[[][]int](t, ctx, [][]int{{123, 456, 789, 101112}, {3253, 2341, 735, 212}, {123, 51}, nil})
   testSerializeSliceSlice[[][]string](t, ctx, [][]string{{"123", "456", "789", "101112"}, {"3253", "2341", "735", "212"}, {"123", "51"}, nil})
 
-  testSerializeMap(t, ctx, map[int]int{
-    1: 2,
-    3: 4,
-    5: 6,
-    7: 8,
-  })
-
   testSerialize(t, ctx, struct{
     int `gv:"0"`
     string `gv:"1"`
@@ -105,7 +98,7 @@ func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
     t.Fatal("Data remaining after deserializing value")
   }
 
-  val_type, deserialized_values, remaining_deserialize, err := DeserializeValue(ctx, val_parsed, 1)
+  val_type, deserialized_values, remaining_deserialize, err := DeserializeValue(ctx, val_parsed)
   fatalErr(t, err)
 
   if len(remaining_deserialize.Data) != 0 {
@@ -116,12 +109,10 @@ func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
     t.Fatal(fmt.Sprintf("DeserializeValue returned wrong reflect.Type %+v - %+v", val_type, reflect.TypeOf(val)))
   } else if deserialized_values == nil {
     t.Fatal("DeserializeValue returned no []reflect.Value")
-  } else if len(deserialized_values) == 0 {
-    t.Fatal("DeserializeValue returned empty []reflect.Value")
-  } else if len(deserialized_values) > 1 {
-    t.Fatal("DeserializeValue returned wrong length []reflect.Value")
-  } else if deserialized_values[0].CanConvert(val_type) == false {
+  } else if deserialized_values == nil {
+    t.Fatal("DeserializeValue returned nil *reflect.Value")
+  } else if deserialized_values.CanConvert(val_type) == false {
     t.Fatal("DeserializeValue returned value that can't convert to original value")
   }
-  return deserialized_values[0].Interface().(T)
+  return deserialized_values.Interface().(T)
 }

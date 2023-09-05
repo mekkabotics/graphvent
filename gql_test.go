@@ -31,33 +31,33 @@ func TestGQLServer(t *testing.T) {
   gql_id := KeyID(pub)
 
   group_policy_1 := NewAllNodesPolicy(Tree{
-    uint64(ReadSignalType): Tree{
-      uint64(GroupExtType): Tree{
+    SerializedType(ReadSignalType): Tree{
+      SerializedType(GroupExtType): Tree{
         Hash(FieldNameBase, "members"): Tree{},
       },
     },
-    uint64(ReadResultSignalType): nil,
-    uint64(ErrorSignalType): nil,
+    SerializedType(ReadResultSignalType): nil,
+    SerializedType(ErrorSignalType): nil,
   })
 
   group_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
     gql_id: Tree{
-      uint64(LinkSignalType): nil,
-      uint64(LockSignalType): nil,
-      uint64(StatusSignalType): nil,
-      uint64(ReadSignalType): nil,
+      SerializedType(LinkSignalType): nil,
+      SerializedType(LockSignalType): nil,
+      SerializedType(StatusSignalType): nil,
+      SerializedType(ReadSignalType): nil,
     },
   })
 
   user_policy_1 := NewAllNodesPolicy(Tree{
-    uint64(ReadResultSignalType): nil,
-    uint64(ErrorSignalType): nil,
+    SerializedType(ReadResultSignalType): nil,
+    SerializedType(ErrorSignalType): nil,
   })
 
   user_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
     gql_id: Tree{
-      uint64(LinkSignalType): nil,
-      uint64(ReadSignalType): nil,
+      SerializedType(LinkSignalType): nil,
+      SerializedType(ReadSignalType): nil,
     },
   })
 
