@@ -27,7 +27,7 @@ func TestSerializeBasic(t *testing.T) {
   testSerializeSliceSlice[[][]int](t, ctx, [][]int{{123, 456, 789, 101112}, {3253, 2341, 735, 212}, {123, 51}, nil})
   testSerializeSliceSlice[[][]string](t, ctx, [][]string{{"123", "456", "789", "101112"}, {"3253", "2341", "735", "212"}, {"123", "51"}, nil})
 
-  testSerialize(t, ctx, []map[int8]map[*int8]string{})
+  testSerialize(t, ctx, map[int8]map[*int8]string{})
 
   testSerializeMap(t, ctx, map[int8]int32{
     0: 1234,

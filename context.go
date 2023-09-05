@@ -708,11 +708,65 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       reflect_type := reflect.MapOf(key_type, elem_type)
       return reflect_type, nil, value, nil
     } else if len(value.Data) < 8 {
-
+      return nil, nil, value, fmt.Errorf("Not enough data to deserialize map")
     } else {
+      var map_size_bytes []byte
+      var err error
+      map_size_bytes, value, err = value.PopData(8)
+      if err != nil {
+        return nil, nil, value, err
+      }
 
+      map_size := binary.BigEndian.Uint64(map_size_bytes)
+
+      if map_size == 0xFFFFFFFFFFFFFFFF {
+        var key_type, elem_type reflect.Type
+        var err error
+        tmp_value := SerializedValue{
+          value.TypeStack,
+          nil,
+        }
+        key_type, _, tmp_value, err = DeserializeValue(ctx, tmp_value)
+        if err != nil {
+          return nil, nil, value, err
+        }
+        elem_type, _, tmp_value, err = DeserializeValue(ctx, tmp_value)
+        if err != nil {
+          return nil, nil, value, err
+        }
+        new_value := SerializedValue{
+          tmp_value.TypeStack,
+          value.Data,
+        }
+        reflect_type := reflect.MapOf(key_type, elem_type)
+        reflect_value := reflect.New(reflect_type).Elem()
+        return reflect_type, &reflect_value, new_value, nil
+      } else if map_size == 0x00 {
+        var key_type, elem_type reflect.Type
+        var err error
+        tmp_value := SerializedValue{
+          value.TypeStack,
+          nil,
+        }
+        key_type, _, tmp_value, err = DeserializeValue(ctx, tmp_value)
+        if err != nil {
+          return nil, nil, value, err
+        }
+        elem_type, _, tmp_value, err = DeserializeValue(ctx, tmp_value)
+        if err != nil {
+          return nil, nil, value, err
+        }
+        new_value := SerializedValue{
+          tmp_value.TypeStack,
+          value.Data,
+        }
+        reflect_type := reflect.MapOf(key_type, elem_type)
+        reflect_value := reflect.MakeMap(reflect_type)
+        return reflect_type, &reflect_value, new_value, nil
+      } else {
+        return nil, nil, value, fmt.Errorf("deserialize map with elements unimplemented")
+      }
     }
-    return nil, nil, value, fmt.Errorf("deserialize map unimplemented")
   })
   if err != nil {
     return nil, err
