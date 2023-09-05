@@ -273,7 +273,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       ev := value.Elem()
       elem_value = &ev
     }
-    elem, err := serializeValue(ctx, reflect_type.Elem(), elem_value)
+    elem, err := SerializeValue(ctx, reflect_type.Elem(), elem_value)
     if err != nil {
       return SerializedValue{}, err
     }
@@ -286,7 +286,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     }, nil
   }, func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
     if value.Data == nil {
-      elem_type, _, _, err := DeserializeValue(ctx, value)
+      var elem_type reflect.Type
+      var err error
+      elem_type, _, value, err = DeserializeValue(ctx, value)
       if err != nil {
         return nil, nil, SerializedValue{}, err
       }
@@ -338,14 +340,14 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         // Add to the type stack and data stack
         field_hash := Hash(FieldNameBase, gv_tag)
         if value == nil {
-          field_ser, err := serializeValue(ctx, field.Type, nil)
+          field_ser, err := SerializeValue(ctx, field.Type, nil)
           if err != nil {
             return SerializedValue{}, err
           }
           field_values[field_hash] = field_ser
         } else {
           field_value := value.FieldByIndex(field.Index)
-          field_ser, err := serializeValue(ctx, field.Type, &field_value)
+          field_ser, err := SerializeValue(ctx, field.Type, &field_value)
           if err != nil {
             return SerializedValue{}, err
           }
@@ -573,7 +575,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       var type_stack []SerializedType = nil
       for i := 0; i < value.Len(); i += 1 {
         val := value.Index(i)
-        element, err := serializeValue(ctx, reflect_type.Elem(), &val)
+        element, err := SerializeValue(ctx, reflect_type.Elem(), &val)
         if err != nil {
           return SerializedValue{}, err
         }
@@ -584,7 +586,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       }
     }
 
-    elem, err := serializeValue(ctx, reflect_type.Elem(), nil)
+    elem, err := SerializeValue(ctx, reflect_type.Elem(), nil)
     if err != nil {
       return SerializedValue{}, err
     }
@@ -610,7 +612,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       return SerializedValue{}, fmt.Errorf("Cannot serialize nil interfaces")
     } else {
       elem_value := value.Elem()
-      elem, err := serializeValue(ctx, value.Elem().Type(), &elem_value)
+      elem, err := SerializeValue(ctx, value.Elem().Type(), &elem_value)
       if err != nil {
         return SerializedValue{}, err
       }
@@ -631,8 +633,87 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
   err = ctx.RegisterKind(reflect.Map, NewSerializedType("map"),
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
-    return SerializedValue{}, fmt.Errorf("serialize map unimplemented")
+    var data []byte
+    type_stack := []SerializedType{ctx_type}
+    if value == nil {
+      data = nil
+    } else if value.IsZero() {
+      data = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+    } else if value.Len() == 0 {
+      data = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    } else {
+      data = make([]byte, 8)
+      map_size := 0
+      var key_types, elem_types []SerializedType
+
+      map_iter := value.MapRange()
+      for map_iter.Next() {
+        map_size += 1
+        key_reflect := map_iter.Key()
+        elem_reflect := map_iter.Value()
+
+        key_value, err := SerializeValue(ctx, key_reflect.Type(), &key_reflect)
+        if err != nil {
+          return SerializedValue{}, err
+        }
+        elem_value, err := SerializeValue(ctx, elem_reflect.Type(), &elem_reflect)
+        if err != nil {
+          return SerializedValue{}, err
+        }
+
+        data = append(data, key_value.Data...)
+        data = append(data, elem_value.Data...)
+
+        if key_types == nil {
+          key_types = key_value.TypeStack
+          elem_types = elem_value.TypeStack
+        }
+      }
+
+      binary.BigEndian.PutUint64(data[0:8], uint64(map_size))
+
+      type_stack = append(type_stack, key_types...)
+      type_stack = append(type_stack, elem_types...)
+      return SerializedValue{
+        type_stack,
+        data,
+      }, nil
+    }
+    key_value, err := SerializeValue(ctx, reflect_type.Key(), nil)
+    if err != nil {
+      return SerializedValue{}, nil
+    }
+    elem_value, err := SerializeValue(ctx, reflect_type.Elem(), nil)
+    if err != nil {
+      return SerializedValue{}, nil
+    }
+
+    type_stack = append(type_stack, key_value.TypeStack...)
+    type_stack = append(type_stack, elem_value.TypeStack...)
+
+    return SerializedValue{
+      type_stack,
+      data,
+    }, nil
   }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      var key_type, elem_type reflect.Type
+      var err error
+      key_type, _, value, err = DeserializeValue(ctx, value)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      elem_type, _, value, err = DeserializeValue(ctx, value)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      reflect_type := reflect.MapOf(key_type, elem_type)
+      return reflect_type, nil, value, nil
+    } else if len(value.Data) < 8 {
+
+    } else {
+
+    }
     return nil, nil, value, fmt.Errorf("deserialize map unimplemented")
   })
   if err != nil {
@@ -884,7 +965,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       var err error
       for i := 0; i < value.Len(); i += 1 {
         val := value.Index(i)
-        element, err = serializeValue(ctx, reflect_type.Elem(), &val)
+        element, err = SerializeValue(ctx, reflect_type.Elem(), &val)
         if err != nil {
           return SerializedValue{}, err
         }
@@ -895,7 +976,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         data,
       }, nil
     }
-    element, err := serializeValue(ctx, reflect_type.Elem(), nil)
+    element, err := SerializeValue(ctx, reflect_type.Elem(), nil)
     if err != nil {
       return SerializedValue{}, err
     }
@@ -930,7 +1011,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
           value.Data,
         }, nil
       } else if slice_length == 0x00 {
-        elem_type, _, remaining, err := DeserializeValue(ctx, value)
+        elem_type, _, remaining, err := DeserializeValue(ctx, SerializedValue{
+          value.TypeStack,
+          nil,
+        })
         if err != nil {
           return nil, nil, SerializedValue{}, err
         }

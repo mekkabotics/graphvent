@@ -16,7 +16,6 @@ import (
   "bytes"
   "golang.org/x/net/websocket"
   "github.com/google/uuid"
-  "reflect"
 )
 
 func TestGQLServer(t *testing.T) {
@@ -240,10 +239,10 @@ func TestGQLDB(t *testing.T) {
   })
   fatalErr(t, err)
 
-  ser1, err := SerializeValue(ctx, reflect.ValueOf(gql))
+  ser1, err := SerializeAny(ctx, gql)
   fatalErr(t, err)
   ctx.Log.Logf("test", "SER_1: \n%+v\n\n", ser1)
-  ser2, err := SerializeValue(ctx, reflect.ValueOf(u1))
+  ser2, err := SerializeAny(ctx, u1)
   fatalErr(t, err)
   ctx.Log.Logf("test", "SER_2: \n%+v\n\n", ser2)
 

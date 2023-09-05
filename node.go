@@ -249,7 +249,7 @@ func nodeLoop(ctx *Context, node *Node) error {
     select {
     case msg := <- node.MsgChan:
       ctx.Log.Logf("node_msg", "NODE_MSG: %s - %+v", node.ID, msg.Signal)
-      signal_ser, err := SerializeValue(ctx, reflect.ValueOf(msg.Signal))
+      signal_ser, err := SerializeAny(ctx, msg.Signal)
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", err, msg.Signal)
       }
@@ -437,7 +437,7 @@ func (msgs Messages) Add(ctx *Context, source NodeID, principal ed25519.PrivateK
 }
 
 func NewMessage(ctx *Context, dest NodeID, source NodeID, principal ed25519.PrivateKey, signal Signal) (*Message, error) {
-  signal_ser, err := SerializeValue(ctx, reflect.ValueOf(signal))
+  signal_ser, err := SerializeAny(ctx, signal)
   if err != nil {
     return nil, err
   }
@@ -612,7 +612,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
 func WriteNode(ctx *Context, node *Node) error {
   ctx.Log.Logf("db", "DB_WRITE: %s", node.ID)
 
-  node_serialized, err := SerializeValue(ctx, reflect.ValueOf(node))
+  node_serialized, err := SerializeAny(ctx, node)
   if err != nil {
     return err
   }

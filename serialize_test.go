@@ -27,6 +27,15 @@ func TestSerializeBasic(t *testing.T) {
   testSerializeSliceSlice[[][]int](t, ctx, [][]int{{123, 456, 789, 101112}, {3253, 2341, 735, 212}, {123, 51}, nil})
   testSerializeSliceSlice[[][]string](t, ctx, [][]string{{"123", "456", "789", "101112"}, {"3253", "2341", "735", "212"}, {"123", "51"}, nil})
 
+  testSerialize(t, ctx, []map[int8]map[*int8]string{})
+
+  testSerializeMap(t, ctx, map[int8]int32{
+    0: 1234,
+    2: 5678,
+    4: 9101,
+    6: 1121,
+  })
+
   testSerialize(t, ctx, struct{
     int `gv:"0"`
     string `gv:"1"`
@@ -82,7 +91,7 @@ func testSerializeComparable[T comparable](t *testing.T, ctx *Context, val T) {
 }
 
 func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
-  value, err := SerializeValue(ctx, reflect.ValueOf(val))
+  value, err := SerializeAny(ctx, val)
   fatalErr(t, err)
   ctx.Log.Logf("test", "Serialized %+v to %+v", val, value)
 

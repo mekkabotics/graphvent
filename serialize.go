@@ -107,18 +107,19 @@ func (value SerializedValue) PopData(n int) ([]byte, SerializedValue, error) {
   return data, value, nil
 }
 
-func SerializeValue(ctx *Context, value reflect.Value) (SerializedValue, error) {
-  val, err := serializeValue(ctx, value.Type(), &value)
-  ctx.Log.Logf("serialize", "SERIALIZED_VALUE(%+v): %+v - %+v", value.Type(), val.TypeStack, val.Data)
-  return val, err
+func SerializeAny[T any](ctx *Context, value T) (SerializedValue, error) {
+  reflect_value := reflect.ValueOf(value)
+  return SerializeValue(ctx, reflect_value.Type(), &reflect_value)
 }
 
-func serializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
+func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
+  ctx.Log.Logf("serialize", "Serializing: %+v - %+v", t, value)
   ctx_type, type_exists := ctx.TypeReflects[t]
+  var serialize TypeSerialize = nil
   if type_exists == true {
     type_info := ctx.Types[ctx_type]
     if type_info.Serialize != nil {
-      return type_info.Serialize(ctx, ctx_type, t, value)
+      serialize = type_info.Serialize
     }
   }
 
@@ -130,8 +131,13 @@ func serializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (Seriali
     ctx_type = kind_info.Type
   }
 
-  return kind_info.Serialize(ctx, ctx_type, t, value)
+  if serialize == nil {
+    serialize = kind_info.Serialize
+  }
 
+  serialized_value, err :=  serialize(ctx, ctx_type, t, value)
+  ctx.Log.Logf("serialize", "Serialized %+v: %+v - %+v", value, serialized_value, err)
+  return serialized_value, err
 }
 
 func SerializeField(ctx *Context, ext Extension, field_name string) (SerializedValue, error) {
@@ -143,7 +149,7 @@ func SerializeField(ctx *Context, ext Extension, field_name string) (SerializedV
   if field.IsValid() == false {
     return SerializedValue{}, fmt.Errorf("%s is not a field in %+v", field_name, ext)
   } else {
-    return SerializeValue(ctx, field)
+    return SerializeValue(ctx, field.Type(), &field)
   }
 }
 
@@ -187,7 +193,7 @@ func ParseSerializedValue(data []byte) (SerializedValue, []byte, error) {
 }
 
 func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  ctx.Log.Logf("serialize", "DeserializeValue: %+v", value)
+  ctx.Log.Logf("serialize", "Deserializing: %+v", value)
 
   var deserialize TypeDeserialize = nil
   var reflect_type reflect.Type = nil
@@ -211,8 +217,6 @@ func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *refle
     deserialize = kind_info.Deserialize
   }
 
-  ctx.Log.Logf("serialize", "Deserializing: %d", ctx_type)
-
   if value.Data == nil {
     reflect_type, _, value, err = deserialize(ctx, value)
   } else {
@@ -222,6 +226,6 @@ func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *refle
     return nil, nil, value, err
   }
 
-  ctx.Log.Logf("serialize", "DeserializeValue: DONE %+v - %+v - %+v", value, reflect_type, reflect_value)
+  ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v - remaining %+v", reflect_type, reflect_value, err, value)
   return reflect_type, reflect_value, value, nil
 }
