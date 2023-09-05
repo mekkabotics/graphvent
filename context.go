@@ -764,7 +764,30 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         reflect_value := reflect.MakeMap(reflect_type)
         return reflect_type, &reflect_value, new_value, nil
       } else {
-        return nil, nil, value, fmt.Errorf("deserialize map with elements unimplemented")
+        // TODO: basically copy above except instead of getting the key/elem type once, get key/elem values for map_size
+        tmp_value := value
+        var map_value reflect.Value
+        var map_type reflect.Type = nil
+        for i := 0; i < int(map_size); i += 1 {
+          tmp_value.TypeStack = value.TypeStack
+          var key_type, elem_type reflect.Type
+          var key_value, elem_value *reflect.Value
+          var err error
+          key_type, key_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          elem_type, elem_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          if map_type == nil {
+            map_type = reflect.MapOf(key_type, elem_type)
+            map_value = reflect.MakeMap(map_type)
+          }
+          map_value.SetMapIndex(*key_value, *elem_value)
+        }
+        return map_type, &map_value, tmp_value, nil
       }
     }
   })
