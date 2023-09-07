@@ -88,25 +88,25 @@ type PendingSignal struct {
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
-  Key ed25519.PrivateKey `gv:"0"`
+  Key ed25519.PrivateKey `gv:""`
   ID NodeID
-  Type NodeType `gv:"1"`
-  Extensions map[ExtType]Extension `gv:"3"`
-  Policies map[PolicyType]Policy `gv:"4"`
+  Type NodeType `gv:""`
+  Extensions map[ExtType]Extension `gv:"extensions"`
+  Policies map[PolicyType]Policy `gv:""`
 
-  PendingACLs map[uuid.UUID]PendingACL `gv:"6"`
-  PendingSignals map[uuid.UUID]PendingSignal `gv:"7"`
+  PendingACLs map[uuid.UUID]PendingACL `gv:""`
+  PendingSignals map[uuid.UUID]PendingSignal `gv:""`
 
   // Channel for this node to receive messages from the Context
   MsgChan chan *Message
   // Size of MsgChan
-  BufferSize uint32 `gv:"2"`
+  BufferSize uint32 `gv:""`
   // Channel for this node to process delayed signals
   TimeoutChan <-chan time.Time
 
   Active atomic.Bool
 
-  SignalQueue []QueuedSignal `gv:"5"`
+  SignalQueue []QueuedSignal `gv:""`
   NextSignal *QueuedSignal
 }
 
@@ -387,26 +387,31 @@ func nodeLoop(ctx *Context, node *Node) error {
 
     switch sig := signal.(type) {
     case *StopSignal:
+      node.Process(ctx, source, signal)
+      err := WriteNode(ctx, node)
+      if err != nil {
+        panic(err)
+      }
+
       msgs := Messages{}
       msgs = msgs.Add(ctx, node.ID, node.Key, NewStatusSignal(node.ID, "stopped"), source)
       ctx.Send(msgs)
       node.Process(ctx, node.ID, NewStatusSignal(node.ID, "stopped"))
       run = false
+
     case *ReadSignal:
       result := node.ReadFields(ctx, sig.Extensions)
       msgs := Messages{}
       msgs = msgs.Add(ctx, node.ID, node.Key, NewReadResultSignal(sig.ID, node.ID, node.Type, result), source)
       msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.ID, "read_done"), source)
       ctx.Send(msgs)
-    }
 
-    node.Process(ctx, source, signal)
-    // assume that processing a signal means that this nodes state changed
-    // TODO: remove a lot of database writes by only writing when things change,
-    //  so need to have Process return whether or not state changed
-    err := WriteNode(ctx, node)
-    if err != nil {
-      panic(err)
+    default:
+      node.Process(ctx, source, signal)
+      err := WriteNode(ctx, node)
+      if err != nil {
+        panic(err)
+      }
     }
   }
 
@@ -679,7 +684,7 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
 
   node, ok := node_val.Interface().(*Node)
   if ok == false {
-    return nil, fmt.Errorf("Deserialized %+v when expecting *Node", reflect.TypeOf(node_val).Elem())
+    return nil, fmt.Errorf("Deserialized %+v when expecting *Node", node_val.Type())
   }
 
   ctx.AddNode(id, node) 

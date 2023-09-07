@@ -136,10 +136,13 @@ func SerializeAny[T any](ctx *Context, value T) (SerializedValue, error) {
 
 func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
   ctx.Log.Logf("serialize", "Serializing: %+v - %+v", t, value)
-  ctx_type, type_exists := ctx.TypeReflects[t]
+  type_info, type_exists := ctx.TypeReflects[t]
+  var ctx_type SerializedType
+  var ctx_name string
   var serialize TypeSerialize = nil
   if type_exists == true {
-    type_info := ctx.Types[ctx_type]
+    ctx_type = type_info.Type
+    ctx_name = type_info.Reflect.Name()
     if type_info.Serialize != nil {
       serialize = type_info.Serialize
     }
@@ -151,6 +154,7 @@ func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (Seriali
     return SerializedValue{}, fmt.Errorf("Don't know how to serialize kind %+v", kind)
   } else if type_exists == false {
     ctx_type = kind_info.Type
+    ctx_name = kind_info.Reflect.String()
   }
 
   if serialize == nil {
@@ -158,7 +162,10 @@ func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (Seriali
   }
 
   serialized_value, err :=  serialize(ctx, ctx_type, t, value)
-  ctx.Log.Logf("serialize", "Serialized %+v: %+v - %+v", value, serialized_value, err)
+  if err != nil {
+    return serialized_value, err
+  }
+  ctx.Log.Logf("serialize", "Serialized %+v: %+v", ctx_name, serialized_value)
   return serialized_value, err
 }
 
@@ -215,7 +222,6 @@ func ParseSerializedValue(data []byte) (SerializedValue, []byte, error) {
 }
 
 func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  ctx.Log.Logf("serialize", "Deserializing: %+v", value)
 
   var deserialize TypeDeserialize = nil
   var reflect_type reflect.Type = nil
@@ -226,18 +232,22 @@ func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *refle
     return nil, nil, value, err
   }
 
-  type_info, exists := ctx.Types[SerializedType(ctx_type)]
-  if exists == true {
+  var ctx_name string
+
+  type_info, type_exists := ctx.Types[SerializedType(ctx_type)]
+  if type_exists == true {
     deserialize = type_info.Deserialize
-    reflect_type = type_info.Type
+    ctx_name = type_info.Reflect.Name()
   } else {
-    kind, exists := ctx.KindTypes[SerializedType(ctx_type)]
+    kind_info, exists := ctx.KindTypes[SerializedType(ctx_type)]
     if exists == false {
       return nil, nil, value, fmt.Errorf("Cannot deserialize 0x%x: unknown type/kind", ctx_type)
     }
-    kind_info := ctx.Kinds[kind]
     deserialize = kind_info.Deserialize
+    ctx_name = kind_info.Reflect.String()
   }
+
+  ctx.Log.Logf("serialize", "Deserializing: %+v(0x%d) - %+v", ctx_name, ctx_type, value.TypeStack)
 
   if value.Data == nil {
     reflect_type, _, value, err = deserialize(ctx, value)
@@ -248,6 +258,6 @@ func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *refle
     return nil, nil, value, err
   }
 
-  ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v - remaining %+v", reflect_type, reflect_value, err, value)
+  ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v", reflect_type, reflect_value, err)
   return reflect_type, reflect_value, value, nil
 }

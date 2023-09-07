@@ -210,7 +210,7 @@ func TestGQLServer(t *testing.T) {
 }
 
 func TestGQLDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "signal", "node"})
+  ctx := logTestContext(t, []string{"test", "serialize", "node"})
 
   TestUserNodeType := NewNodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
@@ -238,13 +238,6 @@ func TestGQLDB(t *testing.T) {
     return sig.Status == "stopped" && sig.Source == gql.ID
   })
   fatalErr(t, err)
-
-  ser1, err := SerializeAny(ctx, gql)
-  fatalErr(t, err)
-  ctx.Log.Logf("test", "SER_1: \n%+v\n\n", ser1)
-  ser2, err := SerializeAny(ctx, u1)
-  fatalErr(t, err)
-  ctx.Log.Logf("test", "SER_2: \n%+v\n\n", ser2)
 
   // Clear all loaded nodes from the context so it loads them from the database
   ctx.nodeMap = map[NodeID]*Node{}

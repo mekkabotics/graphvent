@@ -28,12 +28,14 @@ type NodeInfo struct {
 }
 
 type TypeInfo struct {
-  Type reflect.Type
+  Reflect reflect.Type
+  Type SerializedType
   Serialize TypeSerialize
   Deserialize TypeDeserialize
 }
 
 type KindInfo struct {
+  Reflect reflect.Kind
   Type SerializedType
   Serialize TypeSerialize
   Deserialize TypeDeserialize
@@ -57,11 +59,11 @@ type Context struct {
   // Map between database type hashes and the registered info
   Nodes map[NodeType]NodeInfo
   // Map between go types and registered info
-  Types map[SerializedType]TypeInfo
-  TypeReflects map[reflect.Type]SerializedType
+  Types map[SerializedType]*TypeInfo
+  TypeReflects map[reflect.Type]*TypeInfo
 
-  Kinds map[reflect.Kind]KindInfo
-  KindTypes map[SerializedType]reflect.Kind
+  Kinds map[reflect.Kind]*KindInfo
+  KindTypes map[SerializedType]*KindInfo
 
   // Routing map to all the nodes local to this context
   nodeMapLock sync.RWMutex
@@ -150,12 +152,14 @@ func (ctx *Context)RegisterKind(kind reflect.Kind, ctx_type SerializedType, seri
     return fmt.Errorf("Cannot register field without serialize function")
   }
 
-  ctx.Kinds[kind] = KindInfo{
+  info := KindInfo{
+    kind,
     ctx_type,
     serialize,
     deserialize,
   }
-  ctx.KindTypes[ctx_type] = kind
+  ctx.KindTypes[ctx_type] = &info
+  ctx.Kinds[kind] = &info
 
   return nil
 }
@@ -169,19 +173,15 @@ func (ctx *Context)RegisterType(reflect_type reflect.Type, ctx_type SerializedTy
   if exists == true {
     return fmt.Errorf("Cannot register field with type %+v, type already registered in context", reflect_type)
   }
-  if deserialize == nil {
-    return fmt.Errorf("Cannot register field without deserialize function")
-  }
-  if serialize == nil {
-    return fmt.Errorf("Cannot register field without serialize function")
-  }
 
-  ctx.Types[ctx_type] = TypeInfo{
-    Type: reflect_type,
+  type_info := TypeInfo{
+    Reflect: reflect_type,
+    Type: ctx_type,
     Serialize: serialize,
     Deserialize: deserialize,
   }
-  ctx.TypeReflects[reflect_type] = ctx_type
+  ctx.Types[ctx_type] = &type_info
+  ctx.TypeReflects[reflect_type] = &type_info
 
   return nil
 }
@@ -253,10 +253,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     SignalTypes: map[reflect.Type]SignalType{},
     Nodes: map[NodeType]NodeInfo{},
     nodeMap: map[NodeID]*Node{},
-    Types: map[SerializedType]TypeInfo{},
-    TypeReflects: map[reflect.Type]SerializedType{},
-    Kinds: map[reflect.Kind]KindInfo{},
-    KindTypes: map[SerializedType]reflect.Kind{},
+    Types: map[SerializedType]*TypeInfo{},
+    TypeReflects: map[reflect.Type]*TypeInfo{},
+    Kinds: map[reflect.Kind]*KindInfo{},
+    KindTypes: map[SerializedType]*KindInfo{},
   }
 
   var err error
@@ -299,12 +299,14 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       pointer_flags := value.Data[0]
       value.Data = value.Data[1:]
       if pointer_flags == 0x00 {
-        _, elem_value, remaining_data, err := DeserializeValue(ctx, value)
+        elem_type, elem_value, remaining_data, err := DeserializeValue(ctx, value)
         if err != nil {
           return nil, nil, SerializedValue{}, err
         }
-        pointer_value := elem_value.Addr()
-        return pointer_value.Type(), &pointer_value, remaining_data, nil
+        pointer_type := reflect.PointerTo(elem_type)
+        pointer_value := reflect.New(pointer_type).Elem()
+        pointer_value.Set(elem_value.Addr())
+        return pointer_type, &pointer_value, remaining_data, nil
       } else if pointer_flags == 0x01 {
         elem_type, _, remaining_data, err := DeserializeValue(ctx, value)
         if err != nil {
@@ -323,13 +325,18 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  // TODO: figure out why this doesn't break in the simple test, but breaks in TestGQLDB
   err = ctx.RegisterKind(reflect.Struct, StructType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     serialized_value := SerializedValue{
       []SerializedType{ctx_type},
       nil,
     }
-    field_values := map[SerializedType]SerializedValue{}
+    if value != nil {
+      serialized_value.Data = make([]byte, 8)
+    }
+
+    num_fields := uint64(0)
     for _, field := range(reflect.VisibleFields(reflect_type)) {
       gv_tag, tagged_gv := field.Tag.Lookup("gv")
       if tagged_gv == false {
@@ -337,28 +344,72 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       } else if gv_tag == "" {
         continue
       } else {
-        // Add to the type stack and data stack
+        num_fields += 1
         field_hash := Hash(FieldNameBase, gv_tag)
+        field_hash_bytes := make([]byte, 8)
+        binary.BigEndian.PutUint64(field_hash_bytes, uint64(field_hash))
         if value == nil {
           field_ser, err := SerializeValue(ctx, field.Type, nil)
           if err != nil {
             return SerializedValue{}, err
           }
-          field_values[field_hash] = field_ser
+          serialized_value.TypeStack = append(serialized_value.TypeStack, field_ser.TypeStack...)
         } else {
           field_value := value.FieldByIndex(field.Index)
           field_ser, err := SerializeValue(ctx, field.Type, &field_value)
           if err != nil {
             return SerializedValue{}, err
           }
-          field_values[field_hash] = field_ser
+          serialized_value.TypeStack = append(serialized_value.TypeStack, field_ser.TypeStack...)
+          serialized_value.Data = append(serialized_value.Data, field_hash_bytes...)
+          serialized_value.Data = append(serialized_value.Data, field_ser.Data...)
         }
       }
+    }
+    if value != nil {
+      binary.BigEndian.PutUint64(serialized_value.Data[0:8], num_fields)
     }
 
     return serialized_value, nil
   }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return nil, nil, SerializedValue{}, fmt.Errorf("deserialize struct not implemented")
+    if value.Data == nil {
+      return reflect.TypeOf(map[uint64]reflect.Value{}), nil, value, nil
+    } else {
+      var num_fields_data []byte
+      var err error
+      num_fields_data, value, err = value.PopData(8)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      num_fields := int(binary.BigEndian.Uint64(num_fields_data))
+
+      map_type := reflect.TypeOf(map[uint64]reflect.Value{})
+      map_ptr := reflect.New(map_type)
+      map_ptr.Elem().Set(reflect.MakeMap(map_type))
+      map_value := map_ptr.Elem()
+      if num_fields == 0 {
+        return map_type, &map_value, value, nil
+      } else {
+        tmp_value := value
+        for i := 0; i < num_fields; i += 1 {
+          var field_hash_bytes []byte
+          field_hash_bytes, tmp_value, err = tmp_value.PopData(8)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          field_hash := binary.BigEndian.Uint64(field_hash_bytes)
+          field_hash_value := reflect.ValueOf(field_hash)
+
+          var elem_value *reflect.Value
+          _, elem_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          map_value.SetMapIndex(field_hash_value, reflect.ValueOf(*elem_value))
+        }
+        return map_type, &map_value, tmp_value, nil
+      }
+    }
   })
   if err != nil {
     return nil, err
@@ -603,26 +654,43 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   err = ctx.RegisterKind(reflect.Interface, InterfaceType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte
-    type_stack := []SerializedType{}
+    type_stack := []SerializedType{ctx_type}
     if value == nil {
       data = nil
     } else if value.IsZero() {
-      return SerializedValue{}, fmt.Errorf("Cannot serialize nil interfaces")
     } else {
       elem_value := value.Elem()
-      elem, err := SerializeValue(ctx, value.Elem().Type(), &elem_value)
+      elem, err := SerializeValue(ctx, elem_value.Type(), &elem_value)
       if err != nil {
         return SerializedValue{}, err
       }
-      data = elem.Data
-      type_stack = elem.TypeStack
+      data, err = elem.MarshalBinary()
+      if err != nil {
+        return SerializedValue{}, err
+      }
     }
     return SerializedValue{
-      append([]SerializedType{ctx_type}, type_stack...),
+      type_stack,
       data,
     }, nil
   }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return nil, nil, SerializedValue{}, fmt.Errorf("deserialize interface unimplemented")
+    if value.Data == nil {
+      return reflect.TypeOf((interface{})(nil)), nil, value, nil
+    } else {
+      var elem_value *reflect.Value
+      var elem_ser SerializedValue
+      var elem_type reflect.Type
+      var err error
+      elem_ser, value.Data, err = ParseSerializedValue(value.Data)
+      elem_type, elem_value, _, err = DeserializeValue(ctx, elem_ser)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      ptr_type := reflect.PointerTo(elem_type)
+      ptr_value := reflect.New(ptr_type).Elem()
+      ptr_value.Set(elem_value.Addr())
+      return ptr_type, &ptr_value, value, nil
+    }
   })
   if err != nil {
     return nil, err
@@ -764,7 +832,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         reflect_value := reflect.MakeMap(reflect_type)
         return reflect_type, &reflect_value, new_value, nil
       } else {
-        // TODO: basically copy above except instead of getting the key/elem type once, get key/elem values for map_size
         tmp_value := value
         var map_value reflect.Value
         var map_type reflect.Type = nil
@@ -1128,26 +1195,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(StringError("")), ErrorType,
-  func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
-    if value == nil {
-      return SerializedValue{
-        []SerializedType{ctx_type},
-        nil,
-      }, nil
-    }
-
-    data := make([]byte, 8)
-    err := value.Interface().(StringError)
-    str := string(err)
-    binary.BigEndian.PutUint64(data, uint64(len(str)))
-    return SerializedValue{
-      []SerializedType{SerializedType(ctx_type)},
-      append(data, []byte(str)...),
-    }, nil
-  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return nil, nil, SerializedValue{}, fmt.Errorf("unimplemented")
-  })
+  err = ctx.RegisterType(reflect.TypeOf(StringError("")), ErrorType, nil, nil)
+  if err != nil {
+    return nil, err
+  }
 
   err = ctx.RegisterType(reflect.TypeOf(RandID()), NodeIDType,
   func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
@@ -1164,7 +1215,24 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       id_ser,
     }, nil
   }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return nil, nil, SerializedValue{}, fmt.Errorf("unimplemented")
+    if value.Data == nil {
+      return reflect.TypeOf(ZeroID), nil, value, nil
+    } else {
+      var err error
+      var id_bytes []byte
+      id_bytes, value, err = value.PopData(16)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      id, err := IDFromBytes(id_bytes)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      id_value := reflect.ValueOf(id)
+      return id_value.Type(), &id_value, value, nil
+    }
   })
   if err != nil {
     return nil, err

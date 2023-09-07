@@ -36,7 +36,7 @@ func TestSerializeBasic(t *testing.T) {
     6: 1121,
   })
 
-  testSerialize(t, ctx, struct{
+  testSerializeStruct(t, ctx, struct{
     int `gv:"0"`
     string `gv:"1"`
   }{
@@ -87,6 +87,64 @@ func testSerializeComparable[T comparable](t *testing.T, ctx *Context, val T) {
   v := testSerialize(t, ctx, val)
   if v != val {
     t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
+  }
+}
+
+func testSerializeStruct[T any](t *testing.T, ctx *Context, val T) {
+  value, err := SerializeAny(ctx, val)
+  fatalErr(t, err)
+  ctx.Log.Logf("test", "Serialized %+v to %+v", val, value)
+
+  ser, err := value.MarshalBinary()
+  fatalErr(t, err)
+  ctx.Log.Logf("test", "Binary: %+v", ser)
+
+  val_parsed, remaining_parse, err := ParseSerializedValue(ser)
+  fatalErr(t, err)
+  ctx.Log.Logf("test", "Parsed: %+v", val_parsed)
+
+  if len(remaining_parse) != 0 {
+    t.Fatal("Data remaining after deserializing value")
+  }
+
+  val_type, deserialized_value, remaining_deserialize, err := DeserializeValue(ctx, val_parsed)
+  fatalErr(t, err)
+
+  if len(remaining_deserialize.Data) != 0 {
+    t.Fatal("Data remaining after deserializing value")
+  } else if len(remaining_deserialize.TypeStack) != 0 {
+    t.Fatal("TypeStack remaining after deserializing value")
+  } else if val_type != reflect.TypeOf(map[uint64]reflect.Value{}) {
+    t.Fatal(fmt.Sprintf("DeserializeValue returned wrong reflect.Type %+v - map[uint64]reflect.Value", val_type))
+  } else if deserialized_value == nil {
+    t.Fatal("DeserializeValue returned no []reflect.Value")
+  } else if deserialized_value == nil {
+    t.Fatal("DeserializeValue returned nil *reflect.Value")
+  } else if deserialized_value.CanConvert(reflect.TypeOf(map[uint64]reflect.Value{})) == false {
+    t.Fatal("DeserializeValue returned value that can't convert to map[uint64]reflect.Value")
+  }
+
+  reflect_value := reflect.ValueOf(val)
+  deserialized_map := deserialized_value.Interface().(map[uint64]reflect.Value)
+
+  for _, field := range(reflect.VisibleFields(reflect_value.Type())) {
+    gv_tag, tagged_gv := field.Tag.Lookup("gv")
+    if tagged_gv == false {
+      continue
+    } else if gv_tag == "" {
+      continue
+    } else {
+      field_hash := uint64(Hash(FieldNameBase, gv_tag))
+      deserialized_field, exists := deserialized_map[field_hash]
+      if exists == false {
+        t.Fatal(fmt.Sprintf("field %s is not in deserialized struct", field.Name))
+      }
+      field_value := reflect_value.FieldByIndex(field.Index)
+      if field_value.Type() != deserialized_field.Type() {
+        t.Fatal(fmt.Sprintf("Type of %s does not match", field.Name))
+      }
+      ctx.Log.Logf("test", "Field %s matched", field.Name)
+    }
   }
 }
 
