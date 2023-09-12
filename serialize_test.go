@@ -29,6 +29,16 @@ func TestSerializeBasic(t *testing.T) {
 
   testSerialize(t, ctx, map[int8]map[*int8]string{})
 
+  var i interface{} = nil
+  testSerialize(t, ctx, i)
+
+  testSerializeMap(t, ctx, map[int8]interface{}{
+    0: "abcd",
+    1: uint32(12345678),
+    2: i,
+    3: 123,
+  })
+
   testSerializeMap(t, ctx, map[int8]int32{
     0: 1234,
     2: 5678,
@@ -45,18 +55,63 @@ func TestSerializeBasic(t *testing.T) {
   })
 }
 
+type test struct {
+  Int int `gv:"int"`
+  Str string `gv:"string"`
+}
+
+func (s test) String() string {
+  return fmt.Sprintf("%d:%s", s.Int, s.Str)
+}
+
+func TestSerializeStructTags(t *testing.T) {
+  ctx := logTestContext(t, []string{"test", "serialize"})
+
+  test_type := NewSerializedType("TEST_STRUCT")
+  ctx.Log.Logf("test", "TEST_TYPE: %+v", test_type)
+  ctx.RegisterType(reflect.TypeOf(test{}), test_type, SerializeStruct[test](ctx), DeserializeStruct[test](ctx))
+
+  test_int := 10
+  test_string := "test"
+
+  ret := testSerialize(t, ctx, test{
+    test_int,
+    test_string,
+  })
+  if ret.Int != test_int {
+    t.Fatalf("Deserialized int %d does not equal test %d", ret.Int, test_int)
+  } else if ret.Str != test_string {
+    t.Fatalf("Deserialized string %s does not equal test %s", ret.Str, test_string)
+  }
+
+  testSerialize(t, ctx, []test{
+    {
+      test_int,
+      test_string,
+    },
+    {
+      test_int * 2,
+      fmt.Sprintf("%s%s", test_string, test_string),
+    },
+    {
+      test_int * 4,
+      fmt.Sprintf("%s%s%s", test_string, test_string, test_string),
+    },
+  })
+}
+
 func testSerializeMap[M map[T]R, T, R comparable](t *testing.T, ctx *Context, val M) {
   v := testSerialize(t, ctx, val)
   for key, value := range(val) {
     recreated, exists := v[key]
     if exists == false {
-      t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
+      t.Fatalf("DeserializeValue returned wrong value %+v != %+v", v, val)
     } else if recreated != value {
-      t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
+      t.Fatalf("DeserializeValue returned wrong value %+v != %+v", v, val)
     }
   }
   if len(v) != len(val) {
-    t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
+    t.Fatalf("DeserializeValue returned wrong value %+v != %+v", v, val)
   }
 }
 
@@ -64,11 +119,11 @@ func testSerializeSliceSlice[S [][]T, T comparable](t *testing.T, ctx *Context, 
   v := testSerialize(t, ctx, val)
   for i, original := range(val) {
     if (original == nil && v[i] != nil) || (original != nil && v[i] == nil) {
-      t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
+      t.Fatalf("DeserializeValue returned wrong value %+v != %+v", v, val)
     }
     for j, o := range(original) {
       if v[i][j] != o {
-        t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
+        t.Fatalf("DeserializeValue returned wrong value %+v != %+v", v, val)
       }
     }
   }
@@ -149,11 +204,12 @@ func testSerializeStruct[T any](t *testing.T, ctx *Context, val T) {
 }
 
 func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
-  value, err := SerializeAny(ctx, val)
+  value := reflect.ValueOf(&val).Elem()
+  value_serialized, err := SerializeValue(ctx, value.Type(), &value)
   fatalErr(t, err)
-  ctx.Log.Logf("test", "Serialized %+v to %+v", val, value)
+  ctx.Log.Logf("test", "Serialized %+v to %+v", val, value_serialized)
 
-  ser, err := value.MarshalBinary()
+  ser, err := value_serialized.MarshalBinary()
   fatalErr(t, err)
   ctx.Log.Logf("test", "Binary: %+v", ser)
 
@@ -165,21 +221,26 @@ func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
     t.Fatal("Data remaining after deserializing value")
   }
 
-  val_type, deserialized_values, remaining_deserialize, err := DeserializeValue(ctx, val_parsed)
+  val_type, deserialized_value, remaining_deserialize, err := DeserializeValue(ctx, val_parsed)
   fatalErr(t, err)
 
   if len(remaining_deserialize.Data) != 0 {
     t.Fatal("Data remaining after deserializing value")
   } else if len(remaining_deserialize.TypeStack) != 0 {
     t.Fatal("TypeStack remaining after deserializing value")
-  } else if val_type != reflect.TypeOf(val) {
+  } else if val_type != value.Type() {
     t.Fatal(fmt.Sprintf("DeserializeValue returned wrong reflect.Type %+v - %+v", val_type, reflect.TypeOf(val)))
-  } else if deserialized_values == nil {
+  } else if deserialized_value == nil {
     t.Fatal("DeserializeValue returned no []reflect.Value")
-  } else if deserialized_values == nil {
+  } else if deserialized_value == nil {
     t.Fatal("DeserializeValue returned nil *reflect.Value")
-  } else if deserialized_values.CanConvert(val_type) == false {
+  } else if deserialized_value.CanConvert(val_type) == false {
     t.Fatal("DeserializeValue returned value that can't convert to original value")
   }
-  return deserialized_values.Interface().(T)
+  ctx.Log.Logf("test", "Value: %+v", deserialized_value.Interface())
+  if val_type.Kind() == reflect.Interface && deserialized_value.Interface() == nil {
+    var zero T
+    return zero
+  }
+  return deserialized_value.Interface().(T)
 }

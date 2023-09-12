@@ -88,25 +88,25 @@ type PendingSignal struct {
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
-  Key ed25519.PrivateKey `gv:""`
+  Key ed25519.PrivateKey `gv:"key"`
   ID NodeID
-  Type NodeType `gv:""`
+  Type NodeType `gv:"type"`
   Extensions map[ExtType]Extension `gv:"extensions"`
-  Policies map[PolicyType]Policy `gv:""`
+  Policies map[PolicyType]Policy `gv:"policies"`
 
-  PendingACLs map[uuid.UUID]PendingACL `gv:""`
-  PendingSignals map[uuid.UUID]PendingSignal `gv:""`
+  PendingACLs map[uuid.UUID]PendingACL `gv:"pending_acls"`
+  PendingSignals map[uuid.UUID]PendingSignal `gv:"pending_signal"`
 
   // Channel for this node to receive messages from the Context
   MsgChan chan *Message
   // Size of MsgChan
-  BufferSize uint32 `gv:""`
+  BufferSize uint32 `gv:"buffer_size"`
   // Channel for this node to process delayed signals
   TimeoutChan <-chan time.Time
 
   Active atomic.Bool
 
-  SignalQueue []QueuedSignal `gv:""`
+  SignalQueue []QueuedSignal `gv:"signal_queue"`
   NextSignal *QueuedSignal
 }
 
