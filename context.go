@@ -569,39 +569,90 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   err = ctx.RegisterKind(reflect.Array, ArrayType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
     var data []byte
+    type_stack := []SerializedType{ctx_type}
     if value == nil {
       data = nil
+    } else if value.IsZero() {
+      return SerializedValue{}, fmt.Errorf("don't know what zero array means...")
     } else if value.Len() == 0 {
       data = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
     } else {
       data := make([]byte, 8)
       binary.BigEndian.PutUint64(data, uint64(value.Len()))
-
-      var type_stack []SerializedType = nil
+      var element SerializedValue
+      var err error
       for i := 0; i < value.Len(); i += 1 {
         val := value.Index(i)
-        element, err := SerializeValue(ctx, reflect_type.Elem(), &val)
+        element, err = SerializeValue(ctx, reflect_type.Elem(), &val)
         if err != nil {
           return SerializedValue{}, err
         }
-        if type_stack == nil {
-          type_stack = append([]SerializedType{ctx_type}, element.TypeStack...)
-        }
         data = append(data, element.Data...)
       }
+      return SerializedValue{
+        append(type_stack, element.TypeStack...),
+        data,
+      }, nil
     }
-
-    elem, err := SerializeValue(ctx, reflect_type.Elem(), nil)
+    element, err := SerializeValue(ctx, reflect_type.Elem(), nil)
     if err != nil {
       return SerializedValue{}, err
     }
-
     return SerializedValue{
-      append([]SerializedType{ctx_type}, elem.TypeStack...),
+      append(type_stack, element.TypeStack...),
       data,
     }, nil
   }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return nil, nil, SerializedValue{}, fmt.Errorf("deserialize array unimplemented")
+    if value.Data == nil {
+      elem_type, _, _, err := DeserializeValue(ctx, value)
+      if err != nil {
+        return nil, nil, SerializedValue{}, err
+      }
+      return reflect.SliceOf(elem_type), nil, value, nil
+    } else if len(value.Data) < 8 {
+      return nil, nil, SerializedValue{}, fmt.Errorf("Not enough data to deserialize slice")
+    } else {
+      slice_length := binary.BigEndian.Uint64(value.Data[0:8])
+      value.Data = value.Data[8:]
+      if slice_length == 0x00 {
+        elem_type, _, remaining, err := DeserializeValue(ctx, SerializedValue{
+          value.TypeStack,
+          nil,
+        })
+        if err != nil {
+          return nil, nil, SerializedValue{}, err
+        }
+        array_type := reflect.ArrayOf(0, elem_type)
+        array_value := reflect.New(array_type).Elem()
+        return array_type, &array_value, SerializedValue{
+          remaining.TypeStack,
+          value.Data,
+        }, nil
+      } else {
+        var reflect_value *reflect.Value = nil
+        var reflect_type reflect.Type = nil
+        saved_type_stack := value.TypeStack
+        for i := 0; i < int(slice_length); i += 1 {
+          var element_type reflect.Type
+          var element_value *reflect.Value
+          element_type, element_value, value, err = DeserializeValue(ctx, value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          if reflect_value == nil {
+            reflect_type = reflect.ArrayOf(int(slice_length), element_type)
+            real_value := reflect.New(reflect_type).Elem()
+            reflect_value = &real_value
+          }
+          if i != (int(slice_length) - 1) {
+            value.TypeStack = saved_type_stack
+          }
+          slice_index_ptr := reflect_value.Index(i)
+          slice_index_ptr.Set(*element_value)
+        }
+        return reflect_type, reflect_value, value, nil
+      }
+    }
   })
   if err != nil {
     return nil, err
