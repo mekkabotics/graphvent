@@ -115,7 +115,69 @@ var (
   NodeIDType = NewSerializedType("NODE_ID")
 )
 
-func SerializeUintN(size int)(func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error)){
+func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+  type_stack := []SerializedType{ctx_type}
+  if value == nil {
+    return SerializedValue{
+      type_stack,
+      nil,
+    }, nil
+  } else if value.IsZero() {
+    return SerializedValue{}, fmt.Errorf("don't know what zero array means...")
+  } else {
+    var element SerializedValue
+    var err error
+    var data []byte
+    for i := 0; i < value.Len(); i += 1 {
+      val := value.Index(i)
+      element, err = SerializeValue(ctx, reflect_type.Elem(), &val)
+      if err != nil {
+        return SerializedValue{}, err
+      }
+      data = append(data, element.Data...)
+    }
+    return SerializedValue{
+      type_stack,
+      data,
+    }, nil
+  }
+}
+
+func DeserializeArray[T any](ctx *Context)(func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
+  var zero T
+  array_type := reflect.TypeOf(zero)
+  array_size := array_type.Len()
+  zero_value, err := SerializeValue(ctx, array_type.Elem(), nil)
+  if err != nil {
+    panic(err)
+  }
+  saved_type_stack := zero_value.TypeStack
+  return func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+    if value.Data == nil {
+      return array_type, nil, value, nil
+    } else {
+      array_value := reflect.New(array_type).Elem()
+      for i := 0; i < array_size; i += 1 {
+        var element_value *reflect.Value
+        var err error
+        tmp_value := SerializedValue{
+          saved_type_stack,
+          value.Data,
+        }
+        _, element_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+        if err != nil {
+          return nil, nil, value, err
+        }
+        value.Data = tmp_value.Data
+        array_elem := array_value.Index(i)
+        array_elem.Set(*element_value)
+      }
+      return array_type, &array_value, value, nil
+    }
+  }
+}
+
+func SerializeUintN(size int)(func(*Context,SerializedType,reflect.Type,*reflect.Value)(SerializedValue,error)){
   var fill_data func([]byte, uint64) = nil
   switch size {
   case 1:
@@ -597,7 +659,7 @@ func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *refle
     ctx_name = kind_info.Reflect.String()
   }
 
-  ctx.Log.Logf("serialize", "Deserializing: %+v(0x%d) - %+v", ctx_name, ctx_type, deserialize)
+  ctx.Log.Logf("serialize", "Deserializing: %+v(%+v) - %+v", ctx_name, ctx_type, value.TypeStack)
 
   if value.Data == nil {
     reflect_type, _, value, err = deserialize(ctx, value)
