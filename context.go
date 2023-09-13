@@ -338,93 +338,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
   err = ctx.RegisterKind(reflect.Struct, StructType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
-    type_stack := []SerializedType{ctx_type}
-    var data []byte
-    if value != nil {
-      data = make([]byte, 8)
-    }
-
-    num_fields := uint64(0)
-    for _, field := range(reflect.VisibleFields(reflect_type)) {
-      gv_tag, tagged_gv := field.Tag.Lookup("gv")
-      if tagged_gv == false {
-        continue
-      } else if gv_tag == "" {
-        continue
-      } else {
-        num_fields += 1
-        field_hash := Hash(FieldNameBase, gv_tag)
-        field_hash_bytes := make([]byte, 8)
-        binary.BigEndian.PutUint64(field_hash_bytes, uint64(field_hash))
-        if value != nil {
-          field_value := value.FieldByIndex(field.Index)
-          field_ser, err := SerializeValue(ctx, field.Type, &field_value)
-          if err != nil {
-            return SerializedValue{}, err
-          }
-
-          field_bytes, err := field_ser.MarshalBinary()
-          if err != nil {
-            return SerializedValue{}, err
-          }
-          data = append(data, field_hash_bytes...)
-          data = append(data, field_bytes...)
-        }
-      }
-    }
-
-    if value != nil {
-      binary.BigEndian.PutUint64(data[0:8], num_fields)
-    }
-
-    return SerializedValue{
-      type_stack,
-      data,
-    }, nil
+    return SerializedValue{}, fmt.Errorf("Cannot serialize unregistered struct %+v", reflect_type)
   }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    if value.Data == nil {
-      return reflect.TypeOf(map[uint64]reflect.Value{}), nil, value, nil
-    } else {
-      var num_fields_data []byte
-      var err error
-      num_fields_data, value, err = value.PopData(8)
-      if err != nil {
-        return nil, nil, value, err
-      }
-      num_fields := int(binary.BigEndian.Uint64(num_fields_data))
-
-      map_type := reflect.TypeOf(map[uint64]reflect.Value{})
-      map_ptr := reflect.New(map_type)
-      map_ptr.Elem().Set(reflect.MakeMap(map_type))
-      map_value := map_ptr.Elem()
-      if num_fields == 0 {
-        return map_type, &map_value, value, nil
-      } else {
-        tmp_data := value.Data
-        for i := 0; i < num_fields; i += 1 {
-          if len(tmp_data) < 8 {
-            return nil, nil, value, fmt.Errorf("Not enough data to deserialize struct field")
-          }
-          field_hash := binary.BigEndian.Uint64(tmp_data[0:8])
-          tmp_data = tmp_data[8:]
-          var field_value SerializedValue
-          field_value, tmp_data, err = ParseSerializedValue(tmp_data)
-          if err != nil {
-            return nil, nil, value, err
-          }
-          field_hash_value := reflect.ValueOf(field_hash)
-
-          var elem_value *reflect.Value
-          _, elem_value, _, err = DeserializeValue(ctx, field_value)
-          if err != nil {
-            return nil, nil, value, err
-          }
-          map_value.SetMapIndex(field_hash_value, reflect.ValueOf(*elem_value))
-        }
-        value.Data = tmp_data
-        return map_type, &map_value, value, nil
-      }
-    }
+    return nil, nil, value, fmt.Errorf("Cannot deserialize unregistered struct")
   })
   if err != nil {
     return nil, err
@@ -1128,6 +1044,16 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterType(reflect.TypeOf(StatusSignal{}), SerializedType(StatusSignalType), SerializeStruct[StatusSignal](ctx), DeserializeStruct[StatusSignal](ctx))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(StopSignal{}), SerializedType(StopSignalType), SerializeStruct[StopSignal](ctx), DeserializeStruct[StopSignal](ctx))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(StartSignal{}), SerializedType(StartSignalType), SerializeStruct[StartSignal](ctx), DeserializeStruct[StartSignal](ctx))
   if err != nil {
     return nil, err
   }
