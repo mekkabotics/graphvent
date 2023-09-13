@@ -635,17 +635,29 @@ func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (Seriali
   return serialized_value, err
 }
 
-func SerializeField(ctx *Context, ext Extension, field_name string) (SerializedValue, error) {
+func ExtField(ctx *Context, ext Extension, field_name string) (reflect.Value, error) {
   if ext == nil {
-    return SerializedValue{}, fmt.Errorf("Cannot get fields on nil Extension")
+    return reflect.Value{}, fmt.Errorf("Cannot get fields on nil Extension")
   }
+
   ext_value := reflect.ValueOf(ext).Elem()
-  field := ext_value.FieldByName(field_name)
-  if field.IsValid() == false {
-    return SerializedValue{}, fmt.Errorf("%s is not a field in %+v", field_name, ext)
-  } else {
-    return SerializeValue(ctx, field.Type(), &field)
+  for _, field := range(reflect.VisibleFields(ext_value.Type())) {
+    gv_tag, tagged := field.Tag.Lookup("gv")
+    if tagged == true && gv_tag == field_name {
+      return ext_value.FieldByIndex(field.Index), nil
+    }
   }
+
+  return reflect.Value{}, fmt.Errorf("%s is not a field in %+v", field_name, reflect.TypeOf(ext))
+}
+
+func SerializeField(ctx *Context, ext Extension, field_name string) (SerializedValue, error) {
+  field_value, err := ExtField(ctx, ext, field_name)
+  if err != nil {
+    return SerializedValue{}, err
+  }
+
+  return SerializeValue(ctx, field_value.Type(), &field_value)
 }
 
 func (value SerializedValue) MarshalBinary() ([]byte, error) {

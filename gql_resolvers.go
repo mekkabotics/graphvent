@@ -64,23 +64,20 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
   return id, nil
 }
 
-func ResolveNodeResult(p graphql.ResolveParams, resolve_fn func(graphql.ResolveParams, NodeResult)(interface{}, error)) (interface{}, error) {
+func ResolveNodeID(p graphql.ResolveParams) (interface{}, error) {
   node, ok := p.Source.(NodeResult)
   if ok == false {
-    return nil, fmt.Errorf("p.Value is not NodeResult")
+    return nil, fmt.Errorf("Can't get NodeID from %+v", reflect.TypeOf(p.Source))
   }
 
-  return resolve_fn(p, node)
-}
-
-func ResolveNodeID(p graphql.ResolveParams) (interface{}, error) {
-  return ResolveNodeResult(p, func(p graphql.ResolveParams, node NodeResult) (interface{}, error) {
-    return node.ID, nil
-  })
+  return node.ID, nil
 }
 
 func ResolveNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
-  return ResolveNodeResult(p, func(p graphql.ResolveParams, node NodeResult) (interface{}, error) {
-    return uint64(node.Result.NodeType), nil
-  })
+  node, ok := p.Source.(NodeResult)
+  if ok == false {
+    return nil, fmt.Errorf("Can't get TypeHash from %+v", reflect.TypeOf(p.Source))
+  }
+
+  return uint64(node.Result.NodeType), nil
 }
