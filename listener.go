@@ -2,7 +2,6 @@ package graphvent
 
 import (
   "reflect"
-  "encoding/json"
 )
 
 // A Listener extension provides a channel that can receive signals on a different thread
@@ -24,13 +23,6 @@ func NewListenerExt(buffer int) *ListenerExt {
   }
 }
 
-// Simple load function, unmarshal the buffer int from json
-func (ext *ListenerExt) DeserializeListenerExt(ctx *Context, data []byte) error {
-  err := json.Unmarshal(data, &ext.Buffer)
-  ext.Chan = make(chan Signal, ext.Buffer)
-  return err
-}
-
 func (listener *ListenerExt) Type() ExtType {
   return ListenerExtType
 }
@@ -44,8 +36,4 @@ func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal 
     ctx.Log.Logf("listener", "LISTENER_OVERFLOW: %s", node.ID)
   }
   return nil
-}
-
-func (ext *ListenerExt) MarshalBinary() ([]byte, error) {
-  return json.Marshal(ext.Buffer)
 }
