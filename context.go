@@ -107,6 +107,13 @@ func (ctx *Context) RegisterPolicy(reflect_type reflect.Type, policy_type Policy
     return fmt.Errorf("Cannot register policy of type %+v, type already exists in context", policy_type)
   }
 
+  err := ctx.RegisterType(reflect_type, SerializedType(policy_type), SerializeStruct(ctx, reflect_type), DeserializeStruct(ctx, reflect_type))
+  if err != nil {
+    return err
+  }
+
+  ctx.Log.Logf("serialize", "Registered PolicyType: %+v - %+v", reflect_type, policy_type)
+
   ctx.Policies[policy_type] = reflect_type
   ctx.PolicyTypes[reflect_type] = policy_type
   return nil
@@ -118,6 +125,13 @@ func (ctx *Context)RegisterSignal(reflect_type reflect.Type, signal_type SignalT
     return fmt.Errorf("Cannot register signal of type %+v, type already exists in context", signal_type)
   }
 
+  err := ctx.RegisterType(reflect_type, SerializedType(signal_type), SerializeStruct(ctx, reflect_type), DeserializeStruct(ctx, reflect_type))
+  if err != nil {
+    return err
+  }
+
+  ctx.Log.Logf("serialize", "Registered SignalType: %+v - %+v", reflect_type, signal_type)
+
   ctx.Signals[signal_type] = reflect_type
   ctx.SignalTypes[reflect_type] = signal_type
   return nil
@@ -128,6 +142,12 @@ func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType
   _, exists := ctx.Extensions[ext_type]
   if exists == true {
     return fmt.Errorf("Cannot register extension of type %+v, type already exists in context", ext_type)
+  }
+
+  elem_type := reflect_type.Elem()
+  err := ctx.RegisterType(elem_type, SerializedType(ext_type), SerializeStruct(ctx, elem_type), DeserializeStruct(ctx, elem_type))
+  if err != nil {
+    return err
   }
 
   ctx.Log.Logf("serialize", "Registered ExtType: %+v - %+v", reflect_type, ext_type)
@@ -309,6 +329,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     } else {
       pointer_flags := value.Data[0]
       value.Data = value.Data[1:]
+      ctx.Log.Logf("serialize", "Pointer flags: 0x%x", pointer_flags)
       if pointer_flags == 0x00 {
         elem_type, elem_value, remaining_data, err := DeserializeValue(ctx, value)
         if err != nil {
@@ -319,14 +340,21 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         pointer_value.Set(elem_value.Addr())
         return pointer_type, &pointer_value, remaining_data, nil
       } else if pointer_flags == 0x01 {
-        elem_type, _, remaining_data, err := DeserializeValue(ctx, value)
+        tmp_value := SerializedValue{
+          value.TypeStack,
+          nil,
+        }
+        var elem_type reflect.Type
+        var err error
+        elem_type, _, tmp_value, err = DeserializeValue(ctx, tmp_value)
         if err != nil {
           return nil, nil, SerializedValue{}, err
         }
+        value.TypeStack = tmp_value.TypeStack
 
         pointer_type := reflect.PointerTo(elem_type)
         pointer_value := reflect.New(pointer_type).Elem()
-        return pointer_type, &pointer_value, remaining_data, nil
+        return pointer_type, &pointer_value, value, nil
       } else {
         return nil, nil, SerializedValue{}, fmt.Errorf("unknown pointer flags: %d", pointer_flags)
       }
@@ -1008,57 +1036,26 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(PendingACL{}), PendingACLType, SerializeStruct[PendingACL](ctx), DeserializeStruct[PendingACL](ctx))
+  pending_acl_type := reflect.TypeOf(PendingACL{})
+  err = ctx.RegisterType(pending_acl_type, PendingACLType, SerializeStruct(ctx, pending_acl_type), DeserializeStruct(ctx, pending_acl_type))
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(PendingSignal{}), PendingSignalType, SerializeStruct[PendingSignal](ctx), DeserializeStruct[PendingSignal](ctx))
+  pending_signal_type := reflect.TypeOf(PendingSignal{})
+  err = ctx.RegisterType(pending_signal_type, PendingSignalType, SerializeStruct(ctx, pending_signal_type), DeserializeStruct(ctx, pending_signal_type))
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(ListenerExt{}), SerializedType(ListenerExtType), SerializeStruct[ListenerExt](ctx), DeserializeStruct[ListenerExt](ctx))
+  queued_signal_type := reflect.TypeOf(QueuedSignal{})
+  err = ctx.RegisterType(queued_signal_type, QueuedSignalType, SerializeStruct(ctx, queued_signal_type), DeserializeStruct(ctx, queued_signal_type))
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(GroupExt{}), SerializedType(GroupExtType), SerializeStruct[GroupExt](ctx), DeserializeStruct[GroupExt](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(GQLExt{}), SerializedType(GQLExtType), SerializeStruct[GQLExt](ctx), DeserializeStruct[GQLExt](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(QueuedSignal{}), QueuedSignalType, SerializeStruct[QueuedSignal](ctx), DeserializeStruct[QueuedSignal](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(AllNodesPolicy{}), SerializedType(AllNodesPolicyType), SerializeStruct[AllNodesPolicy](ctx), DeserializeStruct[AllNodesPolicy](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(StatusSignal{}), SerializedType(StatusSignalType), SerializeStruct[StatusSignal](ctx), DeserializeStruct[StatusSignal](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(StopSignal{}), SerializedType(StopSignalType), SerializeStruct[StopSignal](ctx), DeserializeStruct[StopSignal](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(StartSignal{}), SerializedType(StartSignalType), SerializeStruct[StartSignal](ctx), DeserializeStruct[StartSignal](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(Node{}), NodeStructType, SerializeStruct[Node](ctx), DeserializeStruct[Node](ctx))
+  node_type := reflect.TypeOf(Node{})
+  err = ctx.RegisterType(node_type, NodeStructType, SerializeStruct(ctx, node_type), DeserializeStruct(ctx, node_type))
   if err != nil {
     return nil, err
   }
@@ -1084,27 +1081,57 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf((*StopSignal)(nil)), StopSignalType)
+  err = ctx.RegisterPolicy(reflect.TypeOf(AllNodesPolicy{}), AllNodesPolicyType)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf((*CreateSignal)(nil)), CreateSignalType)
+  err = ctx.RegisterPolicy(reflect.TypeOf(PerNodePolicy{}), PerNodePolicyType)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf((*StartSignal)(nil)), StartSignalType)
+  err = ctx.RegisterSignal(reflect.TypeOf(StopSignal{}), StopSignalType)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf((*ReadSignal)(nil)), ReadSignalType)
+  err = ctx.RegisterSignal(reflect.TypeOf(CreateSignal{}), CreateSignalType)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf((*ReadResultSignal)(nil)), ReadResultSignalType)
+  err = ctx.RegisterSignal(reflect.TypeOf(StartSignal{}), StartSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(StatusSignal{}), StatusSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(ReadSignal{}), ReadSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(LockSignal{}), LockSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(LinkSignal{}), LinkSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(ErrorSignal{}), ErrorSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(ReadResultSignal{}), ReadResultSignalType)
   if err != nil {
     return nil, err
   }

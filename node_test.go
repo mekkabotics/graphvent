@@ -8,7 +8,7 @@ import (
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"signal", "node", "db", "db_data", "serialize", "listener"})
+  ctx := logTestContext(t, []string{"signal", "node", "db", "serialize", "listener"})
   node_type := NewNodeType("test")
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
@@ -39,7 +39,7 @@ func TestNodeDB(t *testing.T) {
 func TestNodeRead(t *testing.T) {
   ctx := logTestContext(t, []string{"test"})
   node_type := NewNodeType("TEST")
-  err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType, ECDHExtType})
+  err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
 
   n1_pub, n1_key, err := ed25519.GenerateKey(rand.Reader)

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSerializeBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "serialize"})
+  ctx := logTestContext(t, []string{"test"})
   testSerializeComparable[string](t, ctx, "test")
   testSerializeComparable[bool](t, ctx, true)
   testSerializeComparable[float32](t, ctx, 0.05)
@@ -46,10 +46,16 @@ func TestSerializeBasic(t *testing.T) {
     6: 1121,
   })
 
-  testSerializeStruct(t, ctx, struct{
-    int `gv:"0"`
-    string `gv:"1"`
-  }{
+  type test_struct struct {
+    Int int `gv:"int"`
+    String string `gv:"string"`
+  }
+
+  test_struct_type := reflect.TypeOf(test_struct{})
+  err := ctx.RegisterType(test_struct_type, NewSerializedType("TEST_STRUCT"), SerializeStruct(ctx, test_struct_type), DeserializeStruct(ctx, test_struct_type))
+  fatalErr(t, err)
+
+  testSerialize(t, ctx, test_struct{
     12345,
     "test_string",
   })
@@ -65,11 +71,12 @@ func (s test) String() string {
 }
 
 func TestSerializeStructTags(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "serialize"})
+  ctx := logTestContext(t, []string{"test"})
 
   test_type := NewSerializedType("TEST_STRUCT")
+  test_struct_type := reflect.TypeOf(test{})
   ctx.Log.Logf("test", "TEST_TYPE: %+v", test_type)
-  ctx.RegisterType(reflect.TypeOf(test{}), test_type, SerializeStruct[test](ctx), DeserializeStruct[test](ctx))
+  ctx.RegisterType(test_struct_type, test_type, SerializeStruct(ctx, test_struct_type), DeserializeStruct(ctx, test_struct_type))
 
   test_int := 10
   test_string := "test"
@@ -142,64 +149,6 @@ func testSerializeComparable[T comparable](t *testing.T, ctx *Context, val T) {
   v := testSerialize(t, ctx, val)
   if v != val {
     t.Fatal(fmt.Sprintf("DeserializeValue returned wrong value %+v != %+v", v, val))
-  }
-}
-
-func testSerializeStruct[T any](t *testing.T, ctx *Context, val T) {
-  value, err := SerializeAny(ctx, val)
-  fatalErr(t, err)
-  ctx.Log.Logf("test", "Serialized %+v to %+v", val, value)
-
-  ser, err := value.MarshalBinary()
-  fatalErr(t, err)
-  ctx.Log.Logf("test", "Binary: %+v", ser)
-
-  val_parsed, remaining_parse, err := ParseSerializedValue(ser)
-  fatalErr(t, err)
-  ctx.Log.Logf("test", "Parsed: %+v", val_parsed)
-
-  if len(remaining_parse) != 0 {
-    t.Fatal("Data remaining after deserializing value")
-  }
-
-  val_type, deserialized_value, remaining_deserialize, err := DeserializeValue(ctx, val_parsed)
-  fatalErr(t, err)
-
-  if len(remaining_deserialize.Data) != 0 {
-    t.Fatal("Data remaining after deserializing value")
-  } else if len(remaining_deserialize.TypeStack) != 0 {
-    t.Fatal("TypeStack remaining after deserializing value")
-  } else if val_type != reflect.TypeOf(map[uint64]reflect.Value{}) {
-    t.Fatal(fmt.Sprintf("DeserializeValue returned wrong reflect.Type %+v - map[uint64]reflect.Value", val_type))
-  } else if deserialized_value == nil {
-    t.Fatal("DeserializeValue returned no []reflect.Value")
-  } else if deserialized_value == nil {
-    t.Fatal("DeserializeValue returned nil *reflect.Value")
-  } else if deserialized_value.CanConvert(reflect.TypeOf(map[uint64]reflect.Value{})) == false {
-    t.Fatal("DeserializeValue returned value that can't convert to map[uint64]reflect.Value")
-  }
-
-  reflect_value := reflect.ValueOf(val)
-  deserialized_map := deserialized_value.Interface().(map[uint64]reflect.Value)
-
-  for _, field := range(reflect.VisibleFields(reflect_value.Type())) {
-    gv_tag, tagged_gv := field.Tag.Lookup("gv")
-    if tagged_gv == false {
-      continue
-    } else if gv_tag == "" {
-      continue
-    } else {
-      field_hash := uint64(Hash(FieldNameBase, gv_tag))
-      deserialized_field, exists := deserialized_map[field_hash]
-      if exists == false {
-        t.Fatal(fmt.Sprintf("field %s is not in deserialized struct", field.Name))
-      }
-      field_value := reflect_value.FieldByIndex(field.Index)
-      if field_value.Type() != deserialized_field.Type() {
-        t.Fatal(fmt.Sprintf("Type of %s does not match", field.Name))
-      }
-      ctx.Log.Logf("test", "Field %s matched", field.Name)
-    }
   }
 }
 

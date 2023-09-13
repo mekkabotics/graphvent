@@ -12,15 +12,15 @@ type Policy interface {
   Copy() Policy
 }
 
-func (policy *AllNodesPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
+func (policy AllNodesPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
   return nil, policy.Rules.Allows(action)
 }
 
-func (policy *AllNodesPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+func (policy AllNodesPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
   return Deny
 }
 
-func (policy *PerNodePolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
+func (policy PerNodePolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
   for id, actions := range(policy.NodeRules) {
     if id != principal_id {
       continue
@@ -30,7 +30,7 @@ func (policy *PerNodePolicy) Allows(ctx *Context, principal_id NodeID, action Tr
   return nil, Deny
 }
 
-func (policy *PerNodePolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+func (policy PerNodePolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
   return Deny
 }
 
@@ -38,7 +38,7 @@ type RequirementOfPolicy struct {
   PerNodePolicy
 }
 
-func (policy *RequirementOfPolicy) Type() PolicyType {
+func (policy RequirementOfPolicy) Type() PolicyType {
   return RequirementOfPolicyType
 }
 
@@ -48,7 +48,7 @@ func NewRequirementOfPolicy(dep_rules map[NodeID]Tree) RequirementOfPolicy {
   }
 }
 
-func (policy *RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+func (policy RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
   sig, ok := signal.(*ReadResultSignal)
   if ok == false {
     return Deny
@@ -87,7 +87,7 @@ type MemberOfPolicy struct {
   PerNodePolicy
 }
 
-func (policy *MemberOfPolicy) Type() PolicyType {
+func (policy MemberOfPolicy) Type() PolicyType {
   return MemberOfPolicyType
 }
 
@@ -97,7 +97,7 @@ func NewMemberOfPolicy(group_rules map[NodeID]Tree) MemberOfPolicy {
   }
 }
 
-func (policy *MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+func (policy MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
   sig, ok := signal.(*ReadResultSignal)
   if ok == false {
     return Deny
@@ -133,7 +133,7 @@ func (policy *MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, s
 }
 
 // Send a read signal to Group to check if principal_id is a member of it
-func (policy *MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node) (Messages, RuleResult) {
+func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node) (Messages, RuleResult) {
   msgs := Messages{}
   for id, rule := range(policy.NodeRules) {
     if id == node.ID {
@@ -156,13 +156,13 @@ func (policy *MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action T
   return msgs, Pending
 }
 
-func (policy *MemberOfPolicy) Merge(p Policy) Policy {
+func (policy MemberOfPolicy) Merge(p Policy) Policy {
   other := p.(*MemberOfPolicy)
   policy.NodeRules = MergeNodeRules(policy.NodeRules, other.NodeRules)
   return policy
 }
 
-func (policy *MemberOfPolicy) Copy() Policy {
+func (policy MemberOfPolicy) Copy() Policy {
   new_rules := CopyNodeRules(policy.NodeRules)
   return &MemberOfPolicy{
     PerNodePolicy: NewPerNodePolicy(new_rules),
@@ -223,26 +223,26 @@ func MergeNodeRules(first map[NodeID]Tree, second map[NodeID]Tree) map[NodeID]Tr
   return merged
 }
 
-func (policy *PerNodePolicy) Merge(p Policy) Policy {
+func (policy PerNodePolicy) Merge(p Policy) Policy {
   other := p.(*PerNodePolicy)
   policy.NodeRules = MergeNodeRules(policy.NodeRules, other.NodeRules)
   return policy
 }
 
-func (policy *PerNodePolicy) Copy() Policy {
+func (policy PerNodePolicy) Copy() Policy {
   new_rules := CopyNodeRules(policy.NodeRules)
   return &PerNodePolicy{
     NodeRules: new_rules,
   }
 }
 
-func (policy *AllNodesPolicy) Merge(p Policy) Policy {
+func (policy AllNodesPolicy) Merge(p Policy) Policy {
   other := p.(*AllNodesPolicy)
   policy.Rules = MergeTrees(policy.Rules, other.Rules)
   return policy
 }
 
-func (policy *AllNodesPolicy) Copy() Policy {
+func (policy AllNodesPolicy) Copy() Policy {
   new_rules := policy.Rules
   return &AllNodesPolicy {
     Rules: new_rules,
@@ -292,7 +292,7 @@ type PerNodePolicy struct {
   NodeRules map[NodeID]Tree `json:"node_actions"`
 }
 
-func (policy *PerNodePolicy) Type() PolicyType {
+func (policy PerNodePolicy) Type() PolicyType {
   return PerNodePolicyType
 }
 
@@ -306,7 +306,7 @@ type AllNodesPolicy struct {
   Rules Tree
 }
 
-func (policy *AllNodesPolicy) Type() PolicyType {
+func (policy AllNodesPolicy) Type() PolicyType {
   return AllNodesPolicyType
 }
 

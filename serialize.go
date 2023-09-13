@@ -36,8 +36,19 @@ func (t ExtType) String() string {
 }
 
 type NodeType SerializedType
+func (t NodeType) String() string {
+  return fmt.Sprintf("0x%x", uint64(t))
+}
+
 type SignalType SerializedType
+func (t SignalType) String() string {
+  return fmt.Sprintf("0x%x", uint64(t))
+}
+
 type PolicyType SerializedType
+func (t PolicyType) String() string {
+  return fmt.Sprintf("0x%x", uint64(t))
+}
 
 type TypeSerialize func(*Context,SerializedType,reflect.Type,*reflect.Value) (SerializedValue, error)
 type TypeDeserialize func(*Context,SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error)
@@ -67,7 +78,6 @@ var (
   LockableExtType = NewExtType("LOCKABLE")
   GQLExtType      = NewExtType("GQL")
   GroupExtType    = NewExtType("GROUP")
-  ECDHExtType     = NewExtType("ECDH")
 
   GQLNodeType = NewNodeType("GQL")
 
@@ -360,9 +370,7 @@ type Deserializable interface {
 var deserializable_zero Deserializable = nil
 var DeserializableType = reflect.TypeOf(&deserializable_zero).Elem()
 
-func structInfo[T any](ctx *Context)StructInfo{
-  var struct_zero T
-  struct_type := reflect.TypeOf(struct_zero)
+func structInfo(ctx *Context, struct_type reflect.Type)StructInfo{
   field_order := []SerializedType{}
   field_map := map[SerializedType]FieldInfo{}
   for _, field := range(reflect.VisibleFields(struct_type)) {
@@ -415,8 +423,8 @@ func structInfo[T any](ctx *Context)StructInfo{
   }
 }
 
-func SerializeStruct[T any](ctx *Context)(func(*Context,SerializedType,reflect.Type,*reflect.Value)(SerializedValue,error)){
-  struct_info := structInfo[T](ctx)
+func SerializeStruct(ctx *Context, struct_type reflect.Type)(func(*Context,SerializedType,reflect.Type,*reflect.Value)(SerializedValue,error)){
+  struct_info := structInfo(ctx, struct_type)
   return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
     type_stack := []SerializedType{ctx_type}
     var data []byte
@@ -445,8 +453,8 @@ func SerializeStruct[T any](ctx *Context)(func(*Context,SerializedType,reflect.T
   }
 }
 
-func DeserializeStruct[T any](ctx *Context)(func(*Context,SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
-  struct_info := structInfo[T](ctx)
+func DeserializeStruct(ctx *Context, struct_type reflect.Type)(func(*Context,SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
+  struct_info := structInfo(ctx, struct_type)
   return func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error) {
     if value.Data == nil {
       return struct_info.Type, nil, value, nil

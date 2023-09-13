@@ -14,11 +14,11 @@ const (
 )
 
 type LockableExt struct{
-  State ReqState `gv:"0"`
-  ReqID *uuid.UUID `gv:"1"`
-  Owner *NodeID `gv:"2"`
-  PendingOwner *NodeID `gv:"3"`
-  Requirements map[NodeID]ReqState `gv:"4"`
+  State ReqState `gv:"state"`
+  ReqID *uuid.UUID `gv:"req_id"`
+  Owner *NodeID
+  PendingOwner *NodeID
+  Requirements map[NodeID]ReqState
 }
 
 func (ext *LockableExt) Type() ExtType {

@@ -139,10 +139,10 @@ type CreateSignal struct {
   SignalHeader
 }
 
-func (signal *CreateSignal) Header() *SignalHeader {
+func (signal CreateSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *CreateSignal) Permission() Tree {
+func (signal CreateSignal) Permission() Tree {
   return Tree{
     SerializedType(CreateSignalType): nil,
   }
@@ -157,10 +157,10 @@ func NewCreateSignal() *CreateSignal {
 type StartSignal struct {
   SignalHeader
 }
-func (signal *StartSignal) Header() *SignalHeader {
+func (signal StartSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *StartSignal) Permission() Tree {
+func (signal StartSignal) Permission() Tree {
   return Tree{
     SerializedType(StartSignalType): nil,
   }
@@ -174,10 +174,10 @@ func NewStartSignal() *StartSignal {
 type StopSignal struct {
   SignalHeader
 }
-func (signal *StopSignal) Header() *SignalHeader {
+func (signal StopSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *StopSignal) Permission() Tree {
+func (signal StopSignal) Permission() Tree {
   return Tree{
     SerializedType(StopSignalType): nil,
   }
@@ -192,10 +192,10 @@ type ErrorSignal struct {
   SignalHeader
   Error string
 }
-func (signal *ErrorSignal) Header() *SignalHeader {
+func (signal ErrorSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *ErrorSignal) MarshalBinary() ([]byte, error) {
+func (signal ErrorSignal) MarshalBinary() ([]byte, error) {
   arena := capnp.SingleSegment(nil)
   msg, seg, err := capnp.NewMessage(arena)
   if err != nil {
@@ -221,7 +221,7 @@ func (signal *ErrorSignal) MarshalBinary() ([]byte, error) {
 
   return msg.Marshal()
 }
-func (signal *ErrorSignal) Deserialize(ctx *Context, data []byte) error {
+func (signal ErrorSignal) Deserialize(ctx *Context, data []byte) error {
   msg, err := capnp.Unmarshal(data)
   if err != nil {
     return err
@@ -248,7 +248,7 @@ func (signal *ErrorSignal) Deserialize(ctx *Context, data []byte) error {
 
   return nil
 }
-func (signal *ErrorSignal) Permission() Tree {
+func (signal ErrorSignal) Permission() Tree {
   return Tree{
     SerializedType(ErrorSignalType): nil,
   }
@@ -263,10 +263,10 @@ func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) Si
 type ACLTimeoutSignal struct {
   SignalHeader
 }
-func (signal *ACLTimeoutSignal) Header() *SignalHeader {
+func (signal ACLTimeoutSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *ACLTimeoutSignal) Permission() Tree {
+func (signal ACLTimeoutSignal) Permission() Tree {
   return Tree{
     SerializedType(ACLTimeoutSignalType): nil,
   }
@@ -283,10 +283,10 @@ type StatusSignal struct {
   Source NodeID `gv:"source"`
   Status string `gv:"status"`
 }
-func (signal *StatusSignal) Header() *SignalHeader {
+func (signal StatusSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *StatusSignal) Permission() Tree {
+func (signal StatusSignal) Permission() Tree {
   return Tree{
     SerializedType(StatusSignalType): nil,
   }
@@ -304,7 +304,7 @@ type LinkSignal struct {
   NodeID
   Action string
 }
-func (signal *LinkSignal) Header() *SignalHeader {
+func (signal LinkSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
 
@@ -313,7 +313,7 @@ const (
   LinkActionAdd = "ADD"
 )
 
-func (signal *LinkSignal) Permission() Tree {
+func (signal LinkSignal) Permission() Tree {
   return Tree{
     SerializedType(LinkSignalType): Tree{
       Hash(LinkActionBase, signal.Action): nil,
@@ -332,7 +332,7 @@ type LockSignal struct {
   SignalHeader
   State string
 }
-func (signal *LockSignal) Header() *SignalHeader {
+func (signal LockSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
 
@@ -340,7 +340,7 @@ const (
   LockStateBase = "LOCK_STATE"
 )
 
-func (signal *LockSignal) Permission() Tree {
+func (signal LockSignal) Permission() Tree {
   return Tree{
     SerializedType(LockSignalType): Tree{
       Hash(LockStateBase, signal.State): nil,
@@ -359,7 +359,7 @@ type ReadSignal struct {
   SignalHeader
   Extensions map[ExtType][]string `json:"extensions"`
 }
-func (signal *ReadSignal) MarshalBinary() ([]byte, error) {
+func (signal ReadSignal) MarshalBinary() ([]byte, error) {
   arena := capnp.SingleSegment(nil)
   msg, seg, err := capnp.NewMessage(arena)
   if err != nil {
@@ -407,11 +407,11 @@ func (signal *ReadSignal) MarshalBinary() ([]byte, error) {
 
   return msg.Marshal()
 }
-func (signal *ReadSignal) Header() *SignalHeader {
+func (signal ReadSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
 
-func (signal *ReadSignal) Permission() Tree {
+func (signal ReadSignal) Permission() Tree {
   ret := Tree{}
   for ext, fields := range(signal.Extensions) {
     field_tree := Tree{}
@@ -435,10 +435,10 @@ type ReadResultSignal struct {
   NodeType NodeType
   Extensions map[ExtType]map[string]SerializedValue
 }
-func (signal *ReadResultSignal) Header() *SignalHeader {
+func (signal ReadResultSignal) Header() *SignalHeader {
   return &signal.SignalHeader
 }
-func (signal *ReadResultSignal) Permission() Tree {
+func (signal ReadResultSignal) Permission() Tree {
   return Tree{
     SerializedType(ReadResultSignalType): nil,
   }
