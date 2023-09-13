@@ -118,10 +118,12 @@ var (
   PolicyTypeSerialized = NewSerializedType("POLICY_TYPE")
   ExtSerialized = NewSerializedType("EXTENSION")
   PolicySerialized = NewSerializedType("POLICY")
+  SignalSerialized = NewSerializedType("SIGNAL")
   NodeIDType = NewSerializedType("NODE_ID")
   UUIDType = NewSerializedType("UUID")
   PendingACLType = NewSerializedType("PENDING_ACL")
   PendingSignalType = NewSerializedType("PENDING_SIGNAL")
+  TimeType = NewSerializedType("TIME")
 )
 
 func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){

@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "crypto/ecdh"
+  "time"
   "encoding/binary"
   "errors"
   "fmt"
@@ -10,6 +11,7 @@ import (
   "runtime"
   "sync"
   "github.com/google/uuid"
+  "encoding"
 
   badger "github.com/dgraph-io/badger/v3"
 )
@@ -1021,15 +1023,55 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(PendingACL{}), PendingACLType, SerializeStruct[PendingACL](ctx), DeserializeStruct[PendingACL](ctx))
+  err = ctx.RegisterType(reflect.TypeOf(Up), SignalDirectionType, SerializeUintN(1), DeserializeUintN[SignalDirection](1))
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(PendingSignal{}), PendingSignalType, SerializeStruct[PendingSignal](ctx), DeserializeStruct[PendingSignal](ctx))
+  err = ctx.RegisterType(reflect.TypeOf(ReqState(0)), ReqStateType, SerializeUintN(1), DeserializeUintN[ReqState](1))
   if err != nil {
     return nil, err
   }
+
+  err = ctx.RegisterType(reflect.TypeOf(time.Time{}), TimeType,
+  func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error) {
+    var data []byte
+    type_stack := []SerializedType{ctx_type}
+    if value == nil {
+      data = nil
+    } else {
+      data = make([]byte, 8)
+      time_ser, err := value.Interface().(encoding.BinaryMarshaler).MarshalBinary()
+      if err != nil {
+        return SerializedValue{}, err
+      }
+      data = append(data, time_ser...)
+      binary.BigEndian.PutUint64(data[0:8], uint64(len(time_ser)))
+    }
+    return SerializedValue{
+      type_stack,
+      data,
+    }, nil
+  },func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+    if value.Data == nil {
+      return reflect.TypeOf(time.Time{}), nil, value, nil
+    } else {
+      var ser_size_bytes []byte
+      ser_size_bytes, value, err = value.PopData(8)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      ser_size := int(binary.BigEndian.Uint64(ser_size_bytes))
+      if ser_size > len(value.Data) {
+        return nil, nil, value, fmt.Errorf("ser_size %d is larger than remaining data %d", ser_size, len(value.Data))
+      }
+      data := value.Data[0:ser_size]
+      value.Data = value.Data[ser_size:]
+      time_value := reflect.New(reflect.TypeOf(time.Time{})).Elem()
+      time_value.Addr().Interface().(encoding.BinaryUnmarshaler).UnmarshalBinary(data)
+      return time_value.Type(), &time_value, value, nil
+    }
+  })
 
   // TODO: Make registering interfaces cleaner
   var extension Extension = nil
@@ -1040,6 +1082,22 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
   var policy Policy = nil
   err = ctx.RegisterType(reflect.ValueOf(&policy).Type().Elem(), PolicySerialized, SerializeInterface, DeserializeInterface[Policy]())
+  if err != nil {
+    return nil, err
+  }
+
+  var signal Signal = nil
+  err = ctx.RegisterType(reflect.ValueOf(&signal).Type().Elem(), SignalSerialized, SerializeInterface, DeserializeInterface[Signal]())
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(PendingACL{}), PendingACLType, SerializeStruct[PendingACL](ctx), DeserializeStruct[PendingACL](ctx))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(PendingSignal{}), PendingSignalType, SerializeStruct[PendingSignal](ctx), DeserializeStruct[PendingSignal](ctx))
   if err != nil {
     return nil, err
   }
@@ -1069,43 +1127,12 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterType(reflect.TypeOf(StatusSignal{}), SerializedType(StatusSignalType), SerializeStruct[StatusSignal](ctx), DeserializeStruct[StatusSignal](ctx))
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterType(reflect.TypeOf(Node{}), NodeStructType, SerializeStruct[Node](ctx), DeserializeStruct[Node](ctx))
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(Up), SignalDirectionType,
-  func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
-    var data []byte = nil
-    if value != nil {
-      val := value.Interface().(SignalDirection)
-      data = []byte{byte(val)}
-    }
-    return SerializedValue{
-      []SerializedType{ctx_type},
-      data,
-    }, nil
-  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return reflect.TypeOf(Up), nil, SerializedValue{}, fmt.Errorf("unimplemented")
-  })
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterType(reflect.TypeOf(ReqState(0)), ReqStateType,
-  func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
-    var data []byte = nil
-    if value != nil {
-      val := value.Interface().(ReqState)
-      data = []byte{byte(val)}
-    }
-    return SerializedValue{
-      []SerializedType{ctx_type},
-      data,
-    }, nil
-  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
-    return reflect.TypeOf(ReqState(0)), nil, SerializedValue{}, fmt.Errorf("unimplemented")
-  })
   if err != nil {
     return nil, err
   }

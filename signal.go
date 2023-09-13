@@ -9,7 +9,7 @@ import (
   schema "github.com/mekkanized/graphvent/signal"
 )
 
-type SignalDirection int
+type SignalDirection uint8
 const (
   Up SignalDirection = iota
   Down
@@ -17,9 +17,9 @@ const (
 )
 
 type SignalHeader struct {
-  Direction SignalDirection `gv:"0"`
-  ID uuid.UUID `gv:"1"`
-  ReqID uuid.UUID `gv:"2"`
+  Direction SignalDirection `gv:"direction"`
+  ID uuid.UUID `gv:"id"`
+  ReqID uuid.UUID `gv:"req_id"`
 }
 
 type Signal interface {
@@ -280,8 +280,8 @@ func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
 
 type StatusSignal struct {
   SignalHeader
-  Source NodeID
-  Status string
+  Source NodeID `gv:"source"`
+  Status string `gv:"status"`
 }
 func (signal *StatusSignal) Header() *SignalHeader {
   return &signal.SignalHeader

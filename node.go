@@ -64,8 +64,12 @@ type Extension interface {
 
 // A QueuedSignal is a Signal that has been Queued to trigger at a set time
 type QueuedSignal struct {
-  Signal
-  time.Time
+  Signal `gv:"signal"`
+  time.Time `gv:"time"`
+}
+
+func (q QueuedSignal) String() string {
+  return fmt.Sprintf("%+v@%s", reflect.TypeOf(q.Signal), q.Time)
 }
 
 type PendingACL struct {
@@ -117,6 +121,8 @@ func (node *Node) PostDeserialize(ctx *Context) error {
   node.MsgChan = make(chan *Message, node.BufferSize)
 
   node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+  ctx.Log.Logf("node", "signal_queue: %+v", node.SignalQueue)
+  ctx.Log.Logf("node", "next_signal: %+v - %+v", node.NextSignal, node.TimeoutChan)
 
   return nil
 }
