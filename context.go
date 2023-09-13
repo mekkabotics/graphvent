@@ -9,6 +9,7 @@ import (
   "reflect"
   "runtime"
   "sync"
+  "github.com/google/uuid"
 
   badger "github.com/dgraph-io/badger/v3"
 )
@@ -126,6 +127,8 @@ func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType
   if exists == true {
     return fmt.Errorf("Cannot register extension of type %+v, type already exists in context", ext_type)
   }
+
+  ctx.Log.Logf("serialize", "Registered ExtType: %+v - %+v", reflect_type, ext_type)
 
   ctx.Extensions[ext_type] = ExtensionInfo{
     Type: reflect_type,
@@ -703,6 +706,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
       binary.BigEndian.PutUint64(data[0:8], uint64(map_size))
 
+      ctx.Log.Logf("serialize", "MAP_TYPES: %+v - %+v", key_types, elem_types)
+
       type_stack = append(type_stack, key_types...)
       type_stack = append(type_stack, elem_types...)
       return SerializedValue{
@@ -751,6 +756,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       }
 
       map_size := binary.BigEndian.Uint64(map_size_bytes)
+      ctx.Log.Logf("serialize", "Deserializing %d elements in map", map_size)
 
       if map_size == 0xFFFFFFFFFFFFFFFF {
         var key_type, elem_type reflect.Type
@@ -990,12 +996,17 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
   */
 
-  err = ctx.RegisterType(reflect.TypeOf(ExtType(0)), ExtTypeType, SerializeUintN(4), DeserializeUintN[ExtType](4))
+  err = ctx.RegisterType(reflect.TypeOf(ExtType(0)), ExtTypeSerialized, SerializeUintN(8), DeserializeUintN[ExtType](8))
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(NodeType(0)), NodeTypeType, SerializeUintN(4), DeserializeUintN[NodeType](4))
+  err = ctx.RegisterType(reflect.TypeOf(NodeType(0)), NodeTypeSerialized, SerializeUintN(8), DeserializeUintN[NodeType](8))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(PolicyType(0)), PolicyTypeSerialized, SerializeUintN(8), DeserializeUintN[PolicyType](8))
   if err != nil {
     return nil, err
   }
@@ -1005,9 +1016,30 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterType(reflect.TypeOf(uuid.New()), UUIDType, SerializeArray, DeserializeArray[uuid.UUID](ctx))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(PendingACL{}), PendingACLType, SerializeStruct[PendingACL](ctx), DeserializeStruct[PendingACL](ctx))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(PendingSignal{}), PendingSignalType, SerializeStruct[PendingSignal](ctx), DeserializeStruct[PendingSignal](ctx))
+  if err != nil {
+    return nil, err
+  }
+
   // TODO: Make registering interfaces cleaner
   var extension Extension = nil
-  err = ctx.RegisterType(reflect.ValueOf(&extension).Type().Elem(), ExtensionType, SerializeInterface, DeserializeInterface[Extension]())
+  err = ctx.RegisterType(reflect.ValueOf(&extension).Type().Elem(), ExtSerialized, SerializeInterface, DeserializeInterface[Extension]())
+  if err != nil {
+    return nil, err
+  }
+
+  var policy Policy = nil
+  err = ctx.RegisterType(reflect.ValueOf(&policy).Type().Elem(), PolicySerialized, SerializeInterface, DeserializeInterface[Policy]())
   if err != nil {
     return nil, err
   }
@@ -1027,11 +1059,20 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(Node{}), NodeStructType, SerializeStruct[Node](ctx), DeserializeStruct[Node](ctx))
+  err = ctx.RegisterType(reflect.TypeOf(QueuedSignal{}), QueuedSignalType, SerializeStruct[QueuedSignal](ctx), DeserializeStruct[QueuedSignal](ctx))
   if err != nil {
     return nil, err
   }
 
+  err = ctx.RegisterType(reflect.TypeOf(AllNodesPolicy{}), SerializedType(AllNodesPolicyType), SerializeStruct[AllNodesPolicy](ctx), DeserializeStruct[AllNodesPolicy](ctx))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(Node{}), NodeStructType, SerializeStruct[Node](ctx), DeserializeStruct[Node](ctx))
+  if err != nil {
+    return nil, err
+  }
 
   err = ctx.RegisterType(reflect.TypeOf(Up), SignalDirectionType,
   func(ctx *Context, ctx_type SerializedType, t reflect.Type, value *reflect.Value) (SerializedValue, error) {

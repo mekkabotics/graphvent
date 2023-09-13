@@ -210,7 +210,7 @@ func TestGQLServer(t *testing.T) {
 }
 
 func TestGQLDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "serialize", "node"})
+  ctx := logTestContext(t, []string{"test", "node"})
 
   TestUserNodeType := NewNodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})
@@ -243,7 +243,7 @@ func TestGQLDB(t *testing.T) {
   ctx.nodeMap = map[NodeID]*Node{}
   gql_loaded, err := LoadNode(ctx, gql.ID)
   fatalErr(t, err)
-  listener_ext, err = GetExt[*ListenerExt](gql_loaded, GQLExtType)
+  listener_ext, err = GetExt[*ListenerExt](gql_loaded, ListenerExtType)
   fatalErr(t, err)
   msgs = Messages{}
   msgs = msgs.Add(ctx, gql_loaded.ID, gql_loaded.Key, NewStopSignal(), gql_loaded.ID)

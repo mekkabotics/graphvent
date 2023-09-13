@@ -110,6 +110,17 @@ type Node struct {
   NextSignal *QueuedSignal
 }
 
+func (node *Node) PostDeserialize(ctx *Context) error {
+  public := node.Key.Public().(ed25519.PublicKey)
+  node.ID = KeyID(public)
+
+  node.MsgChan = make(chan *Message, node.BufferSize)
+
+  node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+
+  return nil
+}
+
 type RuleResult int
 const (
   Allow RuleResult = iota
@@ -687,9 +698,13 @@ func LoadNode(ctx * Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("Deserialized %+v when expecting *Node", node_val.Type())
   }
 
+  for ext_type, ext := range(node.Extensions){
+    ctx.Log.Logf("serialize", "Deserialized extension: %+v - %+v", ext_type, ext)
+  }
+
   ctx.AddNode(id, node) 
   ctx.Log.Logf("db", "DB_NODE_LOADED: %s", id)
   go runNode(ctx, node)
 
-  return nil, nil
+  return node, nil
 }

@@ -26,12 +26,15 @@ func Hash(base string, name string) SerializedType {
 }
 
 type SerializedType uint64
-
 func (t SerializedType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
 type ExtType SerializedType
+func (t ExtType) String() string {
+  return fmt.Sprintf("0x%x", uint64(t))
+}
+
 type NodeType SerializedType
 type SignalType SerializedType
 type PolicyType SerializedType
@@ -109,10 +112,16 @@ var (
   ReqStateType = NewSerializedType("REQ_STATE")
   SignalDirectionType = NewSerializedType("SIGNAL_DIRECTION")
   NodeStructType = NewSerializedType("NODE_STRUCT")
-  NodeTypeType = NewSerializedType("NODE_TYPE")
-  ExtTypeType = NewSerializedType("EXT_TYPE")
-  ExtensionType = NewSerializedType("EXTENSION")
+  QueuedSignalType = NewSerializedType("QUEUED_SIGNAL")
+  NodeTypeSerialized = NewSerializedType("NODE_TYPE")
+  ExtTypeSerialized = NewSerializedType("EXT_TYPE")
+  PolicyTypeSerialized = NewSerializedType("POLICY_TYPE")
+  ExtSerialized = NewSerializedType("EXTENSION")
+  PolicySerialized = NewSerializedType("POLICY")
   NodeIDType = NewSerializedType("NODE_ID")
+  UUIDType = NewSerializedType("UUID")
+  PendingACLType = NewSerializedType("PENDING_ACL")
+  PendingSignalType = NewSerializedType("PENDING_SIGNAL")
 )
 
 func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
@@ -338,7 +347,16 @@ type StructInfo struct {
   Type reflect.Type
   FieldOrder []SerializedType
   FieldMap map[SerializedType]FieldInfo
+  PostDeserialize bool
+  PostDeserializeIdx int
 }
+
+type Deserializable interface {
+  PostDeserialize(*Context) error
+}
+
+var deserializable_zero Deserializable = nil
+var DeserializableType = reflect.TypeOf(&deserializable_zero).Elem()
 
 func structInfo[T any](ctx *Context)StructInfo{
   var struct_zero T
@@ -372,10 +390,26 @@ func structInfo[T any](ctx *Context)StructInfo{
     return uint64(field_order[i]) < uint64(field_order[j])
   })
 
+  post_deserialize := false
+  post_deserialize_idx := 0
+  ptr_type := reflect.PointerTo(struct_type)
+  if ptr_type.Implements(DeserializableType) {
+    post_deserialize = true
+    for i := 0; i < ptr_type.NumMethod(); i += 1 {
+      method := ptr_type.Method(i)
+      if method.Name == "PostDeserialize" {
+        post_deserialize_idx = i
+        break
+      }
+    }
+  }
+
   return StructInfo{
     struct_type,
     field_order,
     field_map,
+    post_deserialize,
+    post_deserialize_idx,
   }
 }
 
@@ -422,6 +456,7 @@ func DeserializeStruct[T any](ctx *Context)(func(*Context,SerializedValue)(refle
         return nil, nil, value, err
       }
       num_fields := int(binary.BigEndian.Uint64(num_fields_bytes))
+      ctx.Log.Logf("serialize", "Deserializing %d fields from %+v", num_fields, struct_info)
 
       struct_value := reflect.New(struct_info.Type).Elem()
 
@@ -450,6 +485,15 @@ func DeserializeStruct[T any](ctx *Context)(func(*Context,SerializedValue)(refle
         }
         value.Data = tmp_value.Data
         field_value.Set(*field_reflect)
+      }
+
+      if struct_info.PostDeserialize == true {
+        ctx.Log.Logf("serialize", "running post-deserialize for %+v", struct_info.Type)
+        post_deserialize_method := struct_value.Addr().Method(struct_info.PostDeserializeIdx)
+        ret := post_deserialize_method.Call([]reflect.Value{reflect.ValueOf(ctx)})
+        if ret[0].IsZero() == false {
+          return nil, nil, value, ret[0].Interface().(error)
+        }
       }
 
       return struct_info.Type, &struct_value, value, err
@@ -670,6 +714,10 @@ func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *refle
     return nil, nil, value, err
   }
 
-  ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v", reflect_type, reflect_value, err)
+  if reflect_value != nil {
+    ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v", reflect_type, reflect_value.Interface(), err)
+  } else {
+    ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v", reflect_type, reflect_value, err)
+  }
   return reflect_type, reflect_value, value, nil
 }

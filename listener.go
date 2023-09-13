@@ -7,8 +7,13 @@ import (
 
 // A Listener extension provides a channel that can receive signals on a different thread
 type ListenerExt struct {
-  Buffer int
+  Buffer int `gv:"buffer"`
   Chan chan Signal
+}
+
+func (ext *ListenerExt) PostDeserialize(ctx *Context) error {
+  ext.Chan = make(chan Signal, ext.Buffer)
+  return nil
 }
 
 // Create a new listener extension with a given buffer size
