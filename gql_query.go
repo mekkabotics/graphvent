@@ -57,7 +57,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     resp_channels[read_signal.ID] = response_chan
     node_ids[read_signal.ID] = id
 
-    // TODO: Send all at once instead of createing Messages for each
+    // TODO: Send all at once instead of creating Messages for each
     err = ctx.Context.Send(msgs)
     if err != nil {
       ctx.Ext.FreeResponseChannel(read_signal.ID)

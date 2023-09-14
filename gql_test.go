@@ -40,7 +40,7 @@ func TestGQLServer(t *testing.T) {
   })
 
   group_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
-    gql_id: Tree{
+    gql_id: {
       SerializedType(LinkSignalType): nil,
       SerializedType(LockSignalType): nil,
       SerializedType(StatusSignalType): nil,
@@ -54,7 +54,7 @@ func TestGQLServer(t *testing.T) {
   })
 
   user_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
-    gql_id: Tree{
+    gql_id: {
       SerializedType(LinkSignalType): nil,
       SerializedType(ReadSignalType): nil,
     },
@@ -142,7 +142,7 @@ func TestGQLServer(t *testing.T) {
   ctx.Log.Logf("test", "RESP_2: %s", resp_2)
 
   sub_1 := GQLPayload{
-    Query: "subscription { Self }",
+    Query: "subscription { Self { ID, TypeHash, Requirements { ID }}}",
   }
 
   SubGQL := func(payload GQLPayload) {
@@ -189,12 +189,9 @@ func TestGQLServer(t *testing.T) {
     _, err = ws.Write(ser)
     fatalErr(t, err)
 
-    for i := 0; i < 10; i++ {
-      n, err = ws.Read(resp)
-      fatalErr(t, err)
-
-      ctx.Log.Logf("test", "SUB_%d: %s", i, resp[:n])
-    }
+    n, err = ws.Read(resp)
+    fatalErr(t, err)
+    ctx.Log.Logf("test", "SUB: %s", resp[:n])
   }
 
   SubGQL(sub_1)

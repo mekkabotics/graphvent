@@ -420,7 +420,6 @@ func nodeLoop(ctx *Context, node *Node) error {
       result := node.ReadFields(ctx, sig.Extensions)
       msgs := Messages{}
       msgs = msgs.Add(ctx, node.ID, node.Key, NewReadResultSignal(sig.ID, node.ID, node.Type, result), source)
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.ID, "read_done"), source)
       ctx.Send(msgs)
 
     default:

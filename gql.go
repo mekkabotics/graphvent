@@ -844,7 +844,7 @@ func NewGQLExtContext() *GQLExtContext {
                         }
                         node_list := []NodeID{}
                         i := 0
-                        for id, _ := range(node_map) {
+                        for id := range(node_map) {
                           node_list = append(node_list, id)
                           i += 1
                         }
@@ -866,7 +866,7 @@ func NewGQLExtContext() *GQLExtContext {
   }
 
   err = context.RegisterInterface("Lockable", "DefaultLockable", []string{"Node"}, []string{}, map[string]SelfField{
-    "Owner": SelfField{
+    "Owner": {
       "owner",
       LockableExtType,
       func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value) (*NodeID, error) {
@@ -879,7 +879,7 @@ func NewGQLExtContext() *GQLExtContext {
       },
     },
   }, map[string]ListField{
-    "Requirements": ListField{
+    "Requirements": {
       "requirements",
       LockableExtType,
       func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value) ([]NodeID, error) {
@@ -920,17 +920,56 @@ func NewGQLExtContext() *GQLExtContext {
     },
   })
 
+  // This library handles subscriptions by running the "Subscribe" function which should return a channel, and a "Resolve" function which returns the new value to send to the client
+  /*
+  Library modifications required:
+    1) Make the last result available in the ResolveContext
+    2) When resolving, check if the current field exists in the previous result, using the previous result instead of re-resolving(only resolve fields that don't exist in the previous result)
+  To make this work with graphvent:
+  1) In Subscribe:
+    - Make a channel for the gql extension to forward messages to this context
+    - Send the read request associated with the root of the subscription
+  2) In Resolve:
+    - If the incoming message is a read result, process it as the new root result
+    - If the incoming message is a status, delete all the nodes found from the root that have the same NodeID and re-resolve
+  */
   context.Subscription.AddFieldConfig("Self", &graphql.Field{
-    Type: graphql.String,
-    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      return p.Source, nil
-    },
+    Type: context.NodeTypes[GQLNodeType],
     Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
-      c := make(chan interface{}, 10)
-      for i := 0; i < 10; i++ {
-        c <- fmt.Sprintf("test %d", i)
+      ctx, err := PrepResolve(p)
+      if err != nil {
+        return nil, err
       }
+      c := make(chan interface{}, 1)
+      nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
+      if err != nil {
+        return nil, err
+      } else if len(nodes) != 1 {
+        return nil, fmt.Errorf("wrong length of nodes returned")
+      }
+
+      ctx.Context.Log.Logf("gql", "NODES: %+v", nodes[0].Result)
+      c <- nodes[0]
+
       return c, nil
+    },
+    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+      ctx, err := PrepResolve(p)
+      if err != nil {
+        return nil, err
+      }
+      var self_result NodeResult
+      switch source := p.Source.(type) {
+      case NodeResult:
+        self_result = source
+        ctx.Context.Log.Logf("gql", "FIRST_RESULT_RECEIVED")
+      case StatusSignal:
+        // Look for Source in tree and delete references
+      default:
+        return nil, fmt.Errorf("Don't know how to handle %+v", source)
+      }
+
+      return self_result, nil
     },
   })
 
