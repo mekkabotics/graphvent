@@ -920,19 +920,6 @@ func NewGQLExtContext() *GQLExtContext {
     },
   })
 
-  // This library handles subscriptions by running the "Subscribe" function which should return a channel, and a "Resolve" function which returns the new value to send to the client
-  /*
-  Library modifications required:
-    1) Make the last result available in the ResolveContext
-    2) When resolving, check if the current field exists in the previous result, using the previous result instead of re-resolving(only resolve fields that don't exist in the previous result)
-  To make this work with graphvent:
-  1) In Subscribe:
-    - Make a channel for the gql extension to forward messages to this context
-    - Send the read request associated with the root of the subscription
-  2) In Resolve:
-    - If the incoming message is a read result, process it as the new root result
-    - If the incoming message is a status, delete all the nodes found from the root that have the same NodeID and re-resolve
-  */
   context.Subscription.AddFieldConfig("Self", &graphql.Field{
     Type: context.NodeTypes[GQLNodeType],
     Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
@@ -964,7 +951,7 @@ func NewGQLExtContext() *GQLExtContext {
         self_result = source
         ctx.Context.Log.Logf("gql", "FIRST_RESULT_RECEIVED")
       case StatusSignal:
-        // Look for Source in tree and delete references
+        // Look for Source in p.Execution.LastResult and delete references
       default:
         return nil, fmt.Errorf("Don't know how to handle %+v", source)
       }

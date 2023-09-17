@@ -19,7 +19,7 @@ import (
 )
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "gql", "policy", "pending"})
+  ctx := logTestContext(t, []string{"test"})
 
   TestNodeType := NewNodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
