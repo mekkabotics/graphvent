@@ -4,14 +4,11 @@ go 1.21.0
 
 replace github.com/mekkanized/graphvent/signal v0.0.0 => ./signal
 
-replace github.com/graphql-go/graphql v0.0.0 => ./graphql
-
 require (
 	capnproto.org/go/capnp/v3 v3.0.0-alpha-29
 	github.com/dgraph-io/badger/v3 v3.2103.5
 	github.com/gobwas/ws v1.2.1
 	github.com/google/uuid v1.3.0
-	github.com/graphql-go/graphql v0.0.0
 	github.com/mekkanized/graphvent/signal v0.0.0
 	github.com/rs/zerolog v1.29.1
 	golang.org/x/net v0.7.0
@@ -30,6 +27,7 @@ require (
 	github.com/golang/protobuf v1.3.1 // indirect
 	github.com/golang/snappy v0.0.3 // indirect
 	github.com/google/flatbuffers v1.12.1 // indirect
+	github.com/graphql-go/graphql v0.8.1 // indirect
 	github.com/klauspost/compress v1.12.3 // indirect
 	github.com/mattn/go-colorable v0.1.12 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect

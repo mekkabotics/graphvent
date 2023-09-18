@@ -2,10 +2,29 @@ package graphvent
 import (
   "time"
   "reflect"
+  "fmt"
   "github.com/graphql-go/graphql"
   "github.com/graphql-go/graphql/language/ast"
   "github.com/google/uuid"
 )
+
+func ResolveNodeID(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(NodeResult)
+  if ok == false {
+    return nil, fmt.Errorf("Can't get NodeID from %+v", reflect.TypeOf(p.Source))
+  }
+
+  return node.ID, nil
+}
+
+func ResolveNodeTypeHash(p graphql.ResolveParams) (interface{}, error) {
+  node, ok := p.Source.(NodeResult)
+  if ok == false {
+    return nil, fmt.Errorf("Can't get TypeHash from %+v", reflect.TypeOf(p.Source))
+  }
+
+  return uint64(node.Result.NodeType), nil
+}
 
 func GetFieldNames(ctx *Context, selection_set *ast.SelectionSet) []string {
   names := []string{}

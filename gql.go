@@ -31,6 +31,137 @@ import (
   "github.com/google/uuid"
 )
 
+func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTypeOfParams) bool {
+  return func(p graphql.IsTypeOfParams) bool {
+    ctx, ok := p.Context.Value("resolve").(*ResolveContext)
+    if ok == false {
+      return false
+    }
+    node, ok := p.Value.(NodeResult)
+    if ok == false {
+      return false
+    }
+
+    node_type_def, exists := ctx.Context.Nodes[node.Result.NodeType]
+    if exists == false {
+      return false
+    } else {
+      for _, ext := range(required_extensions) {
+        found := false
+        for _, e := range(node_type_def.Extensions) {
+          if e == ext {
+            found = true
+            break
+          }
+        }
+        if found == false {
+          return false
+        }
+      }
+    }
+
+    return true
+  }
+}
+
+func NodeInterfaceResolveType(required_extensions []ExtType, default_type **graphql.Object)func(graphql.ResolveTypeParams) *graphql.Object {
+  return func(p graphql.ResolveTypeParams) *graphql.Object {
+    ctx, ok := p.Context.Value("resolve").(*ResolveContext)
+    if ok == false {
+      return nil
+    }
+
+    node, ok := p.Value.(NodeResult)
+    if ok == false {
+      return nil
+    }
+
+    gql_type, exists := ctx.GQLContext.NodeTypes[node.Result.NodeType]
+    ctx.Context.Log.Logf("gql", "GQL_INTERFACE_RESOLVE_TYPE(%+v): %+v - %t - %+v - %+v", node, gql_type, exists, required_extensions, *default_type)
+    if exists == false {
+      node_type_def, exists := ctx.Context.Nodes[node.Result.NodeType]
+      if exists == false {
+        return nil
+      } else {
+        for _, ext := range(required_extensions) {
+          found := false
+          for _, e := range(node_type_def.Extensions) {
+            if e == ext {
+              found = true
+              break
+            }
+          }
+          if found == false {
+            return nil
+          }
+        }
+      }
+      return *default_type
+    }
+
+    return gql_type
+  }
+}
+
+func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
+  resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
+  if ok == false {
+    return nil, fmt.Errorf("Bad resolve in params context")
+  }
+
+  return resolve_context, nil
+}
+
+// TODO: Make composabe by checkinf if K is a slice, then recursing in the same way that ExtractList does
+func ExtractParam[K interface{}](p graphql.ResolveParams, name string) (K, error) {
+  var zero K
+  arg_if, ok := p.Args[name]
+  if ok == false {
+    return zero, fmt.Errorf("No Arg of name %s", name)
+  }
+
+  arg, ok := arg_if.(K)
+  if ok == false {
+    return zero, fmt.Errorf("Failed to cast arg %s(%+v) to %+v", name, arg_if, reflect.TypeOf(zero))
+  }
+
+  return arg, nil
+}
+
+func ExtractList[K interface{}](p graphql.ResolveParams, name string) ([]K, error) {
+  var zero K
+
+  arg_list, err := ExtractParam[[]interface{}](p, name)
+  if err != nil {
+    return nil, err
+  }
+
+  ret := make([]K, len(arg_list))
+  for i, val := range(arg_list) {
+    val_conv, ok := arg_list[i].(K)
+    if ok == false {
+      return nil, fmt.Errorf("Failed to cast arg %s[%d](%+v) to %+v", name, i, val, reflect.TypeOf(zero))
+    }
+    ret[i] = val_conv
+  }
+
+  return ret, nil
+}
+
+func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
+  id_str, err := ExtractParam[string](p, name)
+  if err != nil {
+    return ZeroID, err
+  }
+
+  id, err := ParseID(id_str)
+  if err != nil {
+    return ZeroID, err
+  }
+
+  return id, nil
+}
+
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     graphiql_string := fmt.Sprintf(`
@@ -184,6 +315,9 @@ type ResolveContext struct {
 
   // ID of the user that made this request
   User NodeID
+
+  // Cache of resolved nodes
+  NodeCache map[NodeID]interface{}
 
   // Key for the user that made this request, to sign resolver requests
   // TODO: figure out some way to use a generated key so that the server can't impersonate the user afterwards
@@ -949,9 +1083,8 @@ func NewGQLExtContext() *GQLExtContext {
       switch source := p.Source.(type) {
       case NodeResult:
         self_result = source
-        ctx.Context.Log.Logf("gql", "FIRST_RESULT_RECEIVED")
+        ctx.Context.Log.Logf("gql_subscribe", "SUBSCRIBE_FIRST_RESULT: %+v", self_result)
       case StatusSignal:
-        // Look for Source in p.Execution.LastResult and delete references
       default:
         return nil, fmt.Errorf("Don't know how to handle %+v", source)
       }
