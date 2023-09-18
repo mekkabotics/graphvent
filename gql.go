@@ -42,7 +42,7 @@ func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTy
       return false
     }
 
-    node_type_def, exists := ctx.Context.Nodes[node.Result.NodeType]
+    node_type_def, exists := ctx.Context.Nodes[node.NodeType]
     if exists == false {
       return false
     } else {
@@ -76,10 +76,10 @@ func NodeInterfaceResolveType(required_extensions []ExtType, default_type **grap
       return nil
     }
 
-    gql_type, exists := ctx.GQLContext.NodeTypes[node.Result.NodeType]
+    gql_type, exists := ctx.GQLContext.NodeTypes[node.NodeType]
     ctx.Context.Log.Logf("gql", "GQL_INTERFACE_RESOLVE_TYPE(%+v): %+v - %t - %+v - %+v", node, gql_type, exists, required_extensions, *default_type)
     if exists == false {
-      node_type_def, exists := ctx.Context.Nodes[node.Result.NodeType]
+      node_type_def, exists := ctx.Context.Nodes[node.NodeType]
       if exists == false {
         return nil
       } else {
@@ -175,57 +175,57 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
     <!DOCTYPE html>
     <html lang="en">
     <head>
-      <title>GraphiQL</title>
-      <style>
-        body {
-          height: 100%%;
-          margin: 0;
-          width: 100%%;
-          overflow: hidden;
-        }
-        #graphiql {
-          height: 100vh;
-        }
-      </style>
-      <!--
-        This GraphiQL example depends on Promise and fetch, which are available in
-        modern browsers, but can be "polyfilled" for older browsers.
-        GraphiQL itself depends on React DOM.
-        If you do not want to rely on a CDN, you can host these files locally or
-        include them directly in your favored resource bundler.
-      -->
-      <script
-        crossorigin
-        src="https://unpkg.com/react@18/umd/react.development.js"
-      ></script>
-      <script
-        crossorigin
-        src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
-      ></script>
-      <!--
-        These two files can be found in the npm module, however you may wish to
-        copy them directly into your environment, or perhaps include them in your
-        favored resource bundler.
-       -->
-      <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
+    <title>GraphiQL</title>
+    <style>
+    body {
+      height: 100%%;
+      margin: 0;
+      width: 100%%;
+      overflow: hidden;
+    }
+    #graphiql {
+      height: 100vh;
+    }
+    </style>
+    <!--
+    This GraphiQL example depends on Promise and fetch, which are available in
+    modern browsers, but can be "polyfilled" for older browsers.
+    GraphiQL itself depends on React DOM.
+    If you do not want to rely on a CDN, you can host these files locally or
+    include them directly in your favored resource bundler.
+    -->
+    <script
+    crossorigin
+    src="https://unpkg.com/react@18/umd/react.development.js"
+    ></script>
+    <script
+    crossorigin
+    src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"
+    ></script>
+    <!--
+    These two files can be found in the npm module, however you may wish to
+    copy them directly into your environment, or perhaps include them in your
+    favored resource bundler.
+    -->
+    <link rel="stylesheet" href="https://unpkg.com/graphiql/graphiql.min.css" />
     </head>
     <body>
-      <div id="graphiql">Loading...</div>
-      <script
-        src="https://unpkg.com/graphiql/graphiql.min.js"
-        type="application/javascript"
-      ></script>
-      <script>
-        const root = ReactDOM.createRoot(document.getElementById('graphiql'));
-        root.render(
-          React.createElement(GraphiQL, {
-            fetcher: GraphiQL.createFetcher({
-              url: '/gql',
-            }),
-            defaultEditorToolsVisibility: true,
-          }),
-        );
-      </script>
+    <div id="graphiql">Loading...</div>
+    <script
+    src="https://unpkg.com/graphiql/graphiql.min.js"
+    type="application/javascript"
+    ></script>
+    <script>
+    const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+    root.render(
+      React.createElement(GraphiQL, {
+        fetcher: GraphiQL.createFetcher({
+          url: '/gql',
+        }),
+        defaultEditorToolsVisibility: true,
+      }),
+    );
+    </script>
     </body>
     </html>
     `)
@@ -252,10 +252,10 @@ type GQLWSMsg struct {
 }
 
 func enableCORS(w *http.ResponseWriter) {
- (*w).Header().Set("Access-Control-Allow-Origin", "*")
- (*w).Header().Set("Access-Control-Allow-Credentials", "true")
- (*w).Header().Set("Access-Control-Allow-Headers", "*")
- (*w).Header().Set("Access-Control-Allow-Methods", "*")
+  (*w).Header().Set("Access-Control-Allow-Origin", "*")
+  (*w).Header().Set("Access-Control-Allow-Credentials", "true")
+  (*w).Header().Set("Access-Control-Allow-Headers", "*")
+  (*w).Header().Set("Access-Control-Allow-Methods", "*")
 }
 
 type GQLUnauthorized string
@@ -317,7 +317,7 @@ type ResolveContext struct {
   User NodeID
 
   // Cache of resolved nodes
-  NodeCache map[NodeID]interface{}
+  NodeCache map[NodeID]NodeResult
 
   // Key for the user that made this request, to sign resolver requests
   // TODO: figure out some way to use a generated key so that the server can't impersonate the user afterwards
@@ -369,6 +369,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
     GQLContext: ctx.Extensions[GQLExtType].Data.(*GQLExtContext),
+    NodeCache: map[NodeID]NodeResult{},
     Server: server,
     User: key_id,
     Key: key,
@@ -400,7 +401,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
       ctx.Log.Logf("gql", "GQL_READ_ERR: %s", err)
       json.NewEncoder(w).Encode(fmt.Sprintf("%e", err))
       return
- }
+    }
     query := GQLPayload{}
     json.Unmarshal(str, &query)
 
@@ -649,17 +650,17 @@ func (ctx *GQLExtContext) GetACLFields(obj_name string, names []string) (map[Ext
     case "ID":
     case "TypeHash":
     default:
-     field, exists := ctx.Fields[name]
-     if exists == false {
-       return nil, fmt.Errorf("%s is not a know field in GQLContext, cannot resolve", name)
-     }
+      field, exists := ctx.Fields[name]
+      if exists == false {
+        return nil, fmt.Errorf("%s is not a know field in GQLContext, cannot resolve", name)
+      }
 
-     ext, exists := ext_fields[field.Ext]
-     if exists == false {
-       ext = []string{}
-     }
-     ext = append(ext, field.Name)
-     ext_fields[field.Ext] = ext
+      ext, exists := ext_fields[field.Ext]
+      if exists == false {
+        ext = []string{}
+      }
+      ext = append(ext, field.Name)
+      ext_fields[field.Ext] = ext
     }
   }
 
@@ -703,7 +704,7 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
       return nil, fmt.Errorf("p.Value is not NodeResult")
     }
 
-    ext, ext_exists := node.Result.Extensions[ext_type]
+    ext, ext_exists := node.Data[ext_type]
     if ext_exists == false {
       return nil, fmt.Errorf("%+v is not in the extensions of the result", ext_type)
     }
@@ -725,6 +726,8 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
     if field_value == nil {
       return nil, fmt.Errorf("%s returned a nil value of %+v type", gv_tag, field_type)
     }
+
+    ctx.Context.Log.Logf("gql", "Resolving %+v", field_value)
 
     return resolve_fn(p, ctx, *field_value)
   }
@@ -780,8 +783,9 @@ func GQLFields(ctx *GQLExtContext, field_names []string) (graphql.Fields, []ExtT
 }
 
 type NodeResult struct {
-  ID NodeID
-  Result *ReadResultSignal
+  NodeID NodeID
+  NodeType NodeType
+  Data map[ExtType]map[string]SerializedValue
 }
 
 type ListField struct {
@@ -926,7 +930,7 @@ func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, name string, inte
         return false
       }
 
-      return node.Result.NodeType == node_type
+      return node.NodeType == node_type
     },
     Fields: gql_fields,
   })
@@ -971,25 +975,25 @@ func NewGQLExtContext() *GQLExtContext {
   }
 
   err = context.RegisterField(context.Interfaces["Node"].List, "Members", GroupExtType, "members",
-                      func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-                        node_map, ok := value.Interface().(map[NodeID]string)
-                        if ok == false {
-                          return nil, fmt.Errorf("value is %+v, not map[NodeID]string", value.Type())
-                        }
-                        node_list := []NodeID{}
-                        i := 0
-                        for id := range(node_map) {
-                          node_list = append(node_list, id)
-                          i += 1
-                        }
+  func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
+    node_map, ok := value.Interface().(map[NodeID]string)
+    if ok == false {
+      return nil, fmt.Errorf("value is %+v, not map[NodeID]string", value.Type())
+    }
+    node_list := []NodeID{}
+    i := 0
+    for id := range(node_map) {
+      node_list = append(node_list, id)
+      i += 1
+    }
 
-                        nodes, err := ResolveNodes(ctx, p, node_list)
-                        if err != nil {
-                          return nil, err
-                        }
+    nodes, err := ResolveNodes(ctx, p, node_list)
+    if err != nil {
+      return nil, err
+    }
 
-                        return nodes, nil
-                      })
+    return nodes, nil
+  })
   if err != nil {
     panic(err)
   }
@@ -1069,7 +1073,7 @@ func NewGQLExtContext() *GQLExtContext {
         return nil, fmt.Errorf("wrong length of nodes returned")
       }
 
-      ctx.Context.Log.Logf("gql", "NODES: %+v", nodes[0].Result)
+      ctx.Context.Log.Logf("gql", "NODES: %+v", nodes[0])
       c <- nodes[0]
 
       return c, nil
@@ -1079,17 +1083,17 @@ func NewGQLExtContext() *GQLExtContext {
       if err != nil {
         return nil, err
       }
-      var self_result NodeResult
+
       switch source := p.Source.(type) {
       case NodeResult:
-        self_result = source
-        ctx.Context.Log.Logf("gql_subscribe", "SUBSCRIBE_FIRST_RESULT: %+v", self_result)
       case StatusSignal:
+        delete(ctx.NodeCache, source.Source)
+        ctx.Context.Log.Logf("gql_subscribe", "Deleting %+v from NodeCache", source.Source)
       default:
         return nil, fmt.Errorf("Don't know how to handle %+v", source)
       }
 
-      return self_result, nil
+      return ctx.NodeCache[ctx.Server.ID], nil
     },
   })
 
@@ -1352,7 +1356,7 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
 
     err := http_server.Serve(listener)
     if err != http.ErrServerClosed {
-        panic(fmt.Sprintf("Failed to start gql server: %s", err))
+      panic(fmt.Sprintf("Failed to start gql server: %s", err))
     }
   }(ext)
 
