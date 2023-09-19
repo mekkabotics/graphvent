@@ -4,9 +4,7 @@ import (
   "fmt"
   "time"
 
-  "capnproto.org/go/capnp/v3"
-  "github.com/google/uuid"
-  schema "github.com/mekkanized/graphvent/signal"
+ "github.com/google/uuid"
 )
 
 type SignalDirection uint8
@@ -93,48 +91,6 @@ func NewRespHeader(req_id uuid.UUID, direction SignalDirection) SignalHeader {
   return header
 }
 
-func SerializeHeader(header SignalHeader, root schema.SignalHeader) error {
-  root.SetDirection(uint8(header.Direction))
-  id_ser, err := header.ID.MarshalBinary()
-  if err != nil {
-    return err
-  }
-  root.SetId(id_ser)
-
-  req_id_ser, err := header.ReqID.MarshalBinary()
-  if err != nil {
-    return err
-  }
-  root.SetReqID(req_id_ser)
-  return nil
-}
-
-func DeserializeHeader(header schema.SignalHeader) (SignalHeader, error) {
-  id_ser, err := header.Id()
-  if err != nil {
-    return SignalHeader{}, err
-  }
-  id, err := uuid.FromBytes(id_ser)
-  if err != nil {
-    return SignalHeader{}, err
-  }
-
-  req_id_ser, err := header.ReqID()
-  if err != nil {
-    return SignalHeader{}, err
-  }
-  req_id, err := uuid.FromBytes(req_id_ser)
-  if err != nil {
-    return SignalHeader{}, err
-  }
-
-  return SignalHeader{
-    ID: id,
-    ReqID: req_id,
-    Direction: SignalDirection(header.Direction()),
-  }, nil
-}
-
 type CreateSignal struct {
   SignalHeader
 }
@@ -194,59 +150,6 @@ type ErrorSignal struct {
 }
 func (signal ErrorSignal) Header() *SignalHeader {
   return &signal.SignalHeader
-}
-func (signal ErrorSignal) MarshalBinary() ([]byte, error) {
-  arena := capnp.SingleSegment(nil)
-  msg, seg, err := capnp.NewMessage(arena)
-  if err != nil {
-    return nil, err
-  }
-
-  root, err := schema.NewRootErrorSignal(seg)
-  if err != nil {
-    return nil, err
-  }
-
-  root.SetError(signal.Error)
-
-  header, err := root.NewHeader()
-  if err != nil {
-    return nil, err
-  }
-
-  err = SerializeHeader(signal.SignalHeader, header)
-  if err != nil {
-    return nil, err
-  }
-
-  return msg.Marshal()
-}
-func (signal ErrorSignal) Deserialize(ctx *Context, data []byte) error {
-  msg, err := capnp.Unmarshal(data)
-  if err != nil {
-    return err
-  }
-
-  root, err := schema.ReadRootErrorSignal(msg)
-  if err != nil {
-    return err
-  }
-
-  header, err := root.Header()
-  if err != nil {
-    return err
-  }
-
-  signal.Error, err = root.Error()
-  if err != nil {
-    return err
-  }
-  signal.SignalHeader, err = DeserializeHeader(header)
-  if err != nil {
-    return err
-  }
-
-  return nil
 }
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
@@ -358,54 +261,6 @@ func NewLockSignal(state string) *LockSignal {
 type ReadSignal struct {
   SignalHeader
   Extensions map[ExtType][]string `json:"extensions"`
-}
-func (signal ReadSignal) MarshalBinary() ([]byte, error) {
-  arena := capnp.SingleSegment(nil)
-  msg, seg, err := capnp.NewMessage(arena)
-  if err != nil {
-    return nil, err
-  }
-
-  root, err := schema.NewRootReadSignal(seg)
-  if err != nil {
-    return nil, err
-  }
-
-  header, err := root.NewHeader()
-  if err != nil {
-    return nil, err
-  }
-
-  err = SerializeHeader(signal.SignalHeader, header)
-  if err != nil {
-    return nil, err
-  }
-
-  extensions, err := root.NewExtensions(int32(len(signal.Extensions)))
-  if err != nil {
-    return nil, err
-  }
-
-  i := 0
-  for ext_type, fields := range(signal.Extensions) {
-    extension := extensions.At(i)
-    extension.SetType(uint64(ext_type))
-    f, err := extension.NewFields(int32(len(fields)))
-    if err != nil {
-      return nil, err
-    }
-
-    for j, field := range(fields) {
-      err := f.Set(j, field)
-      if err != nil {
-        return nil, err
-      }
-    }
-
-    i += 1
-  }
-
-  return msg.Marshal()
 }
 func (signal ReadSignal) Header() *SignalHeader {
   return &signal.SignalHeader
