@@ -508,7 +508,7 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   return ctx.Send(messages)
 }
 
-func GetCtx[T Extension, C any](ctx *Context, ext_type ExtType) (C, error) {
+func GetCtx[C any](ctx *Context, ext_type ExtType) (C, error) {
   var zero_ctx C
   ext_info, ok := ctx.Extensions[ext_type]
   if ok == false {

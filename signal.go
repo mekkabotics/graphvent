@@ -20,8 +20,12 @@ type SignalHeader struct {
   ReqID uuid.UUID `gv:"req_id"`
 }
 
+func (header SignalHeader) Header() SignalHeader {
+  return header
+}
+
 type Signal interface {
-  Header() *SignalHeader
+  Header() SignalHeader
   Permission() Tree
 }
 
@@ -95,9 +99,6 @@ type CreateSignal struct {
   SignalHeader
 }
 
-func (signal CreateSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
-}
 func (signal CreateSignal) Permission() Tree {
   return Tree{
     SerializedType(CreateSignalType): nil,
@@ -113,9 +114,6 @@ func NewCreateSignal() *CreateSignal {
 type StartSignal struct {
   SignalHeader
 }
-func (signal StartSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
-}
 func (signal StartSignal) Permission() Tree {
   return Tree{
     SerializedType(StartSignalType): nil,
@@ -129,9 +127,6 @@ func NewStartSignal() *StartSignal {
 
 type StopSignal struct {
   SignalHeader
-}
-func (signal StopSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
 }
 func (signal StopSignal) Permission() Tree {
   return Tree{
@@ -148,9 +143,6 @@ type ErrorSignal struct {
   SignalHeader
   Error string
 }
-func (signal ErrorSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
-}
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
     SerializedType(ErrorSignalType): nil,
@@ -165,9 +157,6 @@ func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) Si
 
 type ACLTimeoutSignal struct {
   SignalHeader
-}
-func (signal ACLTimeoutSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
 }
 func (signal ACLTimeoutSignal) Permission() Tree {
   return Tree{
@@ -186,9 +175,6 @@ type StatusSignal struct {
   Source NodeID `gv:"source"`
   Status string `gv:"status"`
 }
-func (signal StatusSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
-}
 func (signal StatusSignal) Permission() Tree {
   return Tree{
     SerializedType(StatusSignalType): nil,
@@ -206,9 +192,6 @@ type LinkSignal struct {
   SignalHeader
   NodeID
   Action string
-}
-func (signal LinkSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
 }
 
 const (
@@ -235,9 +218,6 @@ type LockSignal struct {
   SignalHeader
   State string
 }
-func (signal LockSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
-}
 
 const (
   LockStateBase = "LOCK_STATE"
@@ -261,9 +241,6 @@ func NewLockSignal(state string) *LockSignal {
 type ReadSignal struct {
   SignalHeader
   Extensions map[ExtType][]string `json:"extensions"`
-}
-func (signal ReadSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
 }
 
 func (signal ReadSignal) Permission() Tree {
@@ -289,9 +266,6 @@ type ReadResultSignal struct {
   NodeID NodeID
   NodeType NodeType
   Extensions map[ExtType]map[string]SerializedValue
-}
-func (signal ReadResultSignal) Header() *SignalHeader {
-  return &signal.SignalHeader
 }
 func (signal ReadResultSignal) Permission() Tree {
   return Tree{
