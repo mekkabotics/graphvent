@@ -149,10 +149,8 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
           }
         }
       }
-      ctx.Context.Log.Logf("gql_subscribe", "CACHED_EXISTING_NODE: %+v", response.NodeID)
     } else {
       ctx.NodeCache[response.NodeID] = responses[idx]
-      ctx.Context.Log.Logf("gql_subscribe", "CACHED_NEW_NODE: %+v", response.NodeID)
     }
 
   }

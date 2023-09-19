@@ -298,6 +298,9 @@ func checkForAuthHeader(header http.Header) (string, bool) {
 
 // Context passed to each resolve execution
 type ResolveContext struct {
+  // Resolution ID
+  ID uuid.UUID
+
   // Channels for the gql extension to route data to this context
   Chans map[uuid.UUID]chan Signal
 
@@ -324,7 +327,7 @@ type ResolveContext struct {
   Key ed25519.PrivateKey
 }
 
-func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request) (*ResolveContext, error) {
+func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request, id uuid.UUID) (*ResolveContext, error) {
   id_b64, key_b64, ok := r.BasicAuth()
   if ok == false {
     return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
@@ -365,6 +368,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Requ
   }
 
   return &ResolveContext{
+    ID: id,
     Ext: gql_ext,
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
@@ -386,7 +390,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
-    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r)
+    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r, uuid.New())
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       json.NewEncoder(w).Encode(GQLUnauthorized(fmt.Sprintf("%s", err)))
@@ -487,7 +491,7 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
     }
 
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
-    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r)
+    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r, uuid.New())
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       return
@@ -1065,7 +1069,12 @@ func NewGQLExtContext() *GQLExtContext {
       if err != nil {
         return nil, err
       }
-      c := make(chan interface{}, 1)
+
+      c, err := ctx.Ext.AddSubscription(ctx.ID)
+      if err != nil {
+        return nil, err
+      }
+
       nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
       if err != nil {
         return nil, err
@@ -1073,7 +1082,6 @@ func NewGQLExtContext() *GQLExtContext {
         return nil, fmt.Errorf("wrong length of nodes returned")
       }
 
-      ctx.Context.Log.Logf("gql", "NODES: %+v", nodes[0])
       c <- nodes[0]
 
       return c, nil
@@ -1083,12 +1091,22 @@ func NewGQLExtContext() *GQLExtContext {
       if err != nil {
         return nil, err
       }
+      ctx.Context.Log.Logf("gql_subscribe", "SUBSCRIBE_RESOLVE: %+v", p.Source)
 
       switch source := p.Source.(type) {
       case NodeResult:
-      case StatusSignal:
+      case *StatusSignal:
         delete(ctx.NodeCache, source.Source)
         ctx.Context.Log.Logf("gql_subscribe", "Deleting %+v from NodeCache", source.Source)
+        if source.Source == ctx.Server.ID {
+          nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
+          if err != nil {
+            return nil, err
+          } else if len(nodes) != 1 {
+            return nil, fmt.Errorf("wrong length of nodes returned")
+          }
+          ctx.NodeCache[ctx.Server.ID] = nodes[0]
+        }
       default:
         return nil, fmt.Errorf("Don't know how to handle %+v", source)
       }
@@ -1155,10 +1173,18 @@ func NewGQLExtContext() *GQLExtContext {
   return &context
 }
 
+type SubscriptionInfo struct {
+  ID uuid.UUID
+  Channel chan interface{}
+}
+
 type GQLExt struct {
   tcp_listener net.Listener
   http_server *http.Server
   http_done sync.WaitGroup
+
+  subscriptions []SubscriptionInfo
+  subscriptions_lock sync.RWMutex
 
   // map of read request IDs to response channels
   resolver_response map[uuid.UUID]chan Signal
@@ -1167,6 +1193,41 @@ type GQLExt struct {
   TLSKey []byte `gv:"tls_key"`
   TLSCert []byte `gv:"tls_cert"`
   Listen string `gv:"listen"`
+}
+
+func (ext *GQLExt) AddSubscription(id uuid.UUID) (chan interface{}, error) {
+  ext.subscriptions_lock.Lock()
+  defer ext.subscriptions_lock.Unlock()
+
+  for _, info := range(ext.subscriptions) {
+    if info.ID == id {
+      return nil, fmt.Errorf("%+v already in subscription list", info.ID)
+    }
+  }
+
+  c := make(chan interface{}, 1)
+
+  ext.subscriptions = append(ext.subscriptions, SubscriptionInfo{
+    id,
+    c,
+  })
+
+  return c, nil
+}
+
+func (ext *GQLExt) RemoveSubscription(id uuid.UUID) error {
+  ext.subscriptions_lock.Lock()
+  defer ext.subscriptions_lock.Unlock()
+
+  for i, info := range(ext.subscriptions) {
+    if info.ID == id {
+      ext.subscriptions[i] = ext.subscriptions[len(ext.subscriptions)]
+      ext.subscriptions = ext.subscriptions[:len(ext.subscriptions)-1]
+      return nil
+    }
+  }
+
+  return fmt.Errorf("%+v not in subscription list", id)
 }
 
 func (ext *GQLExt) FindResponseChannel(req_id uuid.UUID) chan Signal {
@@ -1232,6 +1293,18 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
+  case *StatusSignal:
+    ext.subscriptions_lock.RLock()
+    ctx.Log.Logf("gql", "forwarding status signal from %+v to resolvers %+v", sig.Source, ext.subscriptions)
+    for _, resolver := range(ext.subscriptions) {
+      select {
+      case resolver.Channel <- sig:
+        ctx.Log.Logf("gql_subscribe", "forwarded status signal to resolver: %+v", resolver.ID)
+      default:
+        ctx.Log.Logf("gql_subscribe", "resolver channel overflow: %+v", resolver.ID)
+      }
+    }
+    ext.subscriptions_lock.RUnlock()
   }
   return nil
 }
@@ -1308,6 +1381,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*G
   return &GQLExt{
     Listen: listen,
     resolver_response: map[uuid.UUID]chan Signal{},
+    subscriptions: []SubscriptionInfo{},
     TLSCert: tls_cert,
     TLSKey: tls_key,
   }, nil

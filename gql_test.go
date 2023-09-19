@@ -19,7 +19,7 @@ import (
 )
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "gql_subscribe"})
+  ctx := logTestContext(t, []string{"test"})
 
   TestNodeType := NewNodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
@@ -57,6 +57,7 @@ func TestGQLServer(t *testing.T) {
     gql_id: {
       SerializedType(LinkSignalType): nil,
       SerializedType(ReadSignalType): nil,
+      SerializedType(LockSignalType): nil,
     },
   })
 
@@ -187,6 +188,15 @@ func TestGQLServer(t *testing.T) {
     ser, err = json.Marshal(&sub)
     fatalErr(t, err)
     _, err = ws.Write(ser)
+    fatalErr(t, err)
+
+    n, err = ws.Read(resp)
+    fatalErr(t, err)
+    ctx.Log.Logf("test", "SUB: %s", resp[:n])
+
+    msgs := Messages{}
+    msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStatusSignal(gql.ID, "test_status"), gql.ID)
+    err = ctx.Send(msgs)
     fatalErr(t, err)
 
     n, err = ws.Read(resp)
