@@ -24,7 +24,12 @@ func (header SignalHeader) Header() SignalHeader {
   return header
 }
 
+func (header SignalHeader) String() string {
+   return fmt.Sprintf("Signal(%d, %s->%s)", header.Direction, header.ID, header.ReqID)
+}
+
 type Signal interface {
+  fmt.Stringer
   Header() SignalHeader
   Permission() Tree
 }
@@ -190,7 +195,7 @@ func NewStatusSignal(source NodeID, status string) *StatusSignal {
 
 type LinkSignal struct {
   SignalHeader
-  NodeID
+  NodeID NodeID
   Action string
 }
 
@@ -206,6 +211,7 @@ func (signal LinkSignal) Permission() Tree {
     },
   }
 }
+
 func NewLinkSignal(action string, id NodeID) Signal {
   return &LinkSignal{
     NewSignalHeader(Direct),

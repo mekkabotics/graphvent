@@ -1195,6 +1195,13 @@ type GQLExt struct {
   Listen string `gv:"listen"`
 }
 
+func (ext *GQLExt) PostDeserialize(*Context) error {
+  ext.resolver_response = map[uuid.UUID]chan Signal{}
+  ext.subscriptions = []SubscriptionInfo{}
+
+  return nil
+}
+
 func (ext *GQLExt) AddSubscription(id uuid.UUID) (chan interface{}, error) {
   ext.subscriptions_lock.Lock()
   defer ext.subscriptions_lock.Unlock()
@@ -1265,7 +1272,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     if response_chan != nil {
       select {
       case response_chan <- sig:
-        ctx.Log.Logf("gql", "Forwarded error to resolver, %+v", sig)
+        ctx.Log.Logf("gql", "Forwarded error to resolver, %+v", sig.Error)
       default:
         ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
       }
@@ -1309,14 +1316,6 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
   return nil
 }
 
-func (ext *GQLExt) Type() ExtType {
-  return GQLExtType
-}
-
-func (ext *GQLExt) MarshalBinary() ([]byte, error) {
-  return json.Marshal(ext)
-}
-
 var ecdsa_curves = map[uint8]elliptic.Curve{
   0: elliptic.P256(),
 }
@@ -1331,11 +1330,6 @@ var ecdh_curves = map[uint8]ecdh.Curve{
 
 var ecdh_curve_ids = map[ecdh.Curve]uint8{
   ecdh.P256(): 0,
-}
-
-func (ext *GQLExt) Deserialize(ctx *Context, data []byte) error {
-  ext.resolver_response = map[uuid.UUID]chan Signal{}
-  return json.Unmarshal(data, &ext)
 }
 
 func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*GQLExt, error) {
@@ -1378,6 +1372,7 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*G
     tls_cert = ssl_cert_pem
     tls_key = ssl_key_pem
   }
+
   return &GQLExt{
     Listen: listen,
     resolver_response: map[uuid.UUID]chan Signal{},

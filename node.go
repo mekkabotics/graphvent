@@ -300,7 +300,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       if princ_id != node.ID {
         pends, resp := node.Allows(ctx, princ_id, msg.Signal.Permission())
         if resp == Deny {
-          ctx.Log.Logf("policy", "SIGNAL_POLICY_DENY: %s->%s - %s", princ_id, node.ID, msg.Signal.Permission())
+          ctx.Log.Logf("policy", "SIGNAL_POLICY_DENY: %s->%s - %+v(%+s)", princ_id, node.ID, reflect.TypeOf(msg.Signal), msg.Signal)
           ctx.Log.Logf("policy", "SIGNAL_POLICY_SOURCE: %s", msg.Source)
           msgs := Messages{}
           msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(msg.Signal.Header().ID, "acl denied"), msg.Source)

@@ -67,6 +67,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   if err != nil {
     return nil, err
   }
+  ctx.Context.Log.Logf("gql", "ACL Fields from request: %+v", ext_fields)
 
   responses := make([]NodeResult, len(ids))
 
@@ -107,6 +108,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     } else {
       read_signal = NewReadSignal(ext_fields)
     }
+    ctx.Context.Log.Logf("gql", "READ_SIGNAL for %s - %+v", id, read_signal)
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     msgs := Messages{}
     msgs = msgs.Add(ctx.Context, ctx.Server.ID, ctx.Key, read_signal, id)
@@ -121,7 +123,11 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
       ctx.Ext.FreeResponseChannel(read_signal.ID)
       return nil, err
     }
+
+    ctx.Context.Log.Logf("gql", "SENT_READ_SIGNAL to %+s", id)
   }
+
+  ctx.Context.Log.Logf("gql", "Resolved cached nodes: %+v", responses)
 
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
