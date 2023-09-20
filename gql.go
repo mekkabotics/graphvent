@@ -656,7 +656,7 @@ func (ctx *GQLExtContext) GetACLFields(obj_name string, names []string) (map[Ext
     default:
       field, exists := ctx.Fields[name]
       if exists == false {
-        return nil, fmt.Errorf("%s is not a know field in GQLContext, cannot resolve", name)
+        continue
       }
 
       ext, exists := ext_fields[field.Ext]
