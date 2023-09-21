@@ -144,13 +144,31 @@ func NewStopSignal() *StopSignal {
   }
 }
 
+type SuccessSignal struct {
+  SignalHeader
+}
+func (signal SuccessSignal) Permission() Tree {
+  return Tree{
+    ResultType: {
+      SerializedType(SuccessSignalType): nil,
+    },
+  }
+}
+func NewSuccessSignal(req_id uuid.UUID) Signal {
+  return &SuccessSignal{
+    NewRespHeader(req_id, Direct),
+  }
+}
+
 type ErrorSignal struct {
   SignalHeader
   Error string
 }
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
-    SerializedType(ErrorSignalType): nil,
+    ResultType: {
+      SerializedType(ErrorSignalType): nil,
+    },
   }
 }
 func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) Signal {
@@ -275,7 +293,9 @@ type ReadResultSignal struct {
 }
 func (signal ReadResultSignal) Permission() Tree {
   return Tree{
-    SerializedType(ReadResultSignalType): nil,
+    ResultType: {
+      SerializedType(ReadResultSignalType): nil,
+    },
   }
 }
 func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, exts map[ExtType]map[string]SerializedValue) *ReadResultSignal {

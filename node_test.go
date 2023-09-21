@@ -63,9 +63,7 @@ func TestNodeRead(t *testing.T) {
   n2, err := NewNode(ctx, n2_key, node_type, 10, nil, NewGroupExt(nil), n2_listener)
   fatalErr(t, err)
 
-  n1, err := NewNode(ctx, n1_key, node_type, 10, map[PolicyType]Policy{
-    PerNodePolicyType: &n1_policy,
-  }, NewGroupExt(nil))
+  n1, err := NewNode(ctx, n1_key, node_type, 10, []Policy{n1_policy}, NewGroupExt(nil))
   fatalErr(t, err)
 
   read_sig := NewReadSignal(map[ExtType][]string{

@@ -9,13 +9,13 @@ import (
 )
 
 const (
-  TagBase = "GraphventTag"
-  ExtTypeBase = "ExtType"
-  NodeTypeBase = "NodeType"
-  SignalTypeBase = "SignalType"
-  PolicyTypeBase = "PolicyType"
+  TagBase            = "GraphventTag"
+  ExtTypeBase        = "ExtType"
+  NodeTypeBase       = "NodeType"
+  SignalTypeBase     = "SignalType"
+  PolicyTypeBase     = "PolicyType"
   SerializedTypeBase = "SerializedType"
-  FieldNameBase = "FieldName"
+  FieldNameBase      = "FieldName"
 )
 
 func Hash(base string, name string) SerializedType {
@@ -26,32 +26,37 @@ func Hash(base string, name string) SerializedType {
 }
 
 type SerializedType uint64
+
 func (t SerializedType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
 type ExtType SerializedType
+
 func (t ExtType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
 type NodeType SerializedType
+
 func (t NodeType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
 type SignalType SerializedType
+
 func (t SignalType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
 type PolicyType SerializedType
+
 func (t PolicyType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
-type TypeSerialize func(*Context,SerializedType,reflect.Type,*reflect.Value) (SerializedValue, error)
-type TypeDeserialize func(*Context,SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error)
+type TypeSerialize func(*Context, SerializedType, reflect.Type, *reflect.Value) (SerializedValue, error)
+type TypeDeserialize func(*Context, SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error)
 
 func NewExtType(name string) ExtType {
   return ExtType(Hash(ExtTypeBase, name))
@@ -84,59 +89,63 @@ var (
   StopSignalType       = NewSignalType("STOP")
   CreateSignalType     = NewSignalType("CREATE")
   StartSignalType      = NewSignalType("START")
-  ErrorSignalType      = NewSignalType("ERROR")
   StatusSignalType     = NewSignalType("STATUS")
   LinkSignalType       = NewSignalType("LINK")
   LockSignalType       = NewSignalType("LOCK")
   ReadSignalType       = NewSignalType("READ")
-  ReadResultSignalType = NewSignalType("READ_RESULT")
   ACLTimeoutSignalType = NewSignalType("ACL_TIMEOUT")
+  ErrorSignalType      = NewSignalType("ERROR")
+  SuccessSignalType    = NewSignalType("SUCCESS")
+  ReadResultSignalType = NewSignalType("READ_RESULT")
 
   MemberOfPolicyType      = NewPolicyType("USER_OF")
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
   PerNodePolicyType       = NewPolicyType("PER_NODE")
   AllNodesPolicyType      = NewPolicyType("ALL_NODES")
 
-  ErrorType = NewSerializedType("ERROR")
-  PointerType = NewSerializedType("POINTER")
-  SliceType = NewSerializedType("SLICE")
-  StructType = NewSerializedType("STRUCT")
-  IntType = NewSerializedType("INT")
-  UIntType = NewSerializedType("UINT")
-  BoolType = NewSerializedType("BOOL")
-  Float64Type = NewSerializedType("FLOAT64")
-  Float32Type = NewSerializedType("FLOAT32")
-  UInt8Type = NewSerializedType("UINT8")
-  UInt16Type = NewSerializedType("UINT16")
-  UInt32Type = NewSerializedType("UINT32")
-  UInt64Type = NewSerializedType("UINT64")
-  Int8Type = NewSerializedType("INT8")
-  Int16Type = NewSerializedType("INT16")
-  Int32Type = NewSerializedType("INT32")
-  Int64Type = NewSerializedType("INT64")
-  StringType = NewSerializedType("STRING")
-  ArrayType = NewSerializedType("ARRAY")
+  ErrorType     = NewSerializedType("ERROR")
+  PointerType   = NewSerializedType("POINTER")
+  SliceType     = NewSerializedType("SLICE")
+  StructType    = NewSerializedType("STRUCT")
+  IntType       = NewSerializedType("INT")
+  UIntType      = NewSerializedType("UINT")
+  BoolType      = NewSerializedType("BOOL")
+  Float64Type   = NewSerializedType("FLOAT64")
+  Float32Type   = NewSerializedType("FLOAT32")
+  UInt8Type     = NewSerializedType("UINT8")
+  UInt16Type    = NewSerializedType("UINT16")
+  UInt32Type    = NewSerializedType("UINT32")
+  UInt64Type    = NewSerializedType("UINT64")
+  Int8Type      = NewSerializedType("INT8")
+  Int16Type     = NewSerializedType("INT16")
+  Int32Type     = NewSerializedType("INT32")
+  Int64Type     = NewSerializedType("INT64")
+  StringType    = NewSerializedType("STRING")
+  ArrayType     = NewSerializedType("ARRAY")
   InterfaceType = NewSerializedType("INTERFACE")
-  MapType = NewSerializedType("MAP")
+  MapType       = NewSerializedType("MAP")
 
-  ReqStateType = NewSerializedType("REQ_STATE")
-  SignalDirectionType = NewSerializedType("SIGNAL_DIRECTION")
-  NodeStructType = NewSerializedType("NODE_STRUCT")
-  QueuedSignalType = NewSerializedType("QUEUED_SIGNAL")
-  NodeTypeSerialized = NewSerializedType("NODE_TYPE")
-  ExtTypeSerialized = NewSerializedType("EXT_TYPE")
+  ReqStateType         = NewSerializedType("REQ_STATE")
+  SignalDirectionType  = NewSerializedType("SIGNAL_DIRECTION")
+  NodeStructType       = NewSerializedType("NODE_STRUCT")
+  QueuedSignalType     = NewSerializedType("QUEUED_SIGNAL")
+  NodeTypeSerialized   = NewSerializedType("NODE_TYPE")
+  ExtTypeSerialized    = NewSerializedType("EXT_TYPE")
   PolicyTypeSerialized = NewSerializedType("POLICY_TYPE")
-  ExtSerialized = NewSerializedType("EXTENSION")
-  PolicySerialized = NewSerializedType("POLICY")
-  SignalSerialized = NewSerializedType("SIGNAL")
-  NodeIDType = NewSerializedType("NODE_ID")
-  UUIDType = NewSerializedType("UUID")
-  PendingACLType = NewSerializedType("PENDING_ACL")
-  PendingSignalType = NewSerializedType("PENDING_SIGNAL")
-  TimeType = NewSerializedType("TIME")
+  ExtSerialized        = NewSerializedType("EXTENSION")
+  PolicySerialized     = NewSerializedType("POLICY")
+  SignalSerialized     = NewSerializedType("SIGNAL")
+  NodeIDType           = NewSerializedType("NODE_ID")
+  UUIDType             = NewSerializedType("UUID")
+  PendingACLType       = NewSerializedType("PENDING_ACL")
+  PendingSignalType    = NewSerializedType("PENDING_SIGNAL")
+  TimeType             = NewSerializedType("TIME")
+  ResultType           = NewSerializedType("RESULT")
+  TreeType             = NewSerializedType("TREE")
+  SerializedTypeSerialized   = NewSerializedType("SERIALIZED_TYPE")
 )
 
-func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
   type_stack := []SerializedType{ctx_type}
   if value == nil {
     return SerializedValue{
@@ -164,7 +173,7 @@ func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.
   }
 }
 
-func DeserializeArray[T any](ctx *Context)(func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
+func DeserializeArray[T any](ctx *Context) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
   var zero T
   array_type := reflect.TypeOf(zero)
   array_size := array_type.Len()
@@ -173,7 +182,7 @@ func DeserializeArray[T any](ctx *Context)(func(ctx *Context, value SerializedVa
     panic(err)
   }
   saved_type_stack := zero_value.TypeStack
-  return func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
     if value.Data == nil {
       return array_type, nil, value, nil
     } else {
@@ -198,7 +207,7 @@ func DeserializeArray[T any](ctx *Context)(func(ctx *Context, value SerializedVa
   }
 }
 
-func SerializeUintN(size int)(func(*Context,SerializedType,reflect.Type,*reflect.Value)(SerializedValue,error)){
+func SerializeUintN(size int) func(*Context, SerializedType, reflect.Type, *reflect.Value) (SerializedValue, error) {
   var fill_data func([]byte, uint64) = nil
   switch size {
   case 1:
@@ -220,7 +229,7 @@ func SerializeUintN(size int)(func(*Context,SerializedType,reflect.Type,*reflect
   default:
     panic(fmt.Sprintf("Cannot serialize uint of size %d", size))
   }
-  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
     var data []byte = nil
     if value != nil {
       data = make([]byte, size)
@@ -233,7 +242,9 @@ func SerializeUintN(size int)(func(*Context,SerializedType,reflect.Type,*reflect
   }
 }
 
-func DeserializeUintN[T interface{~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64}](size int)(func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
+func DeserializeUintN[T interface {
+  ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
+}](size int) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
   var get_uint func([]byte) uint64
   switch size {
   case 1:
@@ -257,7 +268,7 @@ func DeserializeUintN[T interface{~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64}]
   }
   var zero T
   uint_type := reflect.TypeOf(zero)
-  return func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
     if value.Data == nil {
       return uint_type, nil, value, nil
     } else {
@@ -274,7 +285,7 @@ func DeserializeUintN[T interface{~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64}]
   }
 }
 
-func SerializeIntN(size int)(func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error)){
+func SerializeIntN(size int) func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
   var fill_data func([]byte, int64) = nil
   switch size {
   case 1:
@@ -296,7 +307,7 @@ func SerializeIntN(size int)(func(ctx *Context, ctx_type SerializedType, reflect
   default:
     panic(fmt.Sprintf("Cannot serialize int of size %d", size))
   }
-  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
     var data []byte = nil
     if value != nil {
       data = make([]byte, size)
@@ -309,7 +320,9 @@ func SerializeIntN(size int)(func(ctx *Context, ctx_type SerializedType, reflect
   }
 }
 
-func DeserializeIntN[T interface{~int | ~int8 | ~int16 | ~int32 | ~int64}](size int)(func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
+func DeserializeIntN[T interface {
+  ~int | ~int8 | ~int16 | ~int32 | ~int64
+}](size int) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
   var get_int func([]byte) int64
   switch size {
   case 1:
@@ -333,7 +346,7 @@ func DeserializeIntN[T interface{~int | ~int8 | ~int16 | ~int32 | ~int64}](size 
   }
   var zero T
   int_type := reflect.TypeOf(zero)
-  return func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
     if value.Data == nil {
       return int_type, nil, value, nil
     } else {
@@ -351,15 +364,15 @@ func DeserializeIntN[T interface{~int | ~int8 | ~int16 | ~int32 | ~int64}](size 
 }
 
 type FieldInfo struct {
-  Index []int
+  Index     []int
   TypeStack []SerializedType
 }
 
 type StructInfo struct {
-  Type reflect.Type
-  FieldOrder []SerializedType
-  FieldMap map[SerializedType]FieldInfo
-  PostDeserialize bool
+  Type               reflect.Type
+  FieldOrder         []SerializedType
+  FieldMap           map[SerializedType]FieldInfo
+  PostDeserialize    bool
   PostDeserializeIdx int
 }
 
@@ -370,10 +383,10 @@ type Deserializable interface {
 var deserializable_zero Deserializable = nil
 var DeserializableType = reflect.TypeOf(&deserializable_zero).Elem()
 
-func structInfo(ctx *Context, struct_type reflect.Type)StructInfo{
+func structInfo(ctx *Context, struct_type reflect.Type) StructInfo {
   field_order := []SerializedType{}
   field_map := map[SerializedType]FieldInfo{}
-  for _, field := range(reflect.VisibleFields(struct_type)) {
+  for _, field := range reflect.VisibleFields(struct_type) {
     gv_tag, tagged_gv := field.Tag.Lookup("gv")
     if tagged_gv == false {
       continue
@@ -396,7 +409,7 @@ func structInfo(ctx *Context, struct_type reflect.Type)StructInfo{
     }
   }
 
-  sort.Slice(field_order, func(i, j int)bool {
+  sort.Slice(field_order, func(i, j int) bool {
     return uint64(field_order[i]) < uint64(field_order[j])
   })
 
@@ -423,16 +436,16 @@ func structInfo(ctx *Context, struct_type reflect.Type)StructInfo{
   }
 }
 
-func SerializeStruct(ctx *Context, struct_type reflect.Type)(func(*Context,SerializedType,reflect.Type,*reflect.Value)(SerializedValue,error)){
+func SerializeStruct(ctx *Context, struct_type reflect.Type) func(*Context, SerializedType, reflect.Type, *reflect.Value) (SerializedValue, error) {
   struct_info := structInfo(ctx, struct_type)
-  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
     type_stack := []SerializedType{ctx_type}
     var data []byte
     if value == nil {
       data = nil
     } else {
       data = make([]byte, 8)
-      for _, field_hash := range(struct_info.FieldOrder) {
+      for _, field_hash := range struct_info.FieldOrder {
         field_hash_bytes := make([]byte, 8)
         binary.BigEndian.PutUint64(field_hash_bytes, uint64(field_hash))
         field_info := struct_info.FieldMap[field_hash]
@@ -453,9 +466,9 @@ func SerializeStruct(ctx *Context, struct_type reflect.Type)(func(*Context,Seria
   }
 }
 
-func DeserializeStruct(ctx *Context, struct_type reflect.Type)(func(*Context,SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
+func DeserializeStruct(ctx *Context, struct_type reflect.Type) func(*Context, SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
   struct_info := structInfo(ctx, struct_type)
-  return func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error) {
+  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
     if value.Data == nil {
       return struct_info.Type, nil, value, nil
     } else {
@@ -511,7 +524,7 @@ func DeserializeStruct(ctx *Context, struct_type reflect.Type)(func(*Context,Ser
   }
 }
 
-func SerializeInterface(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+func SerializeInterface(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
   var data []byte
   type_stack := []SerializedType{ctx_type}
   if value == nil {
@@ -537,8 +550,8 @@ func SerializeInterface(ctx *Context, ctx_type SerializedType, reflect_type refl
   }, nil
 }
 
-func DeserializeInterface[T any]()(func(*Context,SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error)){
-  return func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+func DeserializeInterface[T any]() func(*Context, SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
+  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
     var interface_zero T
     var interface_type = reflect.ValueOf(&interface_zero).Type().Elem()
     if value.Data == nil {
@@ -573,7 +586,7 @@ func DeserializeInterface[T any]()(func(*Context,SerializedValue)(reflect.Type,*
 
 type SerializedValue struct {
   TypeStack []SerializedType
-  Data []byte
+  Data      []byte
 }
 
 func (value SerializedValue) PopType() (SerializedType, SerializedValue, error) {
@@ -627,7 +640,7 @@ func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (Seriali
     serialize = kind_info.Serialize
   }
 
-  serialized_value, err :=  serialize(ctx, ctx_type, t, value)
+  serialized_value, err := serialize(ctx, ctx_type, t, value)
   if err != nil {
     return serialized_value, err
   }
@@ -641,7 +654,7 @@ func ExtField(ctx *Context, ext Extension, field_name string) (reflect.Value, er
   }
 
   ext_value := reflect.ValueOf(ext).Elem()
-  for _, field := range(reflect.VisibleFields(ext_value.Type())) {
+  for _, field := range reflect.VisibleFields(ext_value.Type()) {
     gv_tag, tagged := field.Tag.Lookup("gv")
     if tagged == true && gv_tag == field_name {
       return ext_value.FieldByIndex(field.Index), nil
@@ -665,9 +678,9 @@ func (value SerializedValue) MarshalBinary() ([]byte, error) {
   binary.BigEndian.PutUint64(data[0:8], uint64(len(value.TypeStack)))
   binary.BigEndian.PutUint64(data[8:16], uint64(len(value.Data)))
 
-  for i, t := range(value.TypeStack) {
-    type_start := (i+2)*8
-    type_end := (i+3)*8
+  for i, t := range value.TypeStack {
+    type_start := (i + 2) * 8
+    type_end := (i + 3) * 8
     binary.BigEndian.PutUint64(data[type_start:type_end], uint64(t))
   }
 
@@ -686,12 +699,12 @@ func ParseSerializedValue(data []byte) (SerializedValue, []byte, error) {
   data_size := int(binary.BigEndian.Uint64(data[8:16]))
   type_stack := make([]SerializedType, num_types)
   for i := 0; i < num_types; i += 1 {
-    type_start := (i+2) * 8
-    type_end := (i+3) * 8
+    type_start := (i + 2) * 8
+    type_end := (i + 3) * 8
     type_stack[i] = SerializedType(binary.BigEndian.Uint64(data[type_start:type_end]))
   }
 
-  types_end := 8*(num_types + 2)
+  types_end := 8 * (num_types + 2)
   data_end := types_end + data_size
   return SerializedValue{
     type_stack,

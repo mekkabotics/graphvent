@@ -65,16 +65,11 @@ func TestGQLServer(t *testing.T) {
   fatalErr(t, err)
 
   listener_ext := NewListenerExt(10)
-  n1, err := NewNode(ctx, nil, TestNodeType, 10, map[PolicyType]Policy{
-    MemberOfPolicyType: &user_policy_2,
-    AllNodesPolicyType: &user_policy_1,
-  }, NewLockableExt(nil))
+  n1, err := NewNode(ctx, nil, TestNodeType, 10, []Policy{user_policy_2, user_policy_1}, NewLockableExt(nil))
   fatalErr(t, err)
 
-  gql, err := NewNode(ctx, gql_key, GQLNodeType, 10, map[PolicyType]Policy{
-    MemberOfPolicyType: &group_policy_2,
-    AllNodesPolicyType: &group_policy_1,
-  }, NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt(map[NodeID]string{
+  gql, err := NewNode(ctx, gql_key, GQLNodeType, 10, []Policy{group_policy_2, group_policy_1},
+  NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt(map[NodeID]string{
     n1.ID: "user",
     gql_id: "self",
   }), listener_ext)

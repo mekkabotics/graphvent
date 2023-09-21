@@ -7,7 +7,7 @@ import (
 )
 
 func TestSerializeBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test", "serialize"})
   testSerializeComparable[string](t, ctx, "test")
   testSerializeComparable[bool](t, ctx, true)
   testSerializeComparable[float32](t, ctx, 0.05)
@@ -58,6 +58,18 @@ func TestSerializeBasic(t *testing.T) {
   testSerialize(t, ctx, test_struct{
     12345,
     "test_string",
+  })
+
+  testSerialize(t, ctx, Tree{
+    TreeType: nil,
+  })
+
+  testSerialize(t, ctx, Tree{
+    TreeType: {
+      ErrorType: Tree{},
+      MapType: nil,
+    },
+    StringType: nil,
   })
 }
 

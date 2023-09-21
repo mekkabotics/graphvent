@@ -28,10 +28,7 @@ func TestLink(t *testing.T) {
   })
 
   l2_listener := NewListenerExt(10)
-  l2, err := NewNode(ctx, nil, TestLockableType, 10,
-                map[PolicyType]Policy{
-                  PerNodePolicyType: &policy,
-                },
+  l2, err := NewNode(ctx, nil, TestLockableType, 10, []Policy{policy},
                   l2_listener,
                   NewLockableExt(nil),
                 )
@@ -77,10 +74,7 @@ func Test10KLink(t *testing.T) {
     },
   })
   NewLockable := func()(*Node) {
-    l, err := NewNode(ctx, nil, TestLockableType, 10,
-                  map[PolicyType]Policy{
-                    PerNodePolicyType: &child_policy,
-                  },
+    l, err := NewNode(ctx, nil, TestLockableType, 10, []Policy{child_policy},
                   NewLockableExt(nil),
                 )
     fatalErr(t, err)
@@ -98,10 +92,7 @@ func Test10KLink(t *testing.T) {
     SerializedType(LockSignalType): nil,
   })
   listener := NewListenerExt(100000)
-  node, err := NewNode(ctx, listener_key, TestLockableType, 10000,
-                map[PolicyType]Policy{
-                  AllNodesPolicyType: &l_policy,
-                },
+  node, err := NewNode(ctx, listener_key, TestLockableType, 10000, []Policy{l_policy},
                 listener,
                 NewLockableExt(reqs),
               )
@@ -132,10 +123,7 @@ func TestLock(t *testing.T) {
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(100)
-    l, err := NewNode(ctx, nil, TestLockableType, 10,
-                  map[PolicyType]Policy{
-                    AllNodesPolicyType: &policy,
-                  },
+    l, err := NewNode(ctx, nil, TestLockableType, 10, []Policy{policy},
                   listener,
                   NewLockableExt(reqs),
                 )

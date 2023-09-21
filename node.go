@@ -14,16 +14,6 @@ import (
   "crypto/rand"
 )
 
-const (
-  // Magic first four bytes of serialized DB content, stored big endian
-  NODE_DB_MAGIC = 0x2491df14
-  // Total length of the node database header, has magic to verify and type_hash to map to load function
-  NODE_DB_HEADER_LEN = 32
-  EXTENSION_DB_HEADER_LEN = 16
-  QSIGNAL_DB_HEADER_LEN = 24
-  POLICY_DB_HEADER_LEN = 16
-)
-
 var (
   // Base NodeID, used as a special value
   ZeroUUID = uuid.UUID{}
@@ -84,7 +74,7 @@ type PendingACL struct {
 }
 
 type PendingSignal struct {
-  Policy PolicyType
+  Policy uuid.UUID
   Found bool
   ID uuid.UUID
 }
@@ -96,7 +86,7 @@ type Node struct {
   ID NodeID
   Type NodeType `gv:"type"`
   Extensions map[ExtType]Extension `gv:"extensions"`
-  Policies map[PolicyType]Policy `gv:"policies"`
+  Policies []Policy `gv:"policies"`
 
   PendingACLs map[uuid.UUID]PendingACL `gv:"pending_acls"`
   PendingSignals map[uuid.UUID]PendingSignal `gv:"pending_signal"`
@@ -134,14 +124,14 @@ const (
   Pending
 )
 
-func (node *Node) Allows(ctx *Context, principal_id NodeID, action Tree)(map[PolicyType]Messages, RuleResult) {
-  pends := map[PolicyType]Messages{}
-  for policy_type, policy := range(node.Policies) {
+func (node *Node) Allows(ctx *Context, principal_id NodeID, action Tree)(map[uuid.UUID]Messages, RuleResult) {
+  pends := map[uuid.UUID]Messages{}
+  for _, policy := range(node.Policies) {
     msgs, resp := policy.Allows(ctx, principal_id, action, node)
     if resp == Allow {
       return nil, Allow
     } else if resp == Pending {
-      pends[policy_type] = msgs
+      pends[policy.ID()] = msgs
     }
   }
   if len(pends) != 0 {
@@ -370,33 +360,45 @@ func nodeLoop(ctx *Context, node *Node) error {
           req_info.Counter -= 1
           req_info.Responses = append(req_info.Responses, signal)
 
-          allowed := node.Policies[info.Policy].ContinueAllows(ctx, req_info, signal)
-          if allowed == Allow {
-            ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
-            signal = req_info.Signal
-            source = req_info.Source
-            err := node.DequeueSignal(req_info.TimeoutID)
-            if err != nil {
-              panic("dequeued a passed signal")
+          idx := -1
+          for i, p := range(node.Policies) {
+            if p.ID() == info.Policy {
+              idx = i
+              break
             }
-            delete(node.PendingACLs, info.ID)
-          } else if req_info.Counter == 0 {
-            ctx.Log.Logf("policy", "DELAYED_POLICY_DENY: %s - %s", node.ID, req_info.Signal)
-            // Send the denied response
-            msgs := Messages{}
-            msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(req_info.Signal.Header().ID, "ACL_DENIED"), req_info.Source)
-            err := ctx.Send(msgs)
-            if err != nil {
-              ctx.Log.Logf("signal", "SEND_ERR: %s", err)
-            }
-            err = node.DequeueSignal(req_info.TimeoutID)
-            if err != nil {
-              panic("dequeued a passed signal")
-            }
+          }
+          if idx == -1 {
+            ctx.Log.Logf("policy", "PENDING_FOR_NONEXISTENT_POLICY: %s - %s", node.ID, info.Policy)
             delete(node.PendingACLs, info.ID)
           } else {
-            node.PendingACLs[info.ID] = req_info
-            continue
+            allowed := node.Policies[idx].ContinueAllows(ctx, req_info, signal)
+            if allowed == Allow {
+              ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
+              signal = req_info.Signal
+              source = req_info.Source
+              err := node.DequeueSignal(req_info.TimeoutID)
+              if err != nil {
+                panic("dequeued a passed signal")
+              }
+              delete(node.PendingACLs, info.ID)
+            } else if req_info.Counter == 0 {
+              ctx.Log.Logf("policy", "DELAYED_POLICY_DENY: %s - %s", node.ID, req_info.Signal)
+              // Send the denied response
+              msgs := Messages{}
+              msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(req_info.Signal.Header().ID, "ACL_DENIED"), req_info.Source)
+              err := ctx.Send(msgs)
+              if err != nil {
+                ctx.Log.Logf("signal", "SEND_ERR: %s", err)
+              }
+              err = node.DequeueSignal(req_info.TimeoutID)
+              if err != nil {
+                panic("dequeued a passed signal")
+              }
+              delete(node.PendingACLs, info.ID)
+            } else {
+              node.PendingACLs[info.ID] = req_info
+              continue
+            }
           }
         }
       }
@@ -544,7 +546,7 @@ func KeyID(pub ed25519.PublicKey) NodeID {
 }
 
 // Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, policies map[PolicyType]Policy, extensions ...Extension) (*Node, error) {
+func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, policies []Policy, extensions ...Extension) (*Node, error) {
   var err error
   var public ed25519.PublicKey
   if key == nil {
@@ -586,22 +588,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     }
   }
 
-  if policies == nil {
-    policies = map[PolicyType]Policy{}
-  }
-
-  default_policy := NewAllNodesPolicy(Tree{
-    SerializedType(ErrorSignalType): nil,
-    SerializedType(ReadResultSignalType): nil,
-    SerializedType(StatusSignalType): nil,
-  })
-
-  all_nodes_policy, exists := policies[AllNodesPolicyType]
-  if exists == true {
-    policies[AllNodesPolicyType] = all_nodes_policy.Merge(&default_policy)
-  } else {
-    policies[AllNodesPolicyType] = &default_policy
-  }
+  policies = append(policies, DefaultPolicy)
 
   node := &Node{
     Key: key,

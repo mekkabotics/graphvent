@@ -942,6 +942,100 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
   */
 
+  err = ctx.RegisterType(reflect.TypeOf(Tree{}), TreeType, func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+    var data []byte
+    type_stack := []SerializedType{ctx_type}
+    if value == nil {
+      data = nil
+    } else if value.IsZero() {
+      data = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+    } else if value.Len() == 0 {
+      data = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+    } else {
+      data = make([]byte, 8)
+      map_size := 0
+
+      map_iter := value.MapRange()
+      for map_iter.Next() {
+        map_size += 1
+        key_reflect := map_iter.Key()
+        elem_reflect := map_iter.Value()
+
+        key_value, err := SerializeValue(ctx, key_reflect.Type(), &key_reflect)
+        if err != nil {
+          return SerializedValue{}, err
+        }
+        elem_value, err := SerializeValue(ctx, elem_reflect.Type(), &elem_reflect)
+        if err != nil {
+          return SerializedValue{}, err
+        }
+
+        data = append(data, key_value.Data...)
+        data = append(data, elem_value.Data...)
+      }
+
+      binary.BigEndian.PutUint64(data[0:8], uint64(map_size))
+    }
+    return SerializedValue{
+      type_stack,
+      data,
+    }, nil
+  },func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+    if value.Data == nil {
+      return reflect.TypeOf(Tree{}), nil, value, nil
+    } else if len(value.Data) < 8 {
+      return nil, nil, value, fmt.Errorf("Not enough data to deserialize Tree")
+    } else {
+      var map_size_bytes []byte
+      var err error
+      map_size_bytes, value, err = value.PopData(8)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      map_size := binary.BigEndian.Uint64(map_size_bytes)
+      ctx.Log.Logf("serialize", "Deserializing %d elements in Tree", map_size)
+
+      if map_size == 0xFFFFFFFFFFFFFFFF {
+        reflect_type := reflect.TypeOf(Tree{})
+        reflect_value := reflect.New(reflect_type).Elem()
+        return reflect_type, &reflect_value, value, nil
+      } else if map_size == 0x00 {
+        reflect_type := reflect.TypeOf(Tree{})
+        reflect_value := reflect.MakeMap(reflect_type)
+        return reflect_type, &reflect_value, value, nil
+      } else {
+        reflect_type := reflect.TypeOf(Tree{})
+        reflect_value := reflect.MakeMap(reflect_type)
+
+        tmp_value := value
+
+        for i := 0; i < int(map_size); i += 1 {
+          tmp_value.TypeStack = append([]SerializedType{SerializedTypeSerialized, TreeType}, value.TypeStack...)
+
+          var key_value, elem_value *reflect.Value
+          var err error
+          _, key_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          _, elem_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+          reflect_value.SetMapIndex(*key_value, *elem_value)
+        }
+
+        return reflect_type, &reflect_value, tmp_value, nil
+      }
+    }
+  })
+
+  err = ctx.RegisterType(reflect.TypeOf(SerializedType(0)), SerializedTypeSerialized, SerializeUintN(8), DeserializeUintN[SerializedType](8))
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterType(reflect.TypeOf(ExtType(0)), ExtTypeSerialized, SerializeUintN(8), DeserializeUintN[ExtType](8))
   if err != nil {
     return nil, err
@@ -1132,6 +1226,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterSignal(reflect.TypeOf(ErrorSignal{}), ErrorSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(SuccessSignal{}), SuccessSignalType)
   if err != nil {
     return nil, err
   }

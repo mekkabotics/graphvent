@@ -1,15 +1,21 @@
 package graphvent
 
 import (
+  "github.com/google/uuid"
 )
 
 type Policy interface {
   Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult)
   ContinueAllows(ctx *Context, current PendingACL, signal Signal)RuleResult
-  // Merge with another policy of the same underlying type
-  Merge(Policy) Policy
-  // Make a copy of this policy
-  Copy() Policy
+  ID() uuid.UUID
+}
+
+type PolicyHeader struct {
+  UUID uuid.UUID `gv:"uuid"`
+}
+
+func (header PolicyHeader) ID() uuid.UUID {
+  return header.UUID
 }
 
 func (policy AllNodesPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
@@ -36,10 +42,6 @@ func (policy PerNodePolicy) ContinueAllows(ctx *Context, current PendingACL, sig
 
 type RequirementOfPolicy struct {
   PerNodePolicy
-}
-
-func (policy RequirementOfPolicy) Type() PolicyType {
-  return RequirementOfPolicyType
 }
 
 func NewRequirementOfPolicy(dep_rules map[NodeID]Tree) RequirementOfPolicy {
@@ -85,10 +87,6 @@ func (policy RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingAC
 
 type MemberOfPolicy struct {
   PerNodePolicy
-}
-
-func (policy MemberOfPolicy) Type() PolicyType {
-  return MemberOfPolicyType
 }
 
 func NewMemberOfPolicy(group_rules map[NodeID]Tree) MemberOfPolicy {
@@ -156,19 +154,6 @@ func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
   return msgs, Pending
 }
 
-func (policy MemberOfPolicy) Merge(p Policy) Policy {
-  other := p.(*MemberOfPolicy)
-  policy.NodeRules = MergeNodeRules(policy.NodeRules, other.NodeRules)
-  return policy
-}
-
-func (policy MemberOfPolicy) Copy() Policy {
-  new_rules := CopyNodeRules(policy.NodeRules)
-  return &MemberOfPolicy{
-    PerNodePolicy: NewPerNodePolicy(new_rules),
-  }
-}
-
 func CopyTree(tree Tree) Tree {
   if tree == nil {
     return nil
@@ -197,56 +182,6 @@ func MergeTrees(first Tree, second Tree) Tree {
     }
   }
   return ret
-}
-
-func CopyNodeRules(rules map[NodeID]Tree) map[NodeID]Tree {
-  ret := map[NodeID]Tree{}
-  for id, r := range(rules) {
-    ret[id] = r
-  }
-  return ret
-}
-
-func MergeNodeRules(first map[NodeID]Tree, second map[NodeID]Tree) map[NodeID]Tree {
-  merged := map[NodeID]Tree{}
-  for id, actions := range(first) {
-    merged[id] = actions
-  }
-  for id, actions := range(second) {
-    existing, exists := merged[id]
-    if exists {
-      merged[id] = MergeTrees(existing, actions)
-    } else {
-      merged[id] = actions
-    }
-  }
-  return merged
-}
-
-func (policy PerNodePolicy) Merge(p Policy) Policy {
-  other := p.(*PerNodePolicy)
-  policy.NodeRules = MergeNodeRules(policy.NodeRules, other.NodeRules)
-  return policy
-}
-
-func (policy PerNodePolicy) Copy() Policy {
-  new_rules := CopyNodeRules(policy.NodeRules)
-  return &PerNodePolicy{
-    NodeRules: new_rules,
-  }
-}
-
-func (policy AllNodesPolicy) Merge(p Policy) Policy {
-  other := p.(*AllNodesPolicy)
-  policy.Rules = MergeTrees(policy.Rules, other.Rules)
-  return policy
-}
-
-func (policy AllNodesPolicy) Copy() Policy {
-  new_rules := policy.Rules
-  return &AllNodesPolicy {
-    Rules: new_rules,
-  }
 }
 
 type Tree map[SerializedType]Tree
@@ -278,39 +213,40 @@ func (rule Tree) Allows(action Tree) RuleResult {
   }
 }
 
+func NewPolicyHeader() PolicyHeader {
+  return PolicyHeader{
+    UUID: uuid.New(),
+  }
+}
+
 func NewPerNodePolicy(node_actions map[NodeID]Tree) PerNodePolicy {
   if node_actions == nil {
     node_actions = map[NodeID]Tree{}
   }
 
   return PerNodePolicy{
+    PolicyHeader: NewPolicyHeader(),
     NodeRules: node_actions,
   }
 }
 
 type PerNodePolicy struct {
-  NodeRules map[NodeID]Tree `json:"node_actions"`
-}
-
-func (policy PerNodePolicy) Type() PolicyType {
-  return PerNodePolicyType
+  PolicyHeader
+  NodeRules map[NodeID]Tree `gv:"node_rules"`
 }
 
 func NewAllNodesPolicy(rules Tree) AllNodesPolicy {
   return AllNodesPolicy{
+    PolicyHeader: NewPolicyHeader(),
     Rules: rules,
   }
 }
 
 type AllNodesPolicy struct {
-  Rules Tree
-}
-
-func (policy AllNodesPolicy) Type() PolicyType {
-  return AllNodesPolicyType
+  PolicyHeader
+  Rules Tree `gv:"rules"`
 }
 
 var DefaultPolicy = NewAllNodesPolicy(Tree{
-  SerializedType(ErrorSignalType): nil,
-  SerializedType(ReadResultSignalType): nil,
+  ResultType: nil,
 })
