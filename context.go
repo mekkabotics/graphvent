@@ -1240,6 +1240,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterNodeType(BaseNodeType, []ExtType{})
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterNodeType(GQLNodeType, []ExtType{GroupExtType, GQLExtType})
   if err != nil {
     return nil, err

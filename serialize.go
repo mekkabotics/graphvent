@@ -85,6 +85,7 @@ var (
   GroupExtType    = NewExtType("GROUP")
 
   GQLNodeType = NewNodeType("GQL")
+  BaseNodeType = NewNodeType("BASE")
 
   StopSignalType       = NewSignalType("STOP")
   CreateSignalType     = NewSignalType("CREATE")
