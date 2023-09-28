@@ -141,6 +141,7 @@ var (
   PendingSignalType    = NewSerializedType("PENDING_SIGNAL")
   TimeType             = NewSerializedType("TIME")
   ResultType           = NewSerializedType("RESULT")
+  StatusType           = NewSerializedType("STATUS")
   TreeType             = NewSerializedType("TREE")
   SerializedTypeSerialized   = NewSerializedType("SERIALIZED_TYPE")
 )

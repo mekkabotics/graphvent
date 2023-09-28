@@ -25,7 +25,7 @@ func (header SignalHeader) Header() SignalHeader {
 }
 
 func (header SignalHeader) String() string {
-   return fmt.Sprintf("Signal(%d, %s->%s)", header.Direction, header.ID, header.ReqID)
+   return fmt.Sprintf("SignalHeader(%d, %s->%s)", header.Direction, header.ID, header.ReqID)
 }
 
 type Signal interface {
@@ -164,6 +164,9 @@ type ErrorSignal struct {
   SignalHeader
   Error string
 }
+func (signal ErrorSignal) String() string {
+  return fmt.Sprintf("ErrorSignal(%s, %s)", signal.SignalHeader, signal.Error)
+}
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
     ResultType: {
@@ -200,7 +203,7 @@ type StatusSignal struct {
 }
 func (signal StatusSignal) Permission() Tree {
   return Tree{
-    SerializedType(StatusSignalType): nil,
+    StatusType: nil,
   }
 }
 func NewStatusSignal(source NodeID, status string) *StatusSignal {
@@ -241,6 +244,9 @@ func NewLinkSignal(action string, id NodeID) Signal {
 type LockSignal struct {
   SignalHeader
   State string
+}
+func (signal LockSignal) String() string {
+  return fmt.Sprintf("LockSignal(%s, %s)", signal.SignalHeader, signal.State)
 }
 
 const (

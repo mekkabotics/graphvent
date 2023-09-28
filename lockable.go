@@ -100,7 +100,7 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID
     case "remove":
       _, exists := ext.Requirements[signal.NodeID]
       if exists == false {
-        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "not_requirement"), source)
+        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "can't link: not_requirement"), source)
       } else {
         delete(ext.Requirements, signal.NodeID)
         msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "req_removed"), source)
@@ -122,8 +122,8 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
   switch signal.State {
   case "locked":
     state, found := ext.Requirements[source]
-    if found == false {
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "not_requirement"), source)
+    if found == false && source != node.ID {
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "got 'locked' from non-requirement"), source)
     } else if state == Locking {
       if ext.State == Locking {
         ext.Requirements[source] = Locked
