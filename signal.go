@@ -14,27 +14,64 @@ const (
   Direct
 )
 
-type SignalHeader struct {
-  Direction SignalDirection `gv:"direction"`
-  ID uuid.UUID `gv:"id"`
-  ReqID uuid.UUID `gv:"req_id"`
+type TimeoutSignal struct {
+  SignalHeader
 }
 
-func (header SignalHeader) Header() SignalHeader {
-  return header
+func NewTimeoutSignal() *TimeoutSignal {
+  return &TimeoutSignal{
+    NewSignalHeader(Direct),
+  }
+}
+
+// Timeouts are internal only, no permission allows sending them
+func (signal TimeoutSignal) Permission() Tree {
+  return nil
+}
+
+type SignalHeader struct {
+  Id uuid.UUID `gv:"id"`
+  Dir SignalDirection `gv:"direction"`
+}
+
+func (signal SignalHeader) ID() uuid.UUID {
+  return signal.Id
+}
+
+func (signal SignalHeader) Direction() SignalDirection {
+  return signal.Dir
 }
 
 func (header SignalHeader) String() string {
-   return fmt.Sprintf("SignalHeader(%d, %s->%s)", header.Direction, header.ID, header.ReqID)
+   return fmt.Sprintf("SignalHeader(%d, %s)", header.Dir, header.Id)
+}
+
+type ResponseSignal interface {
+  Signal
+  ResponseID() uuid.UUID
+}
+
+type ResponseHeader struct {
+  SignalHeader
+  ReqID uuid.UUID `gv:"req_id"`
+}
+
+func (header ResponseHeader) ResponseID() uuid.UUID {
+  return header.ReqID
+}
+
+func (header ResponseHeader) String() string {
+   return fmt.Sprintf("ResponseHeader(%d, %s->%s)", header.Dir, header.Id, header.ReqID)
 }
 
 type Signal interface {
   fmt.Stringer
-  Header() SignalHeader
+  ID() uuid.UUID
+  Direction() SignalDirection
   Permission() Tree
 }
 
-func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UUID) (Signal, error) {
+func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UUID) (ResponseSignal, error) {
   var timeout_channel <- chan time.Time
   if timeout > 0 {
     timeout_channel = time.After(timeout)
@@ -46,8 +83,13 @@ func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UU
       if signal == nil {
         return nil, fmt.Errorf("LISTENER_CLOSED")
       }
-      if signal.Header().ReqID == req_id {
-        return signal, nil
+      resp_signal, ok := signal.(ResponseSignal)
+      if ok == false {
+        continue
+      }
+
+      if resp_signal.ResponseID() == req_id {
+        return resp_signal, nil
       }
     case <-timeout_channel:
       return nil, fmt.Errorf("LISTENER_TIMEOUT")
@@ -82,22 +124,17 @@ func WaitForSignal[S Signal](listener chan Signal, timeout time.Duration, check 
 }
 
 func NewSignalHeader(direction SignalDirection) SignalHeader {
-  id := uuid.New()
-  header := SignalHeader{
-    ID: id,
-    ReqID: id,
-    Direction: direction,
+  return SignalHeader{
+    uuid.New(),
+    direction,
   }
-  return header
 }
 
-func NewRespHeader(req_id uuid.UUID, direction SignalDirection) SignalHeader {
-  header := SignalHeader{
-    ID: uuid.New(),
-    ReqID: req_id,
-    Direction: direction,
+func NewResponseHeader(req_id uuid.UUID, direction SignalDirection) ResponseHeader {
+  return ResponseHeader{
+    NewSignalHeader(direction),
+    req_id,
   }
-  return header
 }
 
 type CreateSignal struct {
@@ -145,7 +182,7 @@ func NewStopSignal() *StopSignal {
 }
 
 type SuccessSignal struct {
-  SignalHeader
+  ResponseHeader
 }
 func (signal SuccessSignal) Permission() Tree {
   return Tree{
@@ -156,12 +193,12 @@ func (signal SuccessSignal) Permission() Tree {
 }
 func NewSuccessSignal(req_id uuid.UUID) Signal {
   return &SuccessSignal{
-    NewRespHeader(req_id, Direct),
+    NewResponseHeader(req_id, Direct),
   }
 }
 
 type ErrorSignal struct {
-  SignalHeader
+  ResponseHeader
   Error string
 }
 func (signal ErrorSignal) String() string {
@@ -176,13 +213,13 @@ func (signal ErrorSignal) Permission() Tree {
 }
 func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) Signal {
   return &ErrorSignal{
-    NewRespHeader(req_id, Direct),
+    NewResponseHeader(req_id, Direct),
     fmt.Sprintf(fmt_string, args...),
   }
 }
 
 type ACLTimeoutSignal struct {
-  SignalHeader
+  ResponseHeader
 }
 func (signal ACLTimeoutSignal) Permission() Tree {
   return Tree{
@@ -191,7 +228,7 @@ func (signal ACLTimeoutSignal) Permission() Tree {
 }
 func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
   sig := &ACLTimeoutSignal{
-    NewRespHeader(req_id, Direct),
+    NewResponseHeader(req_id, Direct),
   }
   return sig
 }
@@ -292,7 +329,7 @@ func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
 }
 
 type ReadResultSignal struct {
-  SignalHeader
+  ResponseHeader
   NodeID NodeID
   NodeType NodeType
   Extensions map[ExtType]map[string]SerializedValue
@@ -306,7 +343,7 @@ func (signal ReadResultSignal) Permission() Tree {
 }
 func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, exts map[ExtType]map[string]SerializedValue) *ReadResultSignal {
   return &ReadResultSignal{
-    NewRespHeader(req_id, Direct),
+    NewResponseHeader(req_id, Direct),
     node_id,
     node_type,
     exts,

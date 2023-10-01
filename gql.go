@@ -1287,7 +1287,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
   switch sig := signal.(type) {
   case *ErrorSignal:
     // TODO: Forward to resolver if waiting for it
-    response_chan := ext.FreeResponseChannel(sig.Header().ReqID)
+    response_chan := ext.FreeResponseChannel(sig.ReqID)
     if response_chan != nil {
       select {
       case response_chan <- sig:

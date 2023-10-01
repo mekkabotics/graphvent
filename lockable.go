@@ -46,7 +46,7 @@ func UnlockLockable(ctx *Context, owner *Node, target NodeID) (uuid.UUID, error)
   msgs := Messages{}
   signal := NewLockSignal("unlock")
   msgs = msgs.Add(ctx, owner.ID, owner.Key, signal, target)
-  return signal.Header().ID, ctx.Send(msgs)
+  return signal.ID(), ctx.Send(msgs)
 }
 
 // Send the signal to lock a node from itself
@@ -54,7 +54,7 @@ func LockLockable(ctx *Context, owner *Node, target NodeID) (uuid.UUID, error) {
   msgs := Messages{}
   signal := NewLockSignal("lock")
   msgs = msgs.Add(ctx, owner.ID, owner.Key, signal, target)
-  return signal.Header().ID, ctx.Send(msgs)
+  return signal.ID(), ctx.Send(msgs)
 }
 
 func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeID, signal *ErrorSignal) Messages {
@@ -89,27 +89,27 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID
     case "add":
       _, exists := ext.Requirements[signal.NodeID]
       if exists == true {
-        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "already_requirement"), source)
+        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "already_requirement"), source)
       } else {
         if ext.Requirements == nil {
           ext.Requirements = map[NodeID]ReqState{}
         }
         ext.Requirements[signal.NodeID] = Unlocked
-        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "req_added"), source)
+        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "req_added"), source)
       }
     case "remove":
       _, exists := ext.Requirements[signal.NodeID]
       if exists == false {
-        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "can't link: not_requirement"), source)
+        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "can't link: not_requirement"), source)
       } else {
         delete(ext.Requirements, signal.NodeID)
-        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "req_removed"), source)
+        msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "req_removed"), source)
       }
     default:
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "unknown_action"), source)
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "unknown_action"), source)
     }
   } else {
-    msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "not_unlocked"), source)
+    msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocked"), source)
   }
   return msgs
 }
@@ -123,7 +123,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
   case "locked":
     state, found := ext.Requirements[source]
     if found == false && source != node.ID {
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "got 'locked' from non-requirement"), source)
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "got 'locked' from non-requirement"), source)
     } else if state == Locking {
       if ext.State == Locking {
         ext.Requirements[source] = Locked
@@ -151,7 +151,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
   case "unlocked":
     state, found := ext.Requirements[source]
     if found == false {
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "not_requirement"), source)
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_requirement"), source)
     } else if state == Unlocking {
       ext.Requirements[source] = Unlocked
       reqs := 0
@@ -188,7 +188,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         msgs = msgs.Add(ctx, node.ID, node.Key, NewLockSignal("locked"), new_owner)
       } else {
         ext.State = Locking
-        id := signal.ID
+        id := signal.ID()
         ext.ReqID = &id
         new_owner := source
         ext.PendingOwner = &new_owner
@@ -202,7 +202,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         }
       }
     } else {
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "not_unlocked"), source)
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_unlocked"), source)
     }
   case "unlock":
     if ext.State == Locked {
@@ -214,7 +214,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         msgs = msgs.Add(ctx, node.ID, node.Key, NewLockSignal("unlocked"), new_owner)
       } else if source == *ext.Owner {
         ext.State = Unlocking
-        id := signal.ID
+        id := signal.ID()
         ext.ReqID = &id
         ext.PendingOwner = nil
         for id, state := range(ext.Requirements) {
@@ -227,7 +227,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         }
       }
     } else {
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID, "not_locked"), source)
+      msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(signal.ID(), "not_locked"), source)
     }
   default:
     ctx.Log.Logf("lockable", "LOCK_ERR: unkown state %s", signal.State)
@@ -239,7 +239,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
 // LockSignal and LinkSignal Direct signals are processed to update the requirement/dependency/lock state
 func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
   messages := Messages{}
-  switch signal.Header().Direction {
+  switch signal.Direction() {
   case Up:
     if ext.Owner != nil {
       if *ext.Owner != node.ID {

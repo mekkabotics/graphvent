@@ -113,14 +113,14 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     msgs := Messages{}
     msgs = msgs.Add(ctx.Context, ctx.Server.ID, ctx.Key, read_signal, id)
 
-    response_chan := ctx.Ext.GetResponseChannel(read_signal.ID)
-    resp_channels[read_signal.ID] = response_chan
-    indices[read_signal.ID] = i
+    response_chan := ctx.Ext.GetResponseChannel(read_signal.ID())
+    resp_channels[read_signal.ID()] = response_chan
+    indices[read_signal.ID()] = i
 
     // TODO: Send all at once instead of creating Messages for each
     err = ctx.Context.Send(msgs)
     if err != nil {
-      ctx.Ext.FreeResponseChannel(read_signal.ID)
+      ctx.Ext.FreeResponseChannel(read_signal.ID())
       return nil, err
     }
 

@@ -153,9 +153,7 @@ func TestLock(t *testing.T) {
 
   id, err := LockLockable(ctx, l1, l1.ID)
   fatalErr(t, err)
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *ErrorSignal) bool {
-    return sig.Error == "not_unlocked" && sig.Header().ReqID == id
-  })
+  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id)
   fatalErr(t, err)
 
   _, err = UnlockLockable(ctx, l0, l5.ID)
