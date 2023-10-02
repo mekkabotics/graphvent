@@ -1084,7 +1084,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         return nil, nil, value, err
       }
 
-      id_value := reflect.ValueOf(id)
+      id_value := reflect.New(node_id_type).Elem()
+      id_value.Set(reflect.ValueOf(id))
       return node_id_type, &id_value, value, nil
     }
   })
@@ -1125,7 +1126,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         return nil, nil, value, err
       }
 
-      id_value := reflect.ValueOf(id)
+      id_value := reflect.New(uuid_type).Elem()
+      id_value.Set(reflect.ValueOf(id))
       return uuid_type, &id_value, value, nil
     }
   })
