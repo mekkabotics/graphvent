@@ -137,13 +137,14 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
   ctx.Log.Logf("lockable", "SUCCESS_SIGNAL: %+v", signal)
 
   msgs := Messages{}
+  if source == node.ID {
+    return msgs
+  }
 
   info, found := ext.Requirements[source]
   ctx.Log.Logf("lockable", "State: %+v", ext.State)
   if found == false {
     ctx.Log.Logf("lockable", "Got success from non-requirement %s", source)
-  } else if source == node.ID {
-    // Do nothing with it
   } else if info.MsgID != signal.ReqID {
     ctx.Log.Logf("lockable", "Got success for wrong signal for %s: %s, expecting %s", source, signal.ReqID, info.MsgID)
   } else {
