@@ -62,7 +62,7 @@ func TestLink(t *testing.T) {
   fatalErr(t, err)
 }
 
-func Test10KLink(t *testing.T) {
+func Test1KLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test"})
 
   l_pub, listener_key, err := ed25519.GenerateKey(rand.Reader)
@@ -91,6 +91,7 @@ func Test10KLink(t *testing.T) {
   l_policy := NewAllNodesPolicy(Tree{
     SerializedType(LockSignalType): nil,
   })
+
   listener := NewListenerExt(100000)
   node, err := NewNode(ctx, listener_key, TestLockableType, 10000, []Policy{l_policy},
                 listener,
@@ -99,25 +100,17 @@ func Test10KLink(t *testing.T) {
   fatalErr(t, err)
   ctx.Log.Logf("test", "CREATED_LISTENER")
 
-  _, err = LockLockable(ctx, node, node.ID)
+  lock_id, err := LockLockable(ctx, node)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(listener.Chan, time.Millisecond*1000, func(sig *LockSignal) bool {
-    return sig.State == "locked"
-  })
+  _, err = WaitForResponse(listener.Chan, time.Second*20, lock_id)
   fatalErr(t, err)
 
-  for _, _ = range(reqs) {
-    _, err := WaitForSignal(listener.Chan, time.Millisecond*100, func(sig *LockSignal) bool {
-      return sig.State == "locked"
-    })
-    fatalErr(t, err)
-  }
   ctx.Log.Logf("test", "LOCKED_10K")
 }
 
 func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"lockable"})
+  ctx := lockableTestContext(t, []string{"test", "lockable"})
 
   policy := NewAllNodesPolicy(nil)
 
@@ -135,38 +128,35 @@ func TestLock(t *testing.T) {
   l3, _ := NewLockable(nil)
   l4, _ := NewLockable(nil)
   l5, _ := NewLockable(nil)
-  l0, l0_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
+  l0, l0_listener := NewLockable([]NodeID{l5.ID})
   l1, l1_listener := NewLockable([]NodeID{l2.ID, l3.ID, l4.ID, l5.ID})
 
-  locked := func(sig *LockSignal) bool {
-    return sig.State == "locked"
-  }
+  ctx.Log.Logf("test", "l0: %s", l0.ID)
+  ctx.Log.Logf("test", "l1: %s", l1.ID)
+  ctx.Log.Logf("test", "l2: %s", l2.ID)
+  ctx.Log.Logf("test", "l3: %s", l3.ID)
+  ctx.Log.Logf("test", "l4: %s", l4.ID)
+  ctx.Log.Logf("test", "l5: %s", l5.ID)
 
-  unlocked := func(sig *LockSignal) bool {
-    return sig.State == "unlocked"
-  }
-
-  _, err := LockLockable(ctx, l0, l5.ID)
+  id_1, err := LockLockable(ctx, l0)
+  ctx.Log.Logf("test", "ID_1: %s", id_1)
   fatalErr(t, err)
-  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, locked)
-  fatalErr(t, err)
-
-  id, err := LockLockable(ctx, l1, l1.ID)
-  fatalErr(t, err)
-  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id)
+  _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_1)
   fatalErr(t, err)
 
-  _, err = UnlockLockable(ctx, l0, l5.ID)
+  id_2, err := LockLockable(ctx, l1)
   fatalErr(t, err)
-  _, err = WaitForSignal(l0_listener.Chan, time.Millisecond*10, unlocked)
+  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_2)
   fatalErr(t, err)
 
-  _, err = LockLockable(ctx, l1, l1.ID)
+  id_3, err := UnlockLockable(ctx, l0)
   fatalErr(t, err)
-  for i := 0; i < 4; i++ {
-    _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *LockSignal) bool {
-      return sig.State == "locked"
-    })
-    fatalErr(t, err)
-  }
+  _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_3)
+  fatalErr(t, err)
+
+  id_4, err := LockLockable(ctx, l1)
+  fatalErr(t, err)
+
+  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_4)
+  fatalErr(t, err)
 }

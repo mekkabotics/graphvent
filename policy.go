@@ -248,6 +248,6 @@ type AllNodesPolicy struct {
 }
 
 var DefaultPolicy = NewAllNodesPolicy(Tree{
-  ResultType: nil,
+  ResponseType: nil,
   StatusType: nil,
 })

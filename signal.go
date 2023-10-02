@@ -186,7 +186,7 @@ type SuccessSignal struct {
 }
 func (signal SuccessSignal) Permission() Tree {
   return Tree{
-    ResultType: {
+    ResponseType: {
       SerializedType(SuccessSignalType): nil,
     },
   }
@@ -206,7 +206,7 @@ func (signal ErrorSignal) String() string {
 }
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
-    ResultType: {
+    ResponseType: {
       SerializedType(ErrorSignalType): nil,
     },
   }
@@ -336,7 +336,7 @@ type ReadResultSignal struct {
 }
 func (signal ReadResultSignal) Permission() Tree {
   return Tree{
-    ResultType: {
+    ResponseType: {
       SerializedType(ReadResultSignalType): nil,
     },
   }

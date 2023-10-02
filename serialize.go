@@ -93,6 +93,7 @@ var (
   StatusSignalType     = NewSignalType("STATUS")
   LinkSignalType       = NewSignalType("LINK")
   LockSignalType       = NewSignalType("LOCK")
+  TimeoutSignalType    = NewSignalType("TIMEOUT")
   ReadSignalType       = NewSignalType("READ")
   ACLTimeoutSignalType = NewSignalType("ACL_TIMEOUT")
   ErrorSignalType      = NewSignalType("ERROR")
@@ -127,6 +128,7 @@ var (
   MapType       = NewSerializedType("MAP")
 
   ReqStateType         = NewSerializedType("REQ_STATE")
+  ReqInfoType          = NewSerializedType("REQ_INFO")
   SignalDirectionType  = NewSerializedType("SIGNAL_DIRECTION")
   NodeStructType       = NewSerializedType("NODE_STRUCT")
   QueuedSignalType     = NewSerializedType("QUEUED_SIGNAL")
@@ -141,7 +143,7 @@ var (
   PendingACLType       = NewSerializedType("PENDING_ACL")
   PendingSignalType    = NewSerializedType("PENDING_SIGNAL")
   TimeType             = NewSerializedType("TIME")
-  ResultType           = NewSerializedType("RESULT")
+  ResponseType         = NewSerializedType("RESPONSE")
   StatusType           = NewSerializedType("STATUS")
   TreeType             = NewSerializedType("TREE")
   SerializedTypeSerialized   = NewSerializedType("SERIALIZED_TYPE")
@@ -154,8 +156,6 @@ func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.
       type_stack,
       nil,
     }, nil
-  } else if value.IsZero() {
-    return SerializedValue{}, fmt.Errorf("don't know what zero array means...")
   } else {
     var element SerializedValue
     var err error

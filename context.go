@@ -1051,12 +1051,84 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(RandID()), NodeIDType, SerializeArray, DeserializeArray[NodeID](ctx))
+  node_id_type := reflect.TypeOf(RandID())
+  err = ctx.RegisterType(node_id_type, NodeIDType,
+  func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+    type_stack := []SerializedType{ctx_type}
+    if value == nil {
+      return SerializedValue{
+        type_stack,
+        nil,
+      }, nil
+    } else {
+      data, err := value.Interface().(NodeID).MarshalBinary()
+      if err != nil {
+        return SerializedValue{}, err
+      }
+      return SerializedValue{
+        type_stack,
+        data,
+      }, nil
+    }
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return node_id_type, nil, value, nil
+    } else {
+      id_data, value, err := value.PopData(16)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      id, err := IDFromBytes(id_data)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      id_value := reflect.ValueOf(id)
+      return node_id_type, &id_value, value, nil
+    }
+  })
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(uuid.New()), UUIDType, SerializeArray, DeserializeArray[uuid.UUID](ctx))
+  uuid_type := reflect.TypeOf(uuid.UUID{})
+  err = ctx.RegisterType(uuid_type, UUIDType,
+  func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+    type_stack := []SerializedType{ctx_type}
+    if value == nil {
+      return SerializedValue{
+        type_stack,
+        nil,
+      }, nil
+    } else {
+      data, err := value.Interface().(uuid.UUID).MarshalBinary()
+      if err != nil {
+        return SerializedValue{}, err
+      }
+      return SerializedValue{
+        type_stack,
+        data,
+      }, nil
+    }
+  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+    if value.Data == nil {
+      return uuid_type, nil, value, nil
+    } else {
+      id_data, value, err := value.PopData(16)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      id, err := uuid.FromBytes(id_data)
+      if err != nil {
+        return nil, nil, value, err
+      }
+
+      id_value := reflect.ValueOf(id)
+      return uuid_type, &id_value, value, nil
+    }
+  })
   if err != nil {
     return nil, err
   }
@@ -1154,6 +1226,12 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  req_info_type := reflect.TypeOf(ReqInfo{})
+  err = ctx.RegisterType(req_info_type, ReqInfoType, SerializeStruct(ctx, req_info_type), DeserializeStruct(ctx, req_info_type))
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterExtension(reflect.TypeOf((*LockableExt)(nil)), LockableExtType, nil)
   if err != nil {
     return nil, err
@@ -1216,6 +1294,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterSignal(reflect.TypeOf(LockSignal{}), LockSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(TimeoutSignal{}), TimeoutSignalType)
   if err != nil {
     return nil, err
   }
