@@ -1285,6 +1285,18 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
 func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
   switch sig := signal.(type) {
+  case *SuccessSignal:
+    response_chan := ext.FreeResponseChannel(sig.ReqID)
+    if response_chan != nil {
+      select {
+      case response_chan <- sig:
+        ctx.Log.Logf("gql", "Forwarded success to resolver, %+v", sig.ReqID)
+      default:
+        ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
+      }
+    } else {
+      ctx.Log.Logf("gql", "received success signal response %+v with no mapped resolver", sig)
+    }
   case *ErrorSignal:
     // TODO: Forward to resolver if waiting for it
     response_chan := ext.FreeResponseChannel(sig.ReqID)

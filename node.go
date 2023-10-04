@@ -308,6 +308,7 @@ func nodeLoop(ctx *Context, node *Node) error {
             }
           }
           node.PendingACLs[msg.Signal.ID()] = PendingACL{len(msgs), timeout_signal.ID(), msg.Signal.Permission(), princ_id, msgs, []Signal{}, msg.Signal, msg.Source}
+          ctx.Log.Logf("policy", "Sending signals for pending ACL: %+v", msgs)
           ctx.Send(msgs)
           continue
         } else if resp == Allow {

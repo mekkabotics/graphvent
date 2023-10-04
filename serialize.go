@@ -86,6 +86,7 @@ var (
 
   GQLNodeType = NewNodeType("GQL")
   BaseNodeType = NewNodeType("BASE")
+  GroupNodeType = NewNodeType("GROUP")
 
   StopSignalType       = NewSignalType("STOP")
   CreateSignalType     = NewSignalType("CREATE")
