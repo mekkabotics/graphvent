@@ -137,7 +137,7 @@ func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
     if id == node.ID {
       ext, err := GetExt[*GroupExt](node, GroupExtType)
       if err == nil {
-        for member := range(ext.Members) {
+        for _, member := range(ext.Members) {
           if member == principal_id {
             if rule.Allows(action) == Allow {
               return nil, Allow
