@@ -230,6 +230,28 @@ func (ctx *Context) Node(id NodeID) (*Node, bool) {
   return node, exists
 }
 
+func (ctx *Context) Stop(id NodeID) error {
+  ctx.nodeMapLock.Lock()
+  defer ctx.nodeMapLock.Unlock()
+  node, exists := ctx.nodeMap[id]
+  if exists == false {
+    return fmt.Errorf("%s is not a node in ctx", id)
+  }
+
+  err := node.Stop(ctx)
+  delete(ctx.nodeMap, id)
+  return err
+}
+
+func (ctx *Context) StopAll() {
+  ctx.nodeMapLock.Lock()
+  for id, node := range(ctx.nodeMap) {
+    node.Stop(ctx)
+    delete(ctx.nodeMap, id)
+  }
+  ctx.nodeMapLock.Unlock()
+}
+
 // Get a node from the context, or load from the database if not loaded
 func (ctx *Context) getNode(id NodeID) (*Node, error) {
   target, exists := ctx.Node(id)

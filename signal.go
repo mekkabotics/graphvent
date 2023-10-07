@@ -167,6 +167,22 @@ func NewStartSignal() *StartSignal {
   }
 }
 
+type StoppedSignal struct {
+  ResponseHeader
+  Source NodeID
+}
+func (signal StoppedSignal) Permission() Tree {
+  return Tree{
+    ResponseType: nil,
+  }
+}
+func NewStoppedSignal(sig *StopSignal, source NodeID) *StoppedSignal {
+  return &StoppedSignal{
+    NewResponseHeader(sig.ID(), Up),
+    source,
+  }
+}
+
 type StopSignal struct {
   SignalHeader
 }

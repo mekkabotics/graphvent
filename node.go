@@ -415,11 +415,13 @@ func nodeLoop(ctx *Context, node *Node) error {
       if err != nil {
         panic(err)
       }
-
-      msgs := Messages{}
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewStatusSignal(node.ID, "stopped"), source)
-      ctx.Send(msgs)
-      node.Process(ctx, node.ID, NewStatusSignal(node.ID, "stopped"))
+      if source == node.ID {
+        node.Process(ctx, source, NewStoppedSignal(sig, node.ID))
+      } else {
+        msgs := Messages{}
+        msgs = msgs.Add(ctx, node.ID, node.Key, NewStoppedSignal(sig, node.ID), source)
+        ctx.Send(msgs)
+      }
       run = false
 
     case *ReadSignal:
@@ -499,19 +501,34 @@ func NewMessage(ctx *Context, dest NodeID, source NodeID, principal ed25519.Priv
   }, nil
 }
 
+func (node *Node) Stop(ctx *Context) error {
+  if node.Active.Load() {
+    msg, err := NewMessage(ctx, node.ID, node.ID, node.Key, NewStopSignal())
+    if err != nil {
+      return err
+    }
+    node.MsgChan <- msg
+    return nil
+  } else {
+    return fmt.Errorf("Node not active")
+  }
+}
+
 func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   ctx.Log.Logf("node_process", "PROCESSING MESSAGE: %s - %+v", node.ID, signal)
   messages := Messages{}
   for ext_type, ext := range(node.Extensions) {
     ctx.Log.Logf("node_process", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
-    //TODO: add extension and node info to log
     resp := ext.Process(ctx, node, source, signal)
     if resp != nil {
       messages = append(messages, resp...)
     }
   }
 
-  return ctx.Send(messages)
+  if len(messages) != 0 {
+    return ctx.Send(messages)
+  }
+  return nil
 }
 
 func GetCtx[C any](ctx *Context, ext_type ExtType) (C, error) {
