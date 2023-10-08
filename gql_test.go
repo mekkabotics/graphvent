@@ -69,17 +69,14 @@ func TestGQLServer(t *testing.T) {
   fatalErr(t, err)
 
   gql, err := NewNode(ctx, gql_key, GQLNodeType, 10, []Policy{group_policy_2, group_policy_1},
-  NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt(map[NodeID]string{
-    n1.ID: "user",
-    gql_id: "self",
-  }), listener_ext)
+  NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt([]NodeID{n1.ID, gql_id}), listener_ext)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
   ctx.Log.Logf("test", "NODE: %s", n1.ID)
 
   _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StatusSignal) bool {
-    return sig.Status == "server_started"
+    return sig.Source == gql_id
   })
   fatalErr(t, err)
 
@@ -205,8 +202,8 @@ func TestGQLServer(t *testing.T) {
   msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStopSignal(), gql.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
-  _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StatusSignal) bool {
-    return sig.Status == "stopped"
+  _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StoppedSignal) bool {
+    return sig.Source == gql_id
   })
   fatalErr(t, err)
 }
@@ -236,8 +233,8 @@ func TestGQLDB(t *testing.T) {
   msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStopSignal(), gql.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
-  _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StatusSignal) bool {
-    return sig.Status == "stopped" && sig.Source == gql.ID
+  _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StoppedSignal) bool {
+    return sig.Source == gql.ID
   })
   fatalErr(t, err)
 
@@ -251,8 +248,8 @@ func TestGQLDB(t *testing.T) {
   msgs = msgs.Add(ctx, gql_loaded.ID, gql_loaded.Key, NewStopSignal(), gql_loaded.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
-  _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StatusSignal) bool {
-    return sig.Status == "stopped" && sig.Source == gql_loaded.ID
+  _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StoppedSignal) bool {
+    return sig.Source == gql_loaded.ID
   })
   fatalErr(t, err)
 }

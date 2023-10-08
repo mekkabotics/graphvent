@@ -18,7 +18,7 @@ func lockableTestContext(t *testing.T, logs []string) *Context {
 }
 
 func TestLink(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"lockable"})
+  ctx := lockableTestContext(t, []string{"lockable", "listener"})
 
   l1_pub, l1_key, err := ed25519.GenerateKey(rand.Reader)
   fatalErr(t, err)
@@ -34,31 +34,37 @@ func TestLink(t *testing.T) {
                 )
   fatalErr(t, err)
 
+  l1_lockable := NewLockableExt(nil)
   l1_listener := NewListenerExt(10)
   l1, err := NewNode(ctx, l1_key, TestLockableType, 10, nil,
                  l1_listener,
-                 NewLockableExt(nil),
+                 l1_lockable,
                )
   fatalErr(t, err)
 
   msgs := Messages{}
-  msgs = msgs.Add(ctx, l1.ID, l1.Key, NewLinkSignal("add", l2.ID), l1.ID)
+  link_signal := NewLinkSignal("add", l2.ID)
+  msgs = msgs.Add(ctx, l1.ID, l1.Key, link_signal, l1.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *ErrorSignal) bool {
-    return sig.Error == "req_added"
-  })
+  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, link_signal.ID())
   fatalErr(t, err)
+
+  info, exists := l1_lockable.Requirements[l2.ID]
+  if exists == false {
+    t.Fatal("l2 not in l1 requirements")
+  } else if info.State != Unlocked {
+    t.Fatalf("l2 in bad requirement state in l1: %+v", info.State)
+  }
 
   msgs = Messages{}
-  msgs = msgs.Add(ctx, l1.ID, l1.Key, NewLinkSignal("remove", l2.ID), l1.ID)
+  unlink_signal := NewLinkSignal("remove", l2.ID)
+  msgs = msgs.Add(ctx, l1.ID, l1.Key, unlink_signal, l1.ID)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(l1_listener.Chan, time.Millisecond*10, func(sig *ErrorSignal) bool {
-    return sig.Error == "req_removed"
-  })
+  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, unlink_signal.ID())
   fatalErr(t, err)
 }
 

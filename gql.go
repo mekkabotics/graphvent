@@ -1282,8 +1282,10 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
   return response_chan
 }
 
-func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
+func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
+  var changes Changes = nil
+
   switch sig := signal.(type) {
   case *SuccessSignal:
     response_chan := ext.FreeResponseChannel(sig.ReqID)
@@ -1297,6 +1299,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "received success signal response %+v with no mapped resolver", sig)
     }
+
   case *ErrorSignal:
     // TODO: Forward to resolver if waiting for it
     response_chan := ext.FreeResponseChannel(sig.ReqID)
@@ -1311,6 +1314,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "received error signal response %+v with no mapped resolver", sig)
     }
+
   case *ReadResultSignal:
     response_chan := ext.FindResponseChannel(sig.ReqID)
     if response_chan != nil {
@@ -1323,14 +1327,17 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     } else {
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
+
   case *StartSignal:
     ctx.Log.Logf("gql", "starting gql server %s", node.ID)
     err := ext.StartGQLServer(ctx, node)
+    changes = changes.AddDetail(GQLExtType, "", "server_started")
     if err == nil {
       node.QueueSignal(time.Now(), NewStatusSignal(node.ID, "server_started"))
     } else {
       ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
+
   case *StatusSignal:
     ext.subscriptions_lock.RLock()
     ctx.Log.Logf("gql", "forwarding status signal from %+v to resolvers %+v", sig.Source, ext.subscriptions)
@@ -1344,7 +1351,8 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     }
     ext.subscriptions_lock.RUnlock()
   }
-  return nil
+
+  return nil, changes
 }
 
 var ecdsa_curves = map[uint8]elliptic.Curve{

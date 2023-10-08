@@ -21,7 +21,7 @@ func NewGroupExt(members []NodeID) *GroupExt {
   }
 }
 
-func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
-  return nil
+func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
+  return nil, nil
 }
 

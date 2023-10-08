@@ -47,9 +47,33 @@ func RandID() NodeID {
   return NodeID(uuid.New())
 }
 
+type Change struct {
+  Extension ExtType
+  Field string
+  Detail string
+}
+
+type Changes []Change
+
+func (changes Changes) Add(ext ExtType, field string) Changes {
+  return append(changes, Change{
+    Extension: ext,
+    Field: field,
+    Detail: "",
+  })
+}
+
+func (changes Changes) AddDetail(ext ExtType, field string, detail string) Changes {
+  return append(changes, Change{
+    Extension: ext,
+    Field: field,
+    Detail: detail,
+  })
+}
+
 // Extensions are data attached to nodes that process signals
 type Extension interface {
-  Process(*Context, *Node, NodeID, Signal) Messages
+  Process(*Context, *Node, NodeID, Signal) (Messages, Changes)
 }
 
 // A QueuedSignal is a Signal that has been Queued to trigger at a set time
@@ -249,6 +273,10 @@ func nodeLoop(ctx *Context, node *Node) error {
 
   // Perform startup actions
   node.Process(ctx, ZeroID, NewStartSignal())
+  err := WriteNode(ctx, node)
+  if err != nil {
+    panic(err)
+  }
   run := true
   for run == true {
     var signal Signal
@@ -411,10 +439,6 @@ func nodeLoop(ctx *Context, node *Node) error {
     switch sig := signal.(type) {
     case *StopSignal:
       node.Process(ctx, source, signal)
-      err := WriteNode(ctx, node)
-      if err != nil {
-        panic(err)
-      }
       if source == node.ID {
         node.Process(ctx, source, NewStoppedSignal(sig, node.ID))
       } else {
@@ -431,8 +455,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       ctx.Send(msgs)
 
     default:
-      node.Process(ctx, source, signal)
-      err := WriteNode(ctx, node)
+      err := node.Process(ctx, source, signal)
       if err != nil {
         panic(err)
       }
@@ -514,20 +537,57 @@ func (node *Node) Stop(ctx *Context) error {
   }
 }
 
+func (node *Node) QueueChanges(ctx *Context, changes Changes) error {
+  change_map := map[ExtType][]string{}
+  for _, change := range(changes) {
+    _, exists := change_map[change.Extension]
+    if exists == false {
+      change_map[change.Extension] = []string{}
+    }
+    change_map[change.Extension] = append(change_map[change.Extension], change.Field)
+  }
+  node.QueueSignal(time.Now(), NewStatusSignal(node.ID, fmt.Sprintf("%+v", change_map)))
+  return nil
+}
+
 func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   ctx.Log.Logf("node_process", "PROCESSING MESSAGE: %s - %+v", node.ID, signal)
   messages := Messages{}
+  changes := Changes{}
   for ext_type, ext := range(node.Extensions) {
     ctx.Log.Logf("node_process", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
-    resp := ext.Process(ctx, node, source, signal)
-    if resp != nil {
-      messages = append(messages, resp...)
+    ext_messages, ext_changes := ext.Process(ctx, node, source, signal)
+    if len(ext_messages) != 0 {
+      messages = append(messages, ext_messages...)
+    }
+
+    if len(ext_changes) != 0 {
+      changes = append(changes, ext_changes...)
     }
   }
 
   if len(messages) != 0 {
-    return ctx.Send(messages)
+    send_err := ctx.Send(messages)
+    if send_err != nil {
+      return send_err
+    }
   }
+
+  if len(changes) != 0 {
+    _, ok := signal.(*StoppedSignal)
+    if (ok == false) || (source != node.ID) {
+      write_err := WriteNodeChanges(ctx, node, changes)
+      if write_err != nil {
+        return write_err
+      }
+
+      status_err := node.QueueChanges(ctx, changes)
+      if status_err != nil {
+        return status_err
+      }
+    }
+  }
+
   return nil
 }
 
@@ -635,6 +695,11 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
   go runNode(ctx, node)
 
   return node, nil
+}
+
+func WriteNodeChanges(ctx *Context, node *Node, changes Changes) error {
+  // TODO: optimize to not re-serialize unchanged extensions/fields(might need to cache the serialized values)
+  return WriteNode(ctx, node)
 }
 
 // Write a node to the database

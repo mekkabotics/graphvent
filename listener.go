@@ -28,7 +28,7 @@ func (listener *ListenerExt) Type() ExtType {
 }
 
 // Send the signal to the channel, logging an overflow if it occurs
-func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) Messages {
+func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   ctx.Log.Logf("listener", "LISTENER_PROCESS: %s - %+v", node.ID, reflect.TypeOf(signal))
   ctx.Log.Logf("listener_debug", "LISTENER_DETAIL %+v", signal)
   select {
@@ -36,5 +36,5 @@ func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal 
   default:
     ctx.Log.Logf("listener", "LISTENER_OVERFLOW: %s", node.ID)
   }
-  return nil
+  return nil, nil
 }

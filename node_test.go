@@ -26,8 +26,8 @@ func TestNodeDB(t *testing.T) {
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
-    return sig.Status == "stopped" && sig.Source == node.ID
+  _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StoppedSignal) bool {
+    return sig.Source == node.ID
   })
   fatalErr(t, err)
 
