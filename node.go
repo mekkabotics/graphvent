@@ -659,12 +659,15 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
   }
   ctx.AddNode(id, node)
 
-  err = WriteNode(ctx, node)
+  err = node.Process(ctx, ZeroID, NewCreateSignal())
   if err != nil {
     return nil, err
   }
 
-  node.Process(ctx, ZeroID, NewCreateSignal())
+  err = WriteNode(ctx, node)
+  if err != nil {
+    return nil, err
+  }
 
   go runNode(ctx, node)
 
