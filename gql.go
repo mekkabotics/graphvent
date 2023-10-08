@@ -1331,7 +1331,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
   case *StartSignal:
     ctx.Log.Logf("gql", "starting gql server %s", node.ID)
     err := ext.StartGQLServer(ctx, node)
-    changes = changes.AddDetail(GQLExtType, "", "server_started")
+    changes = changes.Add("server_started")
     if err == nil {
       node.QueueSignal(time.Now(), NewStatusSignal(node.ID, "server_started"))
     } else {

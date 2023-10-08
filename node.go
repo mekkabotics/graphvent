@@ -47,28 +47,10 @@ func RandID() NodeID {
   return NodeID(uuid.New())
 }
 
-type Change struct {
-  Extension ExtType
-  Field string
-  Detail string
-}
+type Changes []string
 
-type Changes []Change
-
-func (changes Changes) Add(ext ExtType, field string) Changes {
-  return append(changes, Change{
-    Extension: ext,
-    Field: field,
-    Detail: "",
-  })
-}
-
-func (changes Changes) AddDetail(ext ExtType, field string, detail string) Changes {
-  return append(changes, Change{
-    Extension: ext,
-    Field: field,
-    Detail: detail,
-  })
+func (changes Changes) Add(detail string) Changes {
+  return append(changes, detail)
 }
 
 // Extensions are data attached to nodes that process signals
@@ -538,15 +520,7 @@ func (node *Node) Stop(ctx *Context) error {
 }
 
 func (node *Node) QueueChanges(ctx *Context, changes Changes) error {
-  change_map := map[ExtType][]string{}
-  for _, change := range(changes) {
-    _, exists := change_map[change.Extension]
-    if exists == false {
-      change_map[change.Extension] = []string{}
-    }
-    change_map[change.Extension] = append(change_map[change.Extension], change.Field)
-  }
-  node.QueueSignal(time.Now(), NewStatusSignal(node.ID, fmt.Sprintf("%+v", change_map)))
+  node.QueueSignal(time.Now(), NewStatusSignal(node.ID, fmt.Sprintf("%+v", changes)))
   return nil
 }
 
