@@ -66,8 +66,6 @@ func LockLockable(ctx *Context, node *Node) (uuid.UUID, error) {
 
 func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeID, signal *ErrorSignal) (Messages, Changes) {
   str := signal.Error
-  ctx.Log.Logf("lockable", "ERROR_SIGNAL: %s->%s %+v", source, node.ID, str)
-
   var messages Messages = nil
   var changes Changes = nil
   switch str {
@@ -139,8 +137,6 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID
 }
 
 func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source NodeID, signal *SuccessSignal) (Messages, Changes) {
-  ctx.Log.Logf("lockable", "SUCCESS_SIGNAL: %+v", signal)
-
   var messages Messages = nil
   var changes Changes = nil
   if source == node.ID {
@@ -224,8 +220,6 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
 
 // Handle a LockSignal and update the extensions owner/requirement states
 func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID, signal *LockSignal) (Messages, Changes) {
-  ctx.Log.Logf("lockable", "LOCK_SIGNAL: %s->%s %+v", source, node.ID, signal.State)
-
   var messages Messages = nil
   var changes Changes = nil
 
