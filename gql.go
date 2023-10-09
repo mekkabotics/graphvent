@@ -1328,12 +1328,18 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
 
+  case *StopSignal:
+    ctx.Log.Logf("gql", "stopping gql server %s", node.ID)
+    err := ext.StopGQLServer()
+    if err != nil {
+      ctx.Log.Logf("gql", "GQL_STOP_ERROR: %s", err)
+    }
+
   case *StartSignal:
     ctx.Log.Logf("gql", "starting gql server %s", node.ID)
     err := ext.StartGQLServer(ctx, node)
-    changes = changes.Add("server_started")
     if err == nil {
-      node.QueueSignal(time.Now(), NewStatusSignal(node.ID, "server_started"))
+      changes = changes.Add("server_started")
     } else {
       ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
