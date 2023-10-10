@@ -5,6 +5,7 @@ import (
   "time"
   "crypto/rand"
   "crypto/ed25519"
+  "slices"
 )
 
 func TestNodeDB(t *testing.T) {
@@ -18,7 +19,7 @@ func TestNodeDB(t *testing.T) {
   fatalErr(t, err)
 
   _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
-    return sig.Status == "started" && sig.Source == node.ID
+    return slices.Contains(sig.Changes, "started") && sig.Source == node.ID
   })
 
   msgs := Messages{}

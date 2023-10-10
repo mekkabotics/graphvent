@@ -24,7 +24,7 @@ import (
   "crypto/ed25519"
   "crypto/rand"
   "crypto/x509"
-  "crypto/tls"
+  //"crypto/tls"
   "crypto/x509/pkix"
   "math/big"
   "encoding/pem"
@@ -1452,30 +1452,30 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
     return fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
   }
 
-  cert, err := tls.X509KeyPair(ext.TLSCert, ext.TLSKey)
-  if err != nil {
-    return err
-  }
+  //cert, err := tls.X509KeyPair(ext.TLSCert, ext.TLSKey)
+  //if err != nil {
+  //  return err
+  //}
 
-  config := tls.Config{
-    Certificates: []tls.Certificate{cert},
-    NextProtos: []string{"http/1.1"},
-  }
+  //config := tls.Config{
+  //  Certificates: []tls.Certificate{cert},
+  //  NextProtos: []string{"http/1.1"},
+  //}
 
-  listener := tls.NewListener(l, &config)
+  //listener := tls.NewListener(l, &config)
 
   ext.http_done.Add(1)
   go func(qql_ext *GQLExt) {
     defer ext.http_done.Done()
 
-    err := http_server.Serve(listener)
+    err := http_server.Serve(l)
     if err != http.ErrServerClosed {
       panic(fmt.Sprintf("Failed to start gql server: %s", err))
     }
   }(ext)
 
 
-  ext.tcp_listener = listener
+  ext.tcp_listener = l
   ext.http_server = http_server
   return nil
 }

@@ -85,8 +85,8 @@ func TestGQLServer(t *testing.T) {
   }
   client := &http.Client{Transport: skipVerifyTransport}
   port := gql_ext.tcp_listener.Addr().(*net.TCPAddr).Port
-  url := fmt.Sprintf("https://localhost:%d/gql", port)
-  ws_url := fmt.Sprintf("wss://127.0.0.1:%d/gqlws", port)
+  url := fmt.Sprintf("http://localhost:%d/gql", port)
+  ws_url := fmt.Sprintf("ws://127.0.0.1:%d/gqlws", port)
 
   req_1 := GQLPayload{
     Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash } }",
@@ -187,7 +187,7 @@ func TestGQLServer(t *testing.T) {
     ctx.Log.Logf("test", "SUB: %s", resp[:n])
 
     msgs := Messages{}
-    msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStatusSignal(gql.ID, "test_status"), gql.ID)
+    msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStatusSignal(gql.ID, Changes{"test_status"}), gql.ID)
     err = ctx.Send(msgs)
     fatalErr(t, err)
 

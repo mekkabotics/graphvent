@@ -520,7 +520,7 @@ func (node *Node) Stop(ctx *Context) error {
 }
 
 func (node *Node) QueueChanges(ctx *Context, changes Changes) error {
-  node.QueueSignal(time.Now(), NewStatusSignal(node.ID, fmt.Sprintf("%+v", changes)))
+  node.QueueSignal(time.Now(), NewStatusSignal(node.ID, changes))
   return nil
 }
 

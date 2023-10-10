@@ -134,6 +134,7 @@ var (
   NodeStructType       = NewSerializedType("NODE_STRUCT")
   QueuedSignalType     = NewSerializedType("QUEUED_SIGNAL")
   NodeTypeSerialized   = NewSerializedType("NODE_TYPE")
+  ChangesSerialized    = NewSerializedType("CHANGES")
   ExtTypeSerialized    = NewSerializedType("EXT_TYPE")
   PolicyTypeSerialized = NewSerializedType("POLICY_TYPE")
   ExtSerialized        = NewSerializedType("EXTENSION")
@@ -149,6 +150,87 @@ var (
   TreeType             = NewSerializedType("TREE")
   SerializedTypeSerialized   = NewSerializedType("SERIALIZED_TYPE")
 )
+
+func SerializeSlice(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
+  type_stack := []SerializedType{ctx_type}
+  var data []byte
+  if value == nil {
+    data = nil
+  } else if value.IsZero() {
+    data = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
+  } else if value.Len() == 0 {
+    data = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+  } else {
+    data := make([]byte, 8)
+    binary.BigEndian.PutUint64(data, uint64(value.Len()))
+
+    for i := 0; i < value.Len(); i += 1 {
+      val := value.Index(i)
+      element, err := SerializeValue(ctx, reflect_type.Elem(), &val)
+      if err != nil {
+        return SerializedValue{}, err
+      }
+      data = append(data, element.Data...)
+    }
+
+    return SerializedValue{
+      type_stack,
+      data,
+    }, nil
+  }
+  return SerializedValue{
+    type_stack,
+    data,
+  }, nil
+}
+
+func DeserializeSlice[T any](ctx *Context) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
+  var zero T
+  slice_type := reflect.TypeOf(zero)
+  zero_value, err := SerializeValue(ctx, slice_type.Elem(), nil)
+  if err != nil {
+    panic(err)
+  }
+  saved_type_stack := zero_value.TypeStack
+
+  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
+    if value.Data == nil {
+      return slice_type, nil, value, nil
+    } else {
+      var err error
+      var slice_size_bytes []byte
+      slice_size_bytes, value, err = value.PopData(8)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      slice_size := binary.BigEndian.Uint64(slice_size_bytes)
+      slice_value := reflect.New(slice_type).Elem()
+      if slice_size != 0xFFFFFFFFFFFFFFFF {
+        slice_unaddr := reflect.MakeSlice(slice_type, int(slice_size), int(slice_size))
+        slice_value.Set(slice_unaddr)
+        for i := uint64(0); i < slice_size; i += 1 {
+          var element_value *reflect.Value
+          var err error
+          tmp_value := SerializedValue{
+            saved_type_stack,
+            value.Data,
+          }
+
+          _, element_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
+          if err != nil {
+            return nil, nil, value, err
+          }
+
+          value.Data = tmp_value.Data
+          slice_elem := slice_value.Index(int(i))
+          slice_elem.Set(*element_value)
+        }
+      }
+
+      return slice_type, &slice_value, value, nil
+    }
+  }
+}
 
 func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
   type_stack := []SerializedType{ctx_type}

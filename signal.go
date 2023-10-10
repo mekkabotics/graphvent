@@ -252,18 +252,18 @@ func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
 type StatusSignal struct {
   SignalHeader
   Source NodeID `gv:"source"`
-  Status string `gv:"status"`
+  Changes Changes `gv:"changes"`
 }
 func (signal StatusSignal) Permission() Tree {
   return Tree{
     StatusType: nil,
   }
 }
-func NewStatusSignal(source NodeID, status string) *StatusSignal {
+func NewStatusSignal(source NodeID, changes Changes) *StatusSignal {
   return &StatusSignal{
     NewSignalHeader(Up),
     source,
-    status,
+    changes,
   }
 }
 

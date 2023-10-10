@@ -852,9 +852,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterKind(reflect.Slice, SliceType,
-  func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue, error){
-    var data []byte
+  func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
     type_stack := []SerializedType{ctx_type}
+    var data []byte
     if value == nil {
       data = nil
     } else if value.IsZero() {
@@ -864,6 +864,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     } else {
       data := make([]byte, 8)
       binary.BigEndian.PutUint64(data, uint64(value.Len()))
+
       var element SerializedValue
       var err error
       for i := 0; i < value.Len(); i += 1 {
@@ -874,20 +875,24 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
         }
         data = append(data, element.Data...)
       }
+
       return SerializedValue{
         append(type_stack, element.TypeStack...),
         data,
       }, nil
     }
+
     element, err := SerializeValue(ctx, reflect_type.Elem(), nil)
     if err != nil {
       return SerializedValue{}, err
     }
+
     return SerializedValue{
       append(type_stack, element.TypeStack...),
       data,
     }, nil
-  }, func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
+  },
+  func(ctx *Context, value SerializedValue)(reflect.Type, *reflect.Value, SerializedValue, error){
     if value.Data == nil {
       elem_type, _, _, err := DeserializeValue(ctx, value)
       if err != nil {
@@ -955,14 +960,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   if err != nil {
     return nil, err
   }
-
-  // TODO: move functions for string serialize/deserialize out of RegisterKind
-  /*
-  err = ctx.RegisterType(reflect.TypeOf(StringError("")), ErrorType, nil, nil)
-  if err != nil {
-    return nil, err
-  }
-  */
 
   err = ctx.RegisterType(reflect.TypeOf(Tree{}), TreeType, func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
     var data []byte
@@ -1054,6 +1051,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   })
 
   err = ctx.RegisterType(reflect.TypeOf(SerializedType(0)), SerializedTypeSerialized, SerializeUintN(8), DeserializeUintN[SerializedType](8))
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(Changes{}), ChangesSerialized, SerializeSlice, DeserializeSlice[Changes](ctx))
   if err != nil {
     return nil, err
   }

@@ -71,6 +71,15 @@ func TestSerializeBasic(t *testing.T) {
     },
     StringType: nil,
   })
+
+  type test_slice []string
+  test_slice_type := reflect.TypeOf(test_slice{})
+  err = ctx.RegisterType(test_slice_type, NewSerializedType("TEST_SLICE"), SerializeSlice, DeserializeSlice[test_slice](ctx))
+  fatalErr(t, err)
+
+  testSerialize[test_slice](t, ctx, test_slice{"test_1", "test_2", "test_3"})
+
+  testSerialize[Changes](t, ctx, Changes{"change_1", "change_2", "change_3"})
 }
 
 type test struct {
