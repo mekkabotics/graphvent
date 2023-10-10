@@ -259,6 +259,9 @@ func (signal StatusSignal) Permission() Tree {
     StatusType: nil,
   }
 }
+func (signal StatusSignal) String() string {
+  return fmt.Sprintf("StatusSignal(%s, %+v)", signal.SignalHeader, signal.Changes)
+}
 func NewStatusSignal(source NodeID, changes Changes) *StatusSignal {
   return &StatusSignal{
     NewSignalHeader(Up),
