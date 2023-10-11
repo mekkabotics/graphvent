@@ -181,7 +181,7 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
   return id, nil
 }
 
-func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
+func GraphiQLHandler(auth_token string) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     graphiql_string := fmt.Sprintf(`
     <!--
@@ -240,6 +240,9 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
       React.createElement(GraphiQL, {
         fetcher: GraphiQL.createFetcher({
           url: '/gql',
+          headers: {
+            "Authorization": "Basic %s",
+          },
         }),
         defaultEditorToolsVisibility: true,
       }),
@@ -247,7 +250,7 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
     </script>
     </body>
     </html>
-    `)
+    `, auth_token)
 
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     w.WriteHeader(http.StatusOK)
@@ -1436,7 +1439,11 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
   mux.HandleFunc("/gqlws", GQLWSHandler(ctx, node, ext))
 
   // Server a graphiql interface(TODO make configurable whether to start this)
-  mux.HandleFunc("/graphiql", GraphiQLHandler())
+  auth_header, err := AuthorizationHeader(node)
+  if err != nil {
+    return err
+  }
+  mux.HandleFunc("/graphiql", GraphiQLHandler(auth_header))
 
   // Server the ./site directory to /site (TODO make configurable with better defaults)
   fs := http.FileServer(http.Dir("./site"))
