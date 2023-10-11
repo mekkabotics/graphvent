@@ -235,22 +235,36 @@ func GraphiQLHandler(auth_token string) func(http.ResponseWriter, *http.Request)
     type="application/javascript"
     ></script>
     <script>
-    const root = ReactDOM.createRoot(document.getElementById('graphiql'));
-    root.render(
-      React.createElement(GraphiQL, {
-        fetcher: GraphiQL.createFetcher({
-          url: '/gql',
-          headers: {
-            "Authorization": "Basic %s",
-          },
+    if (window.authToken === undefined) {
+      const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+      root.render(
+        React.createElement(GraphiQL, {
+          fetcher: GraphiQL.createFetcher({
+            url: '/gql',
+          }),
+          defaultEditorToolsVisibility: true,
         }),
-        defaultEditorToolsVisibility: true,
-      }),
-    );
+      );
+    } else {
+      authToken().then(function(res){
+        const root = ReactDOM.createRoot(document.getElementById('graphiql'));
+        root.render(
+          React.createElement(GraphiQL, {
+            fetcher: GraphiQL.createFetcher({
+              url: '/gql',
+              headers: {
+                "Authorization": ` + "`Basic ${res}`" + `,
+              },
+            }),
+            defaultEditorToolsVisibility: true,
+          }),
+        );
+      });
+    }
     </script>
     </body>
     </html>
-    `, auth_token)
+    `)
 
     w.Header().Set("Content-Type", "text/html; charset=utf-8")
     w.WriteHeader(http.StatusOK)
