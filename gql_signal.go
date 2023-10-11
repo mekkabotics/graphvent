@@ -2,6 +2,7 @@ package graphvent
 
 import (
   graphql "github.com/graphql-go/graphql"
+  "github.com/google/uuid"
   "reflect"
   "fmt"
   "time"
@@ -37,7 +38,7 @@ var type_gql_map = map[reflect.Type]GQLTypeInfo{
       }
 
       if str == "" {
-        return reflect.New(reflect.TypeOf(NodeID{})), nil
+        return reflect.New(reflect.TypeOf(&NodeID{})).Elem(), nil
       }
 
       id_parsed, err := ParseID(str)
@@ -73,8 +74,15 @@ type StructFieldInfo struct {
   Index []int
 }
 
-func SignalFromArgs(signal_type reflect.Type, fields []StructFieldInfo, args map[string]interface{}) (Signal, error) {
+func SignalFromArgs(signal_type reflect.Type, fields []StructFieldInfo, args map[string]interface{}, id_index, direction_index []int) (Signal, error) {
   signal_value := reflect.New(signal_type)
+
+  id_field := signal_value.Elem().FieldByIndex(id_index)
+  id_field.Set(reflect.ValueOf(uuid.New()))
+
+  direction_field := signal_value.Elem().FieldByIndex(direction_index)
+  direction_field.Set(reflect.ValueOf(Direct))
+
   for _, field := range(fields) {
     arg, arg_exists := args[field.Name]
     if arg_exists == false {
@@ -96,40 +104,42 @@ func SignalFromArgs(signal_type reflect.Type, fields []StructFieldInfo, args map
 func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, signal_type reflect.Type) error {
   args := graphql.FieldConfigArgument{}
   arg_info := []StructFieldInfo{}
+  var id_index []int = nil
+  var direction_index []int = nil
 
   for _, field := range(reflect.VisibleFields(signal_type)) {
     gv_tag, tagged_gv := field.Tag.Lookup("gv")
     if tagged_gv {
       if gv_tag == "id" {
-        continue
-      }
-      if gv_tag == "direction" {
-        continue
-      }
-      _, exists := args[gv_tag]
-      if exists == true {
-        return fmt.Errorf("Signal has repeated tag %s", gv_tag)
-      }
-      var gql_info GQLTypeInfo
-      var type_mapped bool
-      gql_info, type_mapped = type_gql_map[field.Type]
-      if type_mapped == false {
-        var kind_mapped bool
-        gql_info, kind_mapped = kind_gql_map[field.Type.Kind()]
-        if kind_mapped == false {
-          return fmt.Errorf("Signal has unsupported type/kind: %s/%s", field.Type, field.Type.Kind())
+        id_index = field.Index
+      } else if gv_tag == "direction" {
+        direction_index = field.Index
+      } else {
+        _, exists := args[gv_tag]
+        if exists == true {
+          return fmt.Errorf("Signal has repeated tag %s", gv_tag)
         }
-      }
+        var gql_info GQLTypeInfo
+        var type_mapped bool
+        gql_info, type_mapped = type_gql_map[field.Type]
+        if type_mapped == false {
+          var kind_mapped bool
+          gql_info, kind_mapped = kind_gql_map[field.Type.Kind()]
+          if kind_mapped == false {
+            return fmt.Errorf("Signal has unsupported type/kind: %s/%s", field.Type, field.Type.Kind())
+          }
+        }
 
-      args[gv_tag] = &graphql.ArgumentConfig{
-        Type: gql_info.Type,
+        args[gv_tag] = &graphql.ArgumentConfig{
+          Type: gql_info.Type,
+        }
+        arg_info = append(arg_info, StructFieldInfo{
+          gv_tag,
+          field.Type,
+          &gql_info,
+          field.Index,
+        })
       }
-      arg_info = append(arg_info, StructFieldInfo{
-        gv_tag,
-        field.Type,
-        &gql_info,
-        field.Index,
-      })
     }
   }
 
@@ -151,7 +161,7 @@ func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, sig
       return nil, err
     }
 
-    signal, err := SignalFromArgs(signal_type, arg_info, p.Args)
+    signal, err := SignalFromArgs(signal_type, arg_info, p.Args, id_index, direction_index)
     if err != nil {
       return nil, err
     }
