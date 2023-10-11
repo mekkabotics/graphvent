@@ -29,6 +29,7 @@ import (
   "math/big"
   "encoding/pem"
   "github.com/google/uuid"
+  "slices"
 )
 
 func AuthorizationHeader(node *Node) (string, error) {
@@ -181,7 +182,7 @@ func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
   return id, nil
 }
 
-func GraphiQLHandler(auth_token string) func(http.ResponseWriter, *http.Request) {
+func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     graphiql_string := fmt.Sprintf(`
     <!--
@@ -363,56 +364,82 @@ type ResolveContext struct {
   Key ed25519.PrivateKey
 }
 
-func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt, r *http.Request, id uuid.UUID) (*ResolveContext, error) {
-  id_b64, key_b64, ok := r.BasicAuth()
-  if ok == false {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: no auth header included in request header")
+func ParseAuthB64(auth_base64 string) (ed25519.PrivateKey, NodeID, error) {
+  auth_bytes, err := base64.StdEncoding.DecodeString(auth_base64)
+  if err != nil {
+    return nil, NodeID{}, err
   }
 
-  id_bytes, err := base64.StdEncoding.DecodeString(id_b64)
-  if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID bytes from auth username: %+v", id_b64)
+  idx := slices.Index(auth_bytes, ':')
+  if idx == -1 {
+    return nil, NodeID{}, fmt.Errorf("No colon in auth")
   }
 
-  auth_uuid, err := uuid.FromBytes([]byte(id_bytes))
-  if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ID from id_bytes %+v", id_bytes)
-  }
-  auth_id := NodeID(auth_uuid)
+  id_base64 := auth_bytes[:idx]
+  key_base64 := auth_bytes[idx+1:]
 
-  key_bytes, err := base64.StdEncoding.DecodeString(key_b64)
+  id, err := ParseIDB64(string(id_base64))
   if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse key bytes from auth password: %+v", key_b64)
+    return nil, NodeID{}, err
+  }
+
+  key, err := ParseKeyB64(string(key_base64))
+  if err != nil {
+    return nil, NodeID{}, err
+  }
+
+  key_id := KeyID(key.Public().(ed25519.PublicKey))
+  if key_id != id {
+    return nil, NodeID{}, fmt.Errorf("key_id != id(%s != %s)", key_id, id)
+  }
+
+  return key, id, nil
+}
+
+func ParseKeyB64(key_base64 string) (ed25519.PrivateKey, error) {
+  key_bytes, err := base64.StdEncoding.DecodeString(key_base64)
+  if err != nil {
+    return nil, err
   }
 
   key_raw, err := x509.ParsePKCS8PrivateKey([]byte(key_bytes))
   if err != nil {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: failed to parse ecdsa key from auth password: %s", key_bytes)
+    return nil, err
   }
 
-  var key ed25519.PrivateKey
-  switch k := key_raw.(type) {
-  case ed25519.PrivateKey:
-    key = k
-  default:
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: wrong type for key: %s", reflect.TypeOf(key_raw))
+  key, ok := key_raw.(ed25519.PrivateKey)
+  if ok == false {
+    return nil, fmt.Errorf("parsed key wrong type: %s", reflect.TypeOf(key_raw))
   }
 
-  key_id := KeyID(key.Public().(ed25519.PublicKey))
-  if auth_id != key_id {
-    return nil, fmt.Errorf("GQL_REQUEST_ERR: key_id(%s) != auth_id(%s)", auth_id, key_id)
+  return key, nil
+}
+
+func ParseIDB64(id_base64 string) (NodeID, error) {
+  id_bytes, err := base64.StdEncoding.DecodeString(id_base64)
+  if err != nil {
+    return NodeID{}, err
   }
 
+  auth_id, err := IDFromBytes(id_bytes)
+  if err != nil {
+    return NodeID{}, err
+  }
+
+  return auth_id, nil
+}
+
+func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveContext, error) {
   return &ResolveContext{
-    ID: id,
+    ID: uuid.New(),
     Ext: gql_ext,
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
     GQLContext: ctx.Extensions[GQLExtType].Data.(*GQLExtContext),
     NodeCache: map[NodeID]NodeResult{},
     Server: server,
-    User: key_id,
-    Key: key,
+    User: NodeID{},
+    Key: nil,
   }, nil
 }
 
@@ -426,12 +453,43 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
-    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r, uuid.New())
+    id_b64, key_b64, ok := r.BasicAuth()
+    if ok == false {
+      ctx.Log.Logf("gql", "GQL_AUTH_BASIC_MISSING")
+      json.NewEncoder(w).Encode(fmt.Errorf("Failed to get auth headers"))
+      return
+    }
+
+    auth_id, err := ParseIDB64(id_b64)
+    if err != nil {
+      ctx.Log.Logf("gql", "GQL_AUTH_ID_PARSE_ERROR: %s", err)
+      json.NewEncoder(w).Encode(fmt.Errorf("Failed to parse auth_id: %s", id_b64))
+      return
+    }
+
+    key, err := ParseKeyB64(key_b64)
+    if err != nil {
+      ctx.Log.Logf("gql", "GQL_AUTH_KEY_PARSE_ERROR: %s", err)
+      json.NewEncoder(w).Encode(fmt.Errorf("Failed to parse key: %s", key_b64))
+      return
+    }
+
+    key_id := KeyID(key.Public().(ed25519.PublicKey))
+    if auth_id != key_id {
+      ctx.Log.Logf("gql", "GQL_AUTH_ERR: key_id != auth_id: %s != %s", key_id, auth_id)
+      json.NewEncoder(w).Encode(fmt.Errorf("GQL_REQUEST_ERR: key_id(%s) != auth_id(%s)", auth_id, key_id))
+      return
+    }
+
+    resolve_context, err := NewResolveContext(ctx, server, gql_ext)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       json.NewEncoder(w).Encode(GQLUnauthorized(fmt.Sprintf("%s", err)))
       return
     }
+
+    resolve_context.Key = key
+    resolve_context.User = key_id
 
     req_ctx := context.Background()
     req_ctx = context.WithValue(req_ctx, "resolve", resolve_context)
@@ -459,7 +517,9 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
       params.VariableValues = query.Variables
     }
 
+    ctx.Log.Logf("gql", "PARAMS: %+v", params)
     result := graphql.Do(params)
+    ctx.Log.Logf("gql", "RESULT: %+v", result)
     if len(result.Errors) > 0 {
       extra_fields := map[string]interface{}{}
       extra_fields["body"] = string(str)
@@ -488,7 +548,7 @@ func getOperationTypeOfReq(p graphql.Params) string{
 
   AST, err := parser.Parse(parser.ParseParams{Source: source})
   if err != nil {
-    return ""
+    return err.Error()
   }
 
   for _, node := range AST.Definitions {
@@ -502,12 +562,12 @@ func getOperationTypeOfReq(p graphql.Params) string{
       }
     }
   }
-  return ""
+  return "END_OF_FUNCTION"
 }
 
 func GQLWSDo(ctx * Context, p graphql.Params) chan *graphql.Result {
   operation := getOperationTypeOfReq(p)
-  ctx.Log.Logf("gqlws", "GQLWSDO_OPERATION: %s %+v", operation, p.RequestString)
+  ctx.Log.Logf("gqlws", "GQLWSDO_OPERATION: %s - %+v", operation, p.RequestString)
 
   if operation == ast.OperationTypeSubscription {
     return graphql.Subscribe(p)
@@ -527,11 +587,12 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
     }
 
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
-    resolve_context, err := NewResolveContext(ctx, server, gql_ext, r, uuid.New())
+    resolve_context, err := NewResolveContext(ctx, server, gql_ext)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       return
     }
+
     req_ctx := context.Background()
     req_ctx = context.WithValue(req_ctx, "resolve", resolve_context)
 
@@ -562,6 +623,28 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
             ctx.Log.Logf("gqlws", "WS_CLIENT_ERROR: INIT WHILE IN %s", conn_state)
             break
           }
+
+          connection_params := struct {
+            Payload struct {
+              Token string `json:"token"`
+            } `json:"payload"`
+          }{}
+
+          err := json.Unmarshal([]byte(msg_raw), &connection_params)
+          if err != nil {
+            ctx.Log.Logf("gqlws", "WS_UNMARSHAL_ERROR: %s - %+v", msg_raw, err)
+            break
+          }
+
+          key, key_id, err := ParseAuthB64(connection_params.Payload.Token)
+          if err != nil {
+            ctx.Log.Logf("gqlws", "WS_AUTH_PARSE_ERR: %s", err)
+            break
+          }
+
+          resolve_context.User = key_id
+          resolve_context.Key = key
+
           conn_state = "ready"
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"connection_ack\"}"))
           if err != nil {
@@ -573,6 +656,7 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"pong\"}"))
           if err != nil {
             ctx.Log.Logf("gqlws", "WS_SERVER_ERROR: FAILED TO SEND PONG")
+            break
           }
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
@@ -1099,7 +1183,7 @@ func NewGQLExtContext() *GQLExtContext {
   })
 
   context.Subscription.AddFieldConfig("Self", &graphql.Field{
-    Type: context.NodeTypes[GQLNodeType],
+    Type: context.Interfaces["Node"].Interface,
     Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
       ctx, err := PrepResolve(p)
       if err != nil {
@@ -1452,12 +1536,7 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
   mux.HandleFunc("/gql", GQLHandler(ctx, node, ext))
   mux.HandleFunc("/gqlws", GQLWSHandler(ctx, node, ext))
 
-  // Server a graphiql interface(TODO make configurable whether to start this)
-  auth_header, err := AuthorizationHeader(node)
-  if err != nil {
-    return err
-  }
-  mux.HandleFunc("/graphiql", GraphiQLHandler(auth_header))
+  mux.HandleFunc("/graphiql", GraphiQLHandler())
 
   // Server the ./site directory to /site (TODO make configurable with better defaults)
   fs := http.FileServer(http.Dir("./site"))
