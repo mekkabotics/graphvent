@@ -1294,6 +1294,16 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterSignal(reflect.TypeOf(RemoveMemberSignal{}), RemoveMemberSignalType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(AddMemberSignal{}), AddMemberSignalType)
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterSignal(reflect.TypeOf(StopSignal{}), StopSignalType)
   if err != nil {
     return nil, err

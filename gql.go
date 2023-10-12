@@ -517,9 +517,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
       params.VariableValues = query.Variables
     }
 
-    ctx.Log.Logf("gql", "PARAMS: %+v", params)
     result := graphql.Do(params)
-    ctx.Log.Logf("gql", "RESULT: %+v", result)
     if len(result.Errors) > 0 {
       extra_fields := map[string]interface{}{}
       extra_fields["body"] = string(str)
