@@ -1098,15 +1098,9 @@ func NewGQLExtContext() *GQLExtContext {
 
   err = context.RegisterField(context.Interfaces["Node"].List, "Members", GroupExtType, "members",
   func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-    node_map, ok := value.Interface().(map[NodeID]string)
+    node_list, ok := value.Interface().([]NodeID)
     if ok == false {
-      return nil, fmt.Errorf("value is %+v, not map[NodeID]string", value.Type())
-    }
-    node_list := []NodeID{}
-    i := 0
-    for id := range(node_map) {
-      node_list = append(node_list, id)
-      i += 1
+      return nil, fmt.Errorf("value is %+v, not []NodeID", value.Type())
     }
 
     nodes, err := ResolveNodes(ctx, p, node_list)

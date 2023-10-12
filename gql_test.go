@@ -19,7 +19,7 @@ import (
 )
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test", "gqlws"})
 
   TestNodeType := NewNodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
@@ -135,7 +135,7 @@ func TestGQLServer(t *testing.T) {
   ctx.Log.Logf("test", "RESP_2: %s", resp_2)
 
   sub_1 := GQLPayload{
-    Query: "subscription { Self { ID, TypeHash, Requirements { ID }}}",
+    Query: "subscription { Self { ID, TypeHash, ... on Lockable { Requirements { ID }}}}",
   }
 
   SubGQL := func(payload GQLPayload) {
@@ -149,9 +149,18 @@ func TestGQLServer(t *testing.T) {
 
     fatalErr(t, err)
 
-    init := GQLWSMsg{
-      ID: uuid.New().String(),
-      Type: "connection_init",
+    type payload_struct struct {
+      Token string `json:"token"`
+    }
+
+    init := struct{
+      ID uuid.UUID `json:"id"`
+      Type string `json:"type"`
+      Payload payload_struct `json:"payload"`
+    }{
+      uuid.New(),
+      "connection_init",
+      payload_struct{ auth_b64 },
     }
 
     ser, err := json.Marshal(&init)
@@ -194,6 +203,8 @@ func TestGQLServer(t *testing.T) {
     n, err = ws.Read(resp)
     fatalErr(t, err)
     ctx.Log.Logf("test", "SUB: %s", resp[:n])
+
+    // TODO: check that there are no more messages sent to ws within a timeout
   }
 
   SubGQL(sub_1)
