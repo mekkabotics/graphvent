@@ -1167,12 +1167,20 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  context.Mutation.AddFieldConfig("stop", &graphql.Field{
-    Type: graphql.String,
-    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      return nil, fmt.Errorf("NOT_IMPLEMENTED")
-    },
-  })
+  err = context.AddSignalMutation("stop", "node_id", reflect.TypeOf(StopSignal{}))
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.AddSignalMutation("addMember", "group_id", reflect.TypeOf(AddMemberSignal{}))
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.AddSignalMutation("removeMember", "group_id", reflect.TypeOf(RemoveMemberSignal{}))
+  if err != nil {
+    panic(err)
+  }
 
   context.Subscription.AddFieldConfig("Self", &graphql.Field{
     Type: context.Interfaces["Node"].Interface,
