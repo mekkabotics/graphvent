@@ -193,7 +193,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
 
 type ACLProxyPolicy struct {
   PolicyHeader
-  Proxies []NodeID
+  Proxies []NodeID `gv:"proxies"`
 }
 
 func NewACLProxyPolicy(proxies []NodeID) ACLProxyPolicy {
