@@ -15,12 +15,12 @@ const (
 )
 
 type TimeoutSignal struct {
-  SignalHeader
+  ResponseHeader
 }
 
-func NewTimeoutSignal() *TimeoutSignal {
+func NewTimeoutSignal(req_id uuid.UUID) *TimeoutSignal {
   return &TimeoutSignal{
-    NewSignalHeader(Direct),
+    NewResponseHeader(req_id, Direct),
   }
 }
 

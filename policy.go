@@ -100,6 +100,7 @@ func (policy MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, si
   if ok == false {
     return Deny
   }
+  ctx.Log.Logf("group", "member_of_read_result: %+v", sig.Extensions)
 
   group_ext_data, ok := sig.Extensions[GroupExtType]
   if ok == false {
@@ -116,12 +117,12 @@ func (policy MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, si
     return Deny
   }
 
-  members, ok := members_if.Interface().(map[NodeID]string)
+  members, ok := members_if.Interface().([]NodeID)
   if ok == false {
     return Deny
   }
 
-  for member := range(members) {
+  for _, member := range(members) {
     if member == current.Principal {
       return policy.NodeRules[sig.NodeID].Allows(current.Action)
     }

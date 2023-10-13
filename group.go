@@ -40,7 +40,7 @@ func NewRemoveMemberSignal(member_id NodeID) *RemoveMemberSignal {
   }
 }
 
-var GroupReadPolicy = NewAllNodesPolicy(Tree{
+var DefaultGroupPolicy = NewAllNodesPolicy(Tree{
   SerializedType(ReadSignalType): {
     SerializedType(GroupExtType): {
       Hash(FieldNameBase, "members"): nil,

@@ -83,6 +83,7 @@ var (
   LockableExtType = NewExtType("LOCKABLE")
   GQLExtType      = NewExtType("GQL")
   GroupExtType    = NewExtType("GROUP")
+  ACLExtType      = NewExtType("ACL")
 
   GQLNodeType   = NewNodeType("GQL")
   BaseNodeType  = NewNodeType("BASE")
@@ -102,6 +103,7 @@ var (
   ReadResultSignalType   = NewSignalType("READ_RESULT")
   RemoveMemberSignalType = NewSignalType("REMOVE_MEMBER")
   AddMemberSignalType    = NewSignalType("ADD_MEMBER")
+  ACLSignalType          = NewSignalType("ACL")
 
   MemberOfPolicyType      = NewPolicyType("USER_OF")
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")

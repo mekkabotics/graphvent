@@ -70,18 +70,19 @@ func (q QueuedSignal) String() string {
 
 type PendingACL struct {
   Counter int
+  Responses []ResponseSignal
+
   TimeoutID uuid.UUID
   Action Tree
   Principal NodeID
-  Messages Messages
-  Responses []Signal
+
   Signal Signal
   Source NodeID
 }
 
 type PendingSignal struct {
   Policy uuid.UUID
-  Found bool
+  Timeout uuid.UUID
   ID uuid.UUID
 }
 
@@ -314,10 +315,20 @@ func nodeLoop(ctx *Context, node *Node) error {
           for policy_type, sigs := range(pends) {
             for _, m := range(sigs) {
               msgs = append(msgs, m)
-              node.PendingSignals[m.Signal.ID()] = PendingSignal{policy_type, false, msg.Signal.ID()}
+              timeout_signal := NewTimeoutSignal(m.Signal.ID())
+              node.QueueSignal(time.Now().Add(time.Second), timeout_signal)
+              node.PendingSignals[m.Signal.ID()] = PendingSignal{policy_type, timeout_signal.Id, msg.Signal.ID()}
             }
           }
-          node.PendingACLs[msg.Signal.ID()] = PendingACL{len(msgs), timeout_signal.ID(), msg.Signal.Permission(), princ_id, msgs, []Signal{}, msg.Signal, msg.Source}
+          node.PendingACLs[msg.Signal.ID()] = PendingACL{
+            Counter: len(msgs),
+            TimeoutID: timeout_signal.ID(),
+            Action: msg.Signal.Permission(),
+            Principal: princ_id,
+            Responses: []ResponseSignal{},
+            Signal: msg.Signal,
+            Source: msg.Source,
+          }
           ctx.Log.Logf("policy", "Sending signals for pending ACL: %+v", msgs)
           ctx.Send(msgs)
           continue
@@ -364,54 +375,52 @@ func nodeLoop(ctx *Context, node *Node) error {
     if ok == true {
       info, waiting := node.PendingSignals[response.ResponseID()]
       if waiting == true {
-        if info.Found == false {
-          info.Found = true
-          node.PendingSignals[response.ResponseID()] = info
-          ctx.Log.Logf("pending", "FOUND_PENDING_SIGNAL: %s - %s", node.ID, signal)
-          req_info, exists := node.PendingACLs[info.ID]
-          if exists == true {
-            req_info.Counter -= 1
-            req_info.Responses = append(req_info.Responses, signal)
+        delete(node.PendingSignals, response.ResponseID())
+        ctx.Log.Logf("pending", "FOUND_PENDING_SIGNAL: %s - %s", node.ID, signal)
 
-            idx := -1
-            for i, p := range(node.Policies) {
-              if p.ID() == info.Policy {
-                idx = i
-                break
-              }
+        req_info, exists := node.PendingACLs[info.ID]
+        if exists == true {
+          req_info.Counter -= 1
+          req_info.Responses = append(req_info.Responses, response)
+
+          idx := -1
+          for i, p := range(node.Policies) {
+            if p.ID() == info.Policy {
+              idx = i
+              break
             }
-            if idx == -1 {
-              ctx.Log.Logf("policy", "PENDING_FOR_NONEXISTENT_POLICY: %s - %s", node.ID, info.Policy)
+          }
+          if idx == -1 {
+            ctx.Log.Logf("policy", "PENDING_FOR_NONEXISTENT_POLICY: %s - %s", node.ID, info.Policy)
+            delete(node.PendingACLs, info.ID)
+          } else {
+            allowed := node.Policies[idx].ContinueAllows(ctx, req_info, signal)
+            if allowed == Allow {
+              ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
+              signal = req_info.Signal
+              source = req_info.Source
+              err := node.DequeueSignal(req_info.TimeoutID)
+              if err != nil {
+                ctx.Log.Logf("node", "dequeue error: %s", err)
+              }
+              delete(node.PendingACLs, info.ID)
+            } else if req_info.Counter == 0 {
+              ctx.Log.Logf("policy", "DELAYED_POLICY_DENY: %s - %s", node.ID, req_info.Signal)
+              // Send the denied response
+              msgs := Messages{}
+              msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(req_info.Signal.ID(), "ACL_DENIED"), req_info.Source)
+              err := ctx.Send(msgs)
+              if err != nil {
+                ctx.Log.Logf("signal", "SEND_ERR: %s", err)
+              }
+              err = node.DequeueSignal(req_info.TimeoutID)
+              if err != nil {
+                panic("dequeued a passed signal")
+              }
               delete(node.PendingACLs, info.ID)
             } else {
-              allowed := node.Policies[idx].ContinueAllows(ctx, req_info, signal)
-              if allowed == Allow {
-                ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
-                signal = req_info.Signal
-                source = req_info.Source
-                err := node.DequeueSignal(req_info.TimeoutID)
-                if err != nil {
-                  panic("dequeued a passed signal")
-                }
-                delete(node.PendingACLs, info.ID)
-              } else if req_info.Counter == 0 {
-                ctx.Log.Logf("policy", "DELAYED_POLICY_DENY: %s - %s", node.ID, req_info.Signal)
-                // Send the denied response
-                msgs := Messages{}
-                msgs = msgs.Add(ctx, node.ID, node.Key, NewErrorSignal(req_info.Signal.ID(), "ACL_DENIED"), req_info.Source)
-                err := ctx.Send(msgs)
-                if err != nil {
-                  ctx.Log.Logf("signal", "SEND_ERR: %s", err)
-                }
-                err = node.DequeueSignal(req_info.TimeoutID)
-                if err != nil {
-                  panic("dequeued a passed signal")
-                }
-                delete(node.PendingACLs, info.ID)
-              } else {
-                node.PendingACLs[info.ID] = req_info
-                continue
-              }
+              node.PendingACLs[info.ID] = req_info
+              continue
             }
           }
         }
