@@ -88,4 +88,29 @@ func TestACLBasic(t *testing.T) {
       group.ID: nil,
     }),
   }, testSuccess)
+
+  testSendACL(t, ctx, listener, nil, []Policy{
+    NewACLProxyPolicy(nil),
+  }, testErrorSignal(t, "acl_denied"))
+
+  acl_proxy_1, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt(nil))
+  fatalErr(t, err)
+
+  testSendACL(t, ctx, listener, nil, []Policy{
+    NewACLProxyPolicy([]NodeID{acl_proxy_1.ID}),
+  }, testErrorSignal(t, "acl_denied"))
+
+  acl_proxy_2, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt([]Policy{NewAllNodesPolicy(nil)}))
+  fatalErr(t, err)
+
+  testSendACL(t, ctx, listener, nil, []Policy{
+    NewACLProxyPolicy([]NodeID{acl_proxy_2.ID}),
+  }, testSuccess)
+
+  acl_proxy_3, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt([]Policy{NewMemberOfPolicy(map[NodeID]Tree{group.ID: nil})}))
+  fatalErr(t, err)
+
+  testSendACL(t, ctx, listener, nil, []Policy{
+    NewACLProxyPolicy([]NodeID{acl_proxy_3.ID}),
+  }, testSuccess)
 }

@@ -109,6 +109,7 @@ var (
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
   PerNodePolicyType       = NewPolicyType("PER_NODE")
   AllNodesPolicyType      = NewPolicyType("ALL_NODES")
+  ACLProxyPolicyType      = NewPolicyType("ACL_PROXY")
 
   ErrorType     = NewSerializedType("ERROR")
   PointerType   = NewSerializedType("POINTER")

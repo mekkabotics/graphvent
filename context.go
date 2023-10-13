@@ -1299,6 +1299,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterPolicy(reflect.TypeOf(ACLProxyPolicy{}), ACLProxyPolicyType)
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterSignal(reflect.TypeOf(ACLTimeoutSignal{}), ACLTimeoutSignalType)
   if err != nil {
     return nil, err

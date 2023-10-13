@@ -143,7 +143,6 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
       for policy_id, policy_messages := range(acl_messages) {
         total_messages += len(policy_messages)
         for _, message := range(policy_messages) {
-          // Create timeout signal and add the ID to Pending
           timeout_signal := NewTimeoutSignal(message.Signal.ID())
           ext.Pending[message.Signal.ID()] = PendingSignal{
             Policy: policy_id,
@@ -191,3 +190,37 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
 
   return messages, changes
 }
+
+type ACLProxyPolicy struct {
+  PolicyHeader
+  Proxies []NodeID
+}
+
+func NewACLProxyPolicy(proxies []NodeID) ACLProxyPolicy {
+  return ACLProxyPolicy{
+    NewPolicyHeader(),
+    proxies,
+  }
+}
+
+func (policy ACLProxyPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node) (Messages, RuleResult) {
+  if len(policy.Proxies) == 0 {
+    return nil, Deny
+  }
+
+  messages := Messages{}
+  for _, proxy := range(policy.Proxies) {
+    messages = messages.Add(ctx, node.ID, node.Key, NewACLSignal(principal_id, action), proxy)
+  }
+
+  return messages, Pending
+}
+
+func (policy ACLProxyPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+  _, is_success := signal.(*SuccessSignal)
+  if is_success == true {
+    return Allow
+  }
+  return Deny
+}
+
