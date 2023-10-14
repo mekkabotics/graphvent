@@ -5,12 +5,10 @@ import (
   "time"
   "fmt"
   "encoding/json"
-  "encoding/base64"
   "io"
   "net/http"
   "net"
   "crypto/tls"
-  "crypto/x509"
   "crypto/rand"
   "crypto/ed25519"
   "bytes"
@@ -128,13 +126,8 @@ func TestGQLServer(t *testing.T) {
     },
   }
 
-  n1_id_bytes, err := n1.ID.MarshalBinary()
+  auth_header, err := AuthB64(n1.Key, gql.Key.Public().(ed25519.PublicKey))
   fatalErr(t, err)
-  auth_username := base64.StdEncoding.EncodeToString(n1_id_bytes)
-  key_bytes, err := x509.MarshalPKCS8PrivateKey(n1.Key)
-  fatalErr(t, err)
-  auth_password := base64.StdEncoding.EncodeToString(key_bytes)
-  auth_b64 := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", auth_username, auth_password)))
 
   SendGQL := func(payload GQLPayload) []byte {
     ser, err := json.MarshalIndent(&payload, "", "  ")
@@ -144,7 +137,7 @@ func TestGQLServer(t *testing.T) {
     req, err := http.NewRequest("GET", url, req_data)
     fatalErr(t, err)
 
-    req.SetBasicAuth(auth_username, auth_password)
+    req.Header.Add("Authorization", auth_header)
     resp, err := client.Do(req)
     fatalErr(t, err)
 
@@ -169,7 +162,6 @@ func TestGQLServer(t *testing.T) {
     fatalErr(t, err)
     config.Protocol = append(config.Protocol, "graphql-ws")
     config.TlsConfig = &tls.Config{InsecureSkipVerify: true}
-    config.Header.Add("Authorization", fmt.Sprintf("Basic %s", auth_b64))
 
     ws, err := websocket.DialConfig(config)
 
@@ -186,7 +178,7 @@ func TestGQLServer(t *testing.T) {
     }{
       uuid.New(),
       "connection_init",
-      payload_struct{ auth_b64 },
+      payload_struct{ auth_header },
     }
 
     ser, err := json.Marshal(&init)
