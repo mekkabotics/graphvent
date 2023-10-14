@@ -127,27 +127,38 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     ctx.Context.Log.Logf("gql", "SENT_READ_SIGNAL to %+s", id)
   }
 
-  ctx.Context.Log.Logf("gql", "Resolved cached nodes: %+v", responses)
-
+  errors := ""
+  ctx.Context.Log.Logf("gql", "RESP_CHANNELS: %+v", resp_channels)
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
-    response, err := WaitForSignal(response_chan, time.Millisecond*100, func(sig *ReadResultSignal)bool{
-      return sig.ReqID == sig_id
-    })
+    response, err := WaitForResponse(response_chan, time.Millisecond*100, sig_id)
     if err != nil {
       return nil, err
+    }
+    ctx.Context.Log.Logf("gql", "GQL node response: %+v", response)
+
+    error_signal, is_error := response.(*ErrorSignal)
+    if is_error {
+      errors = fmt.Sprintf("%s, %s", errors, error_signal.Error)
+      continue
+    }
+
+    read_response, is_read_response := response.(*ReadResultSignal)
+    if is_read_response == false {
+      errors = fmt.Sprintf("%s, wrong response type %+v", errors, reflect.TypeOf(response))
+      continue
     }
 
     idx := indices[sig_id]
     responses[idx] = NodeResult{
-      response.NodeID,
-      response.NodeType,
-      response.Extensions,
+      read_response.NodeID,
+      read_response.NodeType,
+      read_response.Extensions,
     }
 
-    cache, exists := ctx.NodeCache[response.NodeID]
+    cache, exists := ctx.NodeCache[read_response.NodeID]
     if exists == true {
-      for ext_type, fields := range(response.Extensions) {
+      for ext_type, fields := range(read_response.Extensions) {
         cached_fields, exists := cache.Data[ext_type]
         if exists == true {
           for field_name, field_value := range(fields) {
@@ -156,11 +167,14 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
         }
       }
     } else {
-      ctx.NodeCache[response.NodeID] = responses[idx]
+      ctx.NodeCache[read_response.NodeID] = responses[idx]
     }
 
   }
   ctx.Context.Log.Logf("gql", "RESOLVED_NODES %+v - %+v", ids, responses)
 
+  if errors != "" {
+    return nil, fmt.Errorf(errors)
+  }
   return responses, nil
 }

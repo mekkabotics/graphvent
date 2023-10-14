@@ -289,6 +289,9 @@ func nodeLoop(ctx *Context, node *Node) error {
       }
       sig_data := append(dst_id_ser, src_id_ser...)
       sig_data = append(sig_data, ser...)
+      if msg.Authorization != nil {
+        sig_data = append(sig_data, msg.Authorization.Signature...)
+      }
       validated := ed25519.Verify(msg.Source, sig_data, msg.Signature)
       if validated == false {
         ctx.Log.Logf("signal", "SIGNAL_VERIFY_ERR: %s - %+v", node.ID, msg)
