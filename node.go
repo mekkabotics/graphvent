@@ -295,7 +295,17 @@ func nodeLoop(ctx *Context, node *Node) error {
         continue
       }
 
-      princ_id := KeyID(msg.Source)
+      var princ_id NodeID
+      if msg.Authorization == nil {
+        princ_id = KeyID(msg.Source)
+      } else {
+        err := ValidateAuthorization(*msg.Authorization, time.Hour)
+        if err != nil {
+          ctx.Log.Logf("node", "Authorization validation failed: %s", err)
+          continue
+        }
+        princ_id = KeyID(msg.Authorization.Identity)
+      }
       if princ_id != node.ID {
         pends, resp := node.Allows(ctx, princ_id, msg.Signal.Permission())
         if resp == Deny {

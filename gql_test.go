@@ -35,6 +35,12 @@ func TestGQLAuth(t *testing.T) {
   auth, err := ParseAuthB64(auth_header, node_2.Key)
   fatalErr(t, err)
 
+  err = ValidateAuthorization(Authorization{
+    AuthInfo: auth.AuthInfo,
+    Key: auth.Key.Public().(ed25519.PublicKey),
+  }, time.Second)
+  fatalErr(t, err)
+
   ctx.Log.Logf("test", "AUTH: %+v", auth)
 }
 

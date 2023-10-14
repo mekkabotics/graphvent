@@ -550,6 +550,26 @@ func ParseAuthB64(auth_base64 string, server_id ed25519.PrivateKey) (*ClientAuth
   }, nil
 }
 
+func ValidateAuthorization(auth Authorization, valid time.Duration) error {
+  // Check that the time + valid < now
+  // Check that Signature is public_key + start signed with client_id
+  if auth.Start.Add(valid).Compare(time.Now()) != 1 {
+    return fmt.Errorf("authorization expired")
+  }
+
+  time_bytes, err := auth.Start.MarshalBinary()
+  if err != nil {
+    return err
+  }
+
+  digest := append(auth.Key, time_bytes...)
+  if ed25519.Verify(auth.Identity, digest, auth.Signature) != true {
+    return fmt.Errorf("verification failed")
+  }
+
+  return nil
+}
+
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveContext, error) {
   return &ResolveContext{
     ID: uuid.New(),
