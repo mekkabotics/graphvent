@@ -111,7 +111,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     ctx.Context.Log.Logf("gql", "READ_SIGNAL for %s - %+v", id, read_signal)
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     msgs := Messages{}
-    msgs = msgs.Add(ctx.Context, ctx.Server.ID, ctx.Key, read_signal, id)
+    msgs = msgs.Add(ctx.Context, id, ctx.Server, ctx.Authorization, read_signal)
 
     response_chan := ctx.Ext.GetResponseChannel(read_signal.ID())
     resp_channels[read_signal.ID()] = response_chan

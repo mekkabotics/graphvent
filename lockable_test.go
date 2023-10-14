@@ -44,7 +44,7 @@ func TestLink(t *testing.T) {
 
   msgs := Messages{}
   link_signal := NewLinkSignal("add", l2.ID)
-  msgs = msgs.Add(ctx, l1.ID, l1.Key, link_signal, l1.ID)
+  msgs = msgs.Add(ctx, l1.ID, l1, nil, link_signal)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
@@ -60,7 +60,7 @@ func TestLink(t *testing.T) {
 
   msgs = Messages{}
   unlink_signal := NewLinkSignal("remove", l2.ID)
-  msgs = msgs.Add(ctx, l1.ID, l1.Key, unlink_signal, l1.ID)
+  msgs = msgs.Add(ctx, l1.ID, l1, nil, unlink_signal)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 

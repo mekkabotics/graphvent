@@ -80,7 +80,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
           if ext.Policies[policy_index].ContinueAllows(ctx, acl_info, response) == Allow {
             delete(ext.PendingACLs, info.ID)
             ctx.Log.Logf("acl", "Request delayed allow")
-            messages = messages.Add(ctx, node.ID, node.Key, NewSuccessSignal(info.ID), acl_info.Source)
+            messages = messages.Add(ctx, acl_info.Source, node, nil, NewSuccessSignal(info.ID))
             changes = changes.Add("acl_passed")
             err := node.DequeueSignal(acl_info.TimeoutID)
             if err != nil {
@@ -89,7 +89,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
           } else if acl_info.Counter == 0 {
             delete(ext.PendingACLs, info.ID)
             ctx.Log.Logf("acl", "Request delayed deny")
-            messages = messages.Add(ctx, node.ID, node.Key, NewErrorSignal(info.ID, "acl_denied"), acl_info.Source)
+            messages = messages.Add(ctx, acl_info.Source, node, nil, NewErrorSignal(info.ID, "acl_denied"))
             changes = changes.Add("acl_blocked")
             err := node.DequeueSignal(acl_info.TimeoutID)
             if err != nil {
@@ -133,7 +133,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
 
     if denied == true {
       ctx.Log.Logf("acl", "Request denied")
-      messages = messages.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.Id, "acl_denied"), source)
+      messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "acl_denied"))
     } else if acl_messages != nil {
       ctx.Log.Logf("acl", "Request pending")
       changes = changes.Add("acl_pending")
@@ -168,7 +168,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
       }
     } else {
       ctx.Log.Logf("acl", "Request allowed")
-      messages = messages.Add(ctx, node.ID, node.Key, NewSuccessSignal(sig.Id), source)
+      messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
     }
     // Test an action against the policy list, sending any intermediate signals necessary and seeting Pending and PendingACLs accordingly. Add a TimeoutSignal for every message awaiting a response, and an ACLTimeoutSignal for the overall request
   case *ACLTimeoutSignal:
@@ -176,7 +176,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     if exists == true {
       delete(ext.PendingACLs, sig.ReqID)
       ctx.Log.Logf("acl", "Request timeout deny")
-      messages = messages.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.ReqID, "acl_timeout"), acl_info.Source)
+      messages = messages.Add(ctx, acl_info.Source, node, nil, NewErrorSignal(sig.ReqID, "acl_timeout"))
       changes = changes.Add("acl_timeout")
       err := node.DequeueSignal(acl_info.TimeoutID)
       if err != nil {
@@ -210,7 +210,7 @@ func (policy ACLProxyPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
 
   messages := Messages{}
   for _, proxy := range(policy.Proxies) {
-    messages = messages.Add(ctx, node.ID, node.Key, NewACLSignal(principal_id, action), proxy)
+    messages = messages.Add(ctx, proxy, node, nil, NewACLSignal(principal_id, action))
   }
 
   return messages, Pending

@@ -147,9 +147,9 @@ func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
         }
       }
     } else {
-      msgs = msgs.Add(ctx, node.ID, node.Key, NewReadSignal(map[ExtType][]string{
+      msgs = msgs.Add(ctx, id, node, nil, NewReadSignal(map[ExtType][]string{
         GroupExtType: []string{"members"},
-      }), id)
+      }))
     }
   }
   return msgs, Pending

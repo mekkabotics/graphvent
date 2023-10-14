@@ -65,19 +65,19 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
   switch sig := signal.(type) {
   case *AddMemberSignal:
     if slices.Contains(ext.Members, sig.MemberID) == true {
-      messages = messages.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.Id, "already_member"), source)
+      messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "already_member"))
     } else {
       ext.Members = append(ext.Members, sig.MemberID)
-      messages = messages.Add(ctx, node.ID, node.Key, NewSuccessSignal(sig.Id), source)
+      messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
       changes = changes.Add("member_added")
     }
   case *RemoveMemberSignal:
     idx := slices.Index(ext.Members, sig.MemberID)
     if idx == -1 {
-      messages = messages.Add(ctx, node.ID, node.Key, NewErrorSignal(sig.Id, "not_member"), source)
+      messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "not_member"))
     } else {
       ext.Members = slices.Delete(ext.Members, idx, idx+1)
-      messages = messages.Add(ctx, node.ID, node.Key, NewSuccessSignal(sig.Id), source)
+      messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
       changes = changes.Add("member_removed")
     }
   }

@@ -7,7 +7,7 @@ import (
 )
 
 func TestSerializeBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "serialize"})
+  ctx := logTestContext(t, []string{"test"})
   testSerializeComparable[string](t, ctx, "test")
   testSerializeComparable[bool](t, ctx, true)
   testSerializeComparable[float32](t, ctx, 0.05)

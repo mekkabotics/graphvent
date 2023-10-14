@@ -166,7 +166,7 @@ func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, sig
       return nil, err
     }
     msgs := Messages{}
-    msgs = msgs.Add(ctx.Context, ctx.User, ctx.Key, signal, send_id)
+    msgs = msgs.Add(ctx.Context, send_id, ctx.Server, ctx.Authorization, signal)
 
     response_chan := ctx.Ext.GetResponseChannel(signal.ID())
     err = ctx.Context.Send(msgs)

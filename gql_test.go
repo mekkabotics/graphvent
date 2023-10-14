@@ -18,6 +18,26 @@ import (
   "github.com/google/uuid"
 )
 
+func TestGQLAuth(t *testing.T) {
+  ctx := logTestContext(t, []string{"test"})
+
+  listener_1 := NewListenerExt(10)
+  node_1, err := NewNode(ctx, nil, BaseNodeType, 10, nil, listener_1)
+  fatalErr(t, err)
+  
+  listener_2 := NewListenerExt(10)
+  node_2, err := NewNode(ctx, nil, BaseNodeType, 10, nil, listener_2)
+  fatalErr(t, err)
+
+  auth_header, err := AuthB64(node_1.Key, node_2.Key.Public().(ed25519.PublicKey))
+  fatalErr(t, err)
+
+  auth, err := ParseAuthB64(auth_header, node_2.Key)
+  fatalErr(t, err)
+
+  ctx.Log.Logf("test", "AUTH: %+v", auth)
+}
+
 func TestGQLServer(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "gqlws"})
 
@@ -196,7 +216,7 @@ func TestGQLServer(t *testing.T) {
     ctx.Log.Logf("test", "SUB: %s", resp[:n])
 
     msgs := Messages{}
-    msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStatusSignal(gql.ID, Changes{"test_status"}), gql.ID)
+    msgs = msgs.Add(ctx, gql.ID, gql, nil, NewStatusSignal(gql.ID, Changes{"test_status"}))
     err = ctx.Send(msgs)
     fatalErr(t, err)
 
@@ -210,7 +230,7 @@ func TestGQLServer(t *testing.T) {
   SubGQL(sub_1)
 
   msgs := Messages{}
-  msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStopSignal(), gql.ID)
+  msgs = msgs.Add(ctx, gql.ID, gql, nil, NewStopSignal())
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StoppedSignal) bool {
@@ -241,7 +261,7 @@ func TestGQLDB(t *testing.T) {
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
 
   msgs := Messages{}
-  msgs = msgs.Add(ctx, gql.ID, gql.Key, NewStopSignal(), gql.ID)
+  msgs = msgs.Add(ctx, gql.ID, gql, nil, NewStopSignal())
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StoppedSignal) bool {
@@ -256,7 +276,7 @@ func TestGQLDB(t *testing.T) {
   listener_ext, err = GetExt[*ListenerExt](gql_loaded, ListenerExtType)
   fatalErr(t, err)
   msgs = Messages{}
-  msgs = msgs.Add(ctx, gql_loaded.ID, gql_loaded.Key, NewStopSignal(), gql_loaded.ID)
+  msgs = msgs.Add(ctx, gql_loaded.ID, gql_loaded, nil, NewStopSignal())
   err = ctx.Send(msgs)
   fatalErr(t, err)
   _, err = WaitForSignal(listener_ext.Chan, 100*time.Millisecond, func(sig *StoppedSignal) bool {

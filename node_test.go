@@ -23,7 +23,7 @@ func TestNodeDB(t *testing.T) {
   })
 
   msgs := Messages{}
-  msgs = msgs.Add(ctx, node.ID, node.Key, NewStopSignal(), node.ID)
+  msgs = msgs.Add(ctx, node.ID, node, nil, NewStopSignal())
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
@@ -71,7 +71,7 @@ func TestNodeRead(t *testing.T) {
     GroupExtType: {"members"},
   })
   msgs := Messages{}
-  msgs = msgs.Add(ctx, n2.ID, n2.Key, read_sig, n1.ID)
+  msgs = msgs.Add(ctx, n1.ID, n2, nil, read_sig)
   err = ctx.Send(msgs)
   fatalErr(t, err)
 

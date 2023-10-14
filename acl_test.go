@@ -44,7 +44,7 @@ func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *No
   fatalErr(t, err)
 
   messages := Messages{}
-  messages = messages.Add(ctx, source.ID, source.Key, signal, destination.ID)
+  messages = messages.Add(ctx, destination.ID, source, nil, signal)
   fatalErr(t, ctx.Send(messages))
 
   response, err := WaitForResponse(source_listener.Chan, time.Millisecond*10, signal.ID())

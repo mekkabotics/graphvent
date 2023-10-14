@@ -1,35 +1,42 @@
 package graphvent
 
 import (
-  "time"
-  "net"
-  "net/http"
-  "github.com/graphql-go/graphql"
-  "github.com/graphql-go/graphql/language/parser"
-  "github.com/graphql-go/graphql/language/source"
-  "github.com/graphql-go/graphql/language/ast"
+  "bytes"
   "context"
-  "encoding/json"
-  "encoding/base64"
-  "io"
-  "reflect"
-  "fmt"
-  "sync"
-  "github.com/gobwas/ws"
-  "github.com/gobwas/ws/wsutil"
-  "strings"
-  "crypto/ecdsa"
-  "crypto/elliptic"
+  "crypto"
+  "crypto/aes"
+  "crypto/cipher"
   "crypto/ecdh"
+  "crypto/ecdsa"
   "crypto/ed25519"
+  "crypto/elliptic"
   "crypto/rand"
   "crypto/x509"
-  //"crypto/tls"
+  "encoding/base64"
+  "encoding/json"
+  "fmt"
+  "io"
+  "net"
+  "net/http"
+  "reflect"
+  "strings"
+  "sync"
+  "time"
+
+  "filippo.io/edwards25519"
+  "crypto/sha512"
+  "github.com/gobwas/ws"
+  "github.com/gobwas/ws/wsutil"
+  "github.com/graphql-go/graphql"
+  "github.com/graphql-go/graphql/language/ast"
+  "github.com/graphql-go/graphql/language/parser"
+  "github.com/graphql-go/graphql/language/source"
+
   "crypto/x509/pkix"
-  "math/big"
   "encoding/pem"
+  "math/big"
+
   "github.com/google/uuid"
-  "slices"
 )
 
 func AuthorizationHeader(node *Node) (string, error) {
@@ -353,80 +360,194 @@ type ResolveContext struct {
   // The state data for the node processing this request
   Ext *GQLExt
 
-  // ID of the user that made this request
-  User NodeID
-
   // Cache of resolved nodes
   NodeCache map[NodeID]NodeResult
 
-  // Key for the user that made this request, to sign resolver requests
-  // TODO: figure out some way to use a generated key so that the server can't impersonate the user afterwards
-  Key ed25519.PrivateKey
+  // Authorization from the user that started this request
+  Authorization *ClientAuthorization
 }
 
-func ParseAuthB64(auth_base64 string) (ed25519.PrivateKey, NodeID, error) {
-  auth_bytes, err := base64.StdEncoding.DecodeString(auth_base64)
+func AuthB64(client_key ed25519.PrivateKey, server_pubkey ed25519.PublicKey) (string, error) {
+  token_start := time.Now()
+  token_start_bytes, err := token_start.MarshalBinary()
   if err != nil {
-    return nil, NodeID{}, err
+    return "", err
   }
 
-  idx := slices.Index(auth_bytes, ':')
-  if idx == -1 {
-    return nil, NodeID{}, fmt.Errorf("No colon in auth")
-  }
-
-  id_base64 := auth_bytes[:idx]
-  key_base64 := auth_bytes[idx+1:]
-
-  id, err := ParseIDB64(string(id_base64))
+  session_key_public, session_key_private, err := ed25519.GenerateKey(rand.Reader)
   if err != nil {
-    return nil, NodeID{}, err
+    return "", err
   }
 
-  key, err := ParseKeyB64(string(key_base64))
+  session_h := sha512.Sum512(session_key_private.Seed())
+  ecdh_client, err := ECDH.NewPrivateKey(session_h[:32])
   if err != nil {
-    return nil, NodeID{}, err
+    return "", err
   }
 
-  key_id := KeyID(key.Public().(ed25519.PublicKey))
-  if key_id != id {
-    return nil, NodeID{}, fmt.Errorf("key_id != id(%s != %s)", key_id, id)
+  server_point, err := (&edwards25519.Point{}).SetBytes(server_pubkey)
+  if err != nil {
+    return "", err
   }
 
-  return key, id, nil
+  ecdh_server, err := ECDH.NewPublicKey(server_point.BytesMontgomery())
+  if err != nil {
+    return "", err
+  }
+
+
+  secret, err := ecdh_client.ECDH(ecdh_server)
+  if err != nil {
+    return "", err
+  }
+
+  if len(secret) != 32 {
+    return "", fmt.Errorf("ECDH secret not 32 bytes(for AES-256): %d bytes long", len(secret))
+  }
+
+  block, err := aes.NewCipher(secret)
+  if err != nil {
+    return "", err
+  }
+
+  iv := make([]byte, block.BlockSize())
+  iv_len, err := rand.Reader.Read(iv)
+  if err != nil {
+    return "", err
+  } else if iv_len != block.BlockSize() {
+    return "", fmt.Errorf("Not enough iv bytes read: %d", iv_len)
+  }
+
+  var key_encrypted bytes.Buffer
+  stream := cipher.NewOFB(block, iv)
+  writer := &cipher.StreamWriter{S: stream, W: &key_encrypted}
+
+  bytes_written, err := writer.Write(session_key_private.Seed())
+  if err != nil {
+    return "", err
+  } else if bytes_written != len(ecdh_client.Bytes()) {
+    return "", fmt.Errorf("wrong number of bytes encrypted %d/%d", bytes_written, len(ecdh_client.Bytes()))
+  }
+
+  digest := append(session_key_public, token_start_bytes...)
+  signature, err := client_key.Sign(rand.Reader, digest, crypto.Hash(0))
+  if err != nil {
+    return "", err
+  }
+
+  start_b64 := base64.StdEncoding.EncodeToString(token_start_bytes)
+  iv_b64 := base64.StdEncoding.EncodeToString(iv)
+  encrypted_b64 := base64.StdEncoding.EncodeToString(key_encrypted.Bytes())
+  key_b64 := base64.StdEncoding.EncodeToString(session_key_public)
+  sig_b64 := base64.StdEncoding.EncodeToString(signature)
+  id_b64 := base64.StdEncoding.EncodeToString(client_key.Public().(ed25519.PublicKey))
+
+  return base64.StdEncoding.EncodeToString([]byte(strings.Join([]string{id_b64, iv_b64, key_b64, encrypted_b64, start_b64, sig_b64}, ":"))), nil
 }
 
-func ParseKeyB64(key_base64 string) (ed25519.PrivateKey, error) {
-  key_bytes, err := base64.StdEncoding.DecodeString(key_base64)
+func ParseAuthB64(auth_base64 string, server_id ed25519.PrivateKey) (*ClientAuthorization, error) {
+  joined_b64, err := base64.StdEncoding.DecodeString(auth_base64)
   if err != nil {
     return nil, err
   }
 
-  key_raw, err := x509.ParsePKCS8PrivateKey([]byte(key_bytes))
+  auth_parts := strings.Split(string(joined_b64), ":")
+  if len(auth_parts) != 6 {
+    return nil, fmt.Errorf("Wrong number of delimited elements %d", len(auth_parts))
+  }
+
+  id_bytes, err := base64.StdEncoding.DecodeString(auth_parts[0])
   if err != nil {
     return nil, err
   }
 
-  key, ok := key_raw.(ed25519.PrivateKey)
-  if ok == false {
-    return nil, fmt.Errorf("parsed key wrong type: %s", reflect.TypeOf(key_raw))
-  }
-
-  return key, nil
-}
-
-func ParseIDB64(id_base64 string) (NodeID, error) {
-  id_bytes, err := base64.StdEncoding.DecodeString(id_base64)
+  iv, err := base64.StdEncoding.DecodeString(auth_parts[1])
   if err != nil {
-    return NodeID{}, err
+    return nil, err
   }
 
-  auth_id, err := IDFromBytes(id_bytes)
+  public_key, err := base64.StdEncoding.DecodeString(auth_parts[2])
   if err != nil {
-    return NodeID{}, err
+    return nil, err
   }
 
-  return auth_id, nil
+  key_encrypted, err := base64.StdEncoding.DecodeString(auth_parts[3])
+  if err != nil {
+    return nil, err
+  }
+
+  start_bytes, err := base64.StdEncoding.DecodeString(auth_parts[4])
+  if err != nil {
+    return nil, err
+  }
+
+  signature, err := base64.StdEncoding.DecodeString(auth_parts[5])
+  if err != nil {
+    return nil, err
+  }
+
+  var start time.Time
+  err = start.UnmarshalBinary(start_bytes)
+  if err != nil {
+    return nil, err
+  }
+
+  client_id := ed25519.PublicKey(id_bytes)
+  if err != nil {
+    return nil, err
+  }
+
+  client_point, err := (&edwards25519.Point{}).SetBytes(public_key)
+  if err != nil {
+    return nil, err
+  }
+
+  ecdh_client, err := ECDH.NewPublicKey(client_point.BytesMontgomery())
+  if err != nil {
+    return nil, err
+  }
+
+  h := sha512.Sum512(server_id.Seed())
+  ecdh_server, err := ECDH.NewPrivateKey(h[:32])
+  if err != nil {
+    return nil, err
+  }
+
+  secret, err := ecdh_server.ECDH(ecdh_client)
+  if err != nil {
+    return nil, err
+  } else if len(secret) != 32 {
+    return nil, fmt.Errorf("Secret wrong length: %d/32", len(secret))
+  }
+
+  block, err := aes.NewCipher(secret)
+  if err != nil {
+    return nil, err
+  }
+
+  encrypted_reader := bytes.NewReader(key_encrypted)
+  stream := cipher.NewOFB(block, iv)
+  reader := cipher.StreamReader{S: stream, R: encrypted_reader}
+  var decrypted_key bytes.Buffer
+  _, err = io.Copy(&decrypted_key, reader)
+  if err != nil {
+    return nil, err
+  }
+
+  session_key := ed25519.NewKeyFromSeed(decrypted_key.Bytes())
+  digest := append(session_key.Public().(ed25519.PublicKey), start_bytes...)
+  if ed25519.Verify(client_id, digest, signature) == false {
+    return nil, fmt.Errorf("Failed to verify digest/signature against client_id")
+  }
+
+  return &ClientAuthorization{
+    AuthInfo: AuthInfo{
+      Identity: client_id,
+      Start: start,
+      Signature: signature,
+    },
+    Key: session_key,
+  }, nil
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveContext, error) {
@@ -438,8 +559,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveCon
     GQLContext: ctx.Extensions[GQLExtType].Data.(*GQLExtContext),
     NodeCache: map[NodeID]NodeResult{},
     Server: server,
-    User: NodeID{},
-    Key: nil,
+    Authorization: nil,
   }, nil
 }
 
@@ -453,43 +573,21 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
-    id_b64, key_b64, ok := r.BasicAuth()
-    if ok == false {
-      ctx.Log.Logf("gql", "GQL_AUTH_BASIC_MISSING")
-      json.NewEncoder(w).Encode(fmt.Errorf("Failed to get auth headers"))
-      return
-    }
-
-    auth_id, err := ParseIDB64(id_b64)
+    auth, err := ParseAuthB64(r.Header.Get("Authorization"), server.Key)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ID_PARSE_ERROR: %s", err)
-      json.NewEncoder(w).Encode(fmt.Errorf("Failed to parse auth_id: %s", id_b64))
-      return
-    }
-
-    key, err := ParseKeyB64(key_b64)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_KEY_PARSE_ERROR: %s", err)
-      json.NewEncoder(w).Encode(fmt.Errorf("Failed to parse key: %s", key_b64))
-      return
-    }
-
-    key_id := KeyID(key.Public().(ed25519.PublicKey))
-    if auth_id != key_id {
-      ctx.Log.Logf("gql", "GQL_AUTH_ERR: key_id != auth_id: %s != %s", key_id, auth_id)
-      json.NewEncoder(w).Encode(fmt.Errorf("GQL_REQUEST_ERR: key_id(%s) != auth_id(%s)", auth_id, key_id))
+      json.NewEncoder(w).Encode(GQLUnauthorized(""))
       return
     }
 
     resolve_context, err := NewResolveContext(ctx, server, gql_ext)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
-      json.NewEncoder(w).Encode(GQLUnauthorized(fmt.Sprintf("%s", err)))
+      json.NewEncoder(w).Encode(GQLUnauthorized(""))
       return
     }
 
-    resolve_context.Key = key
-    resolve_context.User = key_id
+    resolve_context.Authorization = auth
 
     req_ctx := context.Background()
     req_ctx = context.WithValue(req_ctx, "resolve", resolve_context)
@@ -634,14 +732,13 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
             break
           }
 
-          key, key_id, err := ParseAuthB64(connection_params.Payload.Token)
+          authorization, err := ParseAuthB64(connection_params.Payload.Token, server.Key)
           if err != nil {
             ctx.Log.Logf("gqlws", "WS_AUTH_PARSE_ERR: %s", err)
             break
           }
 
-          resolve_context.User = key_id
-          resolve_context.Key = key
+          resolve_context.Authorization = authorization
 
           conn_state = "ready"
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"connection_ack\"}"))
