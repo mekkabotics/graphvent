@@ -39,25 +39,6 @@ import (
   "github.com/google/uuid"
 )
 
-func AuthorizationHeader(node *Node) (string, error) {
-  key_ser, err := x509.MarshalPKCS8PrivateKey(node.Key)
-  if err != nil {
-    return "", err
-  }
-
-  id_bytes, err := node.ID.MarshalBinary()
-  if err != nil {
-    return "", err
-  }
-  id_str := base64.StdEncoding.EncodeToString(id_bytes)
-  key_str := base64.StdEncoding.EncodeToString(key_ser)
-
-  bytes := append([]byte(id_str), ':')
-  bytes = append(bytes, []byte(key_str)...)
-
-  return base64.StdEncoding.EncodeToString(bytes), nil
-}
-
 func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTypeOfParams) bool {
   return func(p graphql.IsTypeOfParams) bool {
     ctx, ok := p.Context.Value("resolve").(*ResolveContext)
@@ -320,24 +301,6 @@ func (e GQLUnauthorized) MarshalJSON() ([]byte, error) {
   }{
     Error: string(e),
   }, "", "  ")
-}
-
-func checkForAuthHeader(header http.Header) (string, bool) {
-  auths, ok := header["Authorization"]
-  if ok == false {
-    return "", false
-  }
-  for _, auth := range(auths) {
-    parts := strings.SplitN(auth, " ", 2)
-    if len(parts) != 2 {
-      continue
-    }
-    if parts[0] == "TM" {
-      return parts[1], true
-    }
-  }
-
-  return "", false
 }
 
 // Context passed to each resolve execution
