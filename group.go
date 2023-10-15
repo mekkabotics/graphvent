@@ -175,12 +175,12 @@ func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
       if err != nil {
         ctx.Log.Logf("group", "MemberOfPolicy with self ID error: %s", err)
       } else {
-        for sub_group_name, sub_group := range(sub_groups) {
+        for sub_group_name, permission := range(sub_groups) {
           ext_sub_group, exists := ext.SubGroups[sub_group_name]
           if exists == true {
             for _, member := range(ext_sub_group) {
               if member == principal_id {
-                if sub_group.Allows(action) == Allow {
+                if permission.Allows(action) == Allow {
                   return nil, Allow
                 }
                 break
