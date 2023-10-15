@@ -6,6 +6,11 @@ import (
   "fmt"
 )
 
+func TestSerializeTest(t *testing.T) {
+  ctx := logTestContext(t, []string{"test", "serialize"})
+  testSerialize(t, ctx, map[string][]NodeID{"test_group": {RandID(), RandID(), RandID()}})
+}
+
 func TestSerializeBasic(t *testing.T) {
   ctx := logTestContext(t, []string{"test"})
   testSerializeComparable[string](t, ctx, "test")
@@ -28,6 +33,7 @@ func TestSerializeBasic(t *testing.T) {
   testSerializeSliceSlice[[][]string](t, ctx, [][]string{{"123", "456", "789", "101112"}, {"3253", "2341", "735", "212"}, {"123", "51"}, nil})
 
   testSerialize(t, ctx, map[int8]map[*int8]string{})
+
 
   var i interface{} = nil
   testSerialize(t, ctx, i)

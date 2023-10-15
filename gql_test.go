@@ -63,12 +63,14 @@ func TestGQLServer(t *testing.T) {
     SerializedType(ErrorSignalType): nil,
   })
 
-  group_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
+  group_policy_2 := NewMemberOfPolicy(map[NodeID]map[string]Tree{
     gql_id: {
-      SerializedType(LinkSignalType): nil,
-      SerializedType(LockSignalType): nil,
-      SerializedType(StatusSignalType): nil,
-      SerializedType(ReadSignalType): nil,
+      "test_group": {
+        SerializedType(LinkSignalType): nil,
+        SerializedType(LockSignalType): nil,
+        SerializedType(StatusSignalType): nil,
+        SerializedType(ReadSignalType): nil,
+      },
     },
   })
 
@@ -77,11 +79,13 @@ func TestGQLServer(t *testing.T) {
     SerializedType(ErrorSignalType): nil,
   })
 
-  user_policy_2 := NewMemberOfPolicy(map[NodeID]Tree{
+  user_policy_2 := NewMemberOfPolicy(map[NodeID]map[string]Tree{
     gql_id: {
-      SerializedType(LinkSignalType): nil,
-      SerializedType(ReadSignalType): nil,
-      SerializedType(LockSignalType): nil,
+      "test_group": {
+        SerializedType(LinkSignalType): nil,
+        SerializedType(ReadSignalType): nil,
+        SerializedType(LockSignalType): nil,
+      },
     },
   })
 
@@ -93,7 +97,7 @@ func TestGQLServer(t *testing.T) {
   fatalErr(t, err)
 
   gql, err := NewNode(ctx, gql_key, GQLNodeType, 10, []Policy{group_policy_2, group_policy_1},
-  NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt([]NodeID{n1.ID, gql_id}), listener_ext)
+  NewLockableExt([]NodeID{n1.ID}), gql_ext, NewGroupExt(map[string][]NodeID{"test_group": {n1.ID, gql_id}}), listener_ext)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
@@ -120,7 +124,7 @@ func TestGQLServer(t *testing.T) {
   }
 
   req_2 := GQLPayload{
-    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { Members { ID } , Listen, Requirements { ID, TypeHash Owner { ID } } } } }",
+    Query: "query Node($id:String) { Node(id:$id) { ID, TypeHash, ... on GQLServer { SubGroups { Name, Members { ID } } , Listen, Requirements { ID, TypeHash Owner { ID } } } } }",
     Variables: map[string]interface{}{
       "id": gql.ID.String(),
     },

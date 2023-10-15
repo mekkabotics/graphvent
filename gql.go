@@ -1176,25 +1176,71 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterField(context.Interfaces["Node"].List, "Members", GroupExtType, "members",
+  sub_group_type := graphql.NewObject(graphql.ObjectConfig{
+    Name: "SubGroup",
+    Interfaces: nil,
+    Fields: graphql.Fields{
+      "Name": &graphql.Field{
+        Type: graphql.String,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          val, ok := p.Source.(SubGroupGQL)
+          if ok == false {
+            return nil, fmt.Errorf("WRONG_TYPE_RETURNED")
+          }
+          return val.Name, nil
+        },
+      },
+      "Members": &graphql.Field{
+        Type: context.Interfaces["Node"].List,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          ctx, err := PrepResolve(p)
+          if err != nil {
+            return nil, err
+          }
+
+          val, ok := p.Source.(SubGroupGQL)
+          if ok == false {
+            return nil, fmt.Errorf("WRONG_TYPE_RETURNED")
+          }
+
+          nodes, err := ResolveNodes(ctx, p, val.Members)
+          if err != nil {
+            return nil, err
+          }
+
+          return nodes, nil
+        },
+      },
+    },
+    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      return reflect.TypeOf(p.Value) == reflect.TypeOf(SubGroupGQL{})
+    },
+    Description: "SubGroup within Group",
+  })
+  context.Types = append(context.Types, sub_group_type)
+
+  err = context.RegisterField(sub_group_type, "SubGroups", GroupExtType, "sub_groups",
   func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-    node_list, ok := value.Interface().([]NodeID)
+    node_map, ok := value.Interface().(map[string]SubGroup)
     if ok == false {
-      return nil, fmt.Errorf("value is %+v, not []NodeID", value.Type())
+      return nil, fmt.Errorf("value is %+v, not map[string]SubGroup", value.Type())
     }
 
-    nodes, err := ResolveNodes(ctx, p, node_list)
-    if err != nil {
-      return nil, err
+    sub_groups := []SubGroupGQL{}
+    for name, sub_group := range(node_map) {
+      sub_groups = append(sub_groups, SubGroupGQL{
+        name,
+        sub_group.Members,
+      })
     }
 
-    return nodes, nil
+    return sub_groups, nil
   })
   if err != nil {
     panic(err)
   }
 
-  err = context.RegisterInterface("Group", "DefaultGroup", []string{"Node"}, []string{"Members"}, map[string]SelfField{}, map[string]ListField{})
+  err = context.RegisterInterface("Group", "DefaultGroup", []string{"Node"}, []string{"SubGroups"}, map[string]SelfField{}, map[string]ListField{})
   if err != nil {
     panic(err)
   }
@@ -1242,7 +1288,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"Listen", "Owner", "Requirements", "Members"})
+  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"Listen", "Owner", "Requirements", "SubGroups"})
   if err != nil {
     panic(err)
   }

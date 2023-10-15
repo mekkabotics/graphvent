@@ -4,6 +4,7 @@ import (
   "testing"
   "time"
   "reflect"
+  "runtime/debug"
 )
 
 func checkSignal[S Signal](t *testing.T, signal Signal, check func(S)){
@@ -11,6 +12,7 @@ func checkSignal[S Signal](t *testing.T, signal Signal, check func(S)){
   if cast_ok == false {
     error_signal, is_error := signal.(*ErrorSignal)
     if is_error {
+      t.Log(string(debug.Stack()))
       t.Fatal(error_signal.Error)
     }
     t.Fatalf("Response of wrong type %s", reflect.TypeOf(signal))
@@ -54,7 +56,7 @@ func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *No
 }
 
 func TestACLBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "acl"})
+  ctx := logTestContext(t, []string{"test", "acl", "policy"})
 
   listener, err := NewNode(ctx, nil, BaseNodeType, 100, nil, NewListenerExt(100))
   fatalErr(t, err)
@@ -68,24 +70,33 @@ func TestACLBasic(t *testing.T) {
     NewPerNodePolicy(map[NodeID]Tree{
       listener.ID: {
         SerializedType(AddMemberSignalType): nil,
+        SerializedType(AddSubGroupSignalType): nil,
       },
     }),
   }, NewGroupExt(nil))
   fatalErr(t, err)
 
   testSendACL(t, ctx, listener, nil, []Policy{
-    NewMemberOfPolicy(map[NodeID]Tree{
-      group.ID: nil,
+    NewMemberOfPolicy(map[NodeID]map[string]Tree{
+      group.ID: {
+        "test_group": nil,
+      },
     }),
   }, testErrorSignal(t, "acl_denied"))
 
-  add_member_signal := NewAddMemberSignal(listener.ID)
+  add_subgroup_signal := NewAddSubGroupSignal("test_group")
+  add_subgroup_response := testSend(t, ctx, add_subgroup_signal, listener, group)
+  checkSignal(t, add_subgroup_response, testSuccess)
+
+  add_member_signal := NewAddMemberSignal("test_group", listener.ID)
   add_member_response := testSend(t, ctx, add_member_signal, listener, group)
   checkSignal(t, add_member_response, testSuccess)
 
   testSendACL(t, ctx, listener, nil, []Policy{
-    NewMemberOfPolicy(map[NodeID]Tree{
-      group.ID: nil,
+    NewMemberOfPolicy(map[NodeID]map[string]Tree{
+      group.ID: {
+        "test_group": nil,
+      },
     }),
   }, testSuccess)
 
@@ -107,7 +118,15 @@ func TestACLBasic(t *testing.T) {
     NewACLProxyPolicy([]NodeID{acl_proxy_2.ID}),
   }, testSuccess)
 
-  acl_proxy_3, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt([]Policy{NewMemberOfPolicy(map[NodeID]Tree{group.ID: nil})}))
+  acl_proxy_3, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy},
+    NewACLExt([]Policy{
+      NewMemberOfPolicy(map[NodeID]map[string]Tree{
+        group.ID: {
+          "test_group": nil,
+        },
+      }),
+    }),
+  )
   fatalErr(t, err)
 
   testSendACL(t, ctx, listener, nil, []Policy{

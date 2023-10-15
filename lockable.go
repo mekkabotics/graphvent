@@ -327,3 +327,47 @@ func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal 
   return messages, changes
 }
 
+type RequirementOfPolicy struct {
+  PerNodePolicy
+}
+
+func NewRequirementOfPolicy(dep_rules map[NodeID]Tree) RequirementOfPolicy {
+  return RequirementOfPolicy {
+    PerNodePolicy: NewPerNodePolicy(dep_rules),
+  }
+}
+
+func (policy RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+  sig, ok := signal.(*ReadResultSignal)
+  if ok == false {
+    return Deny
+  }
+
+  ext, ok := sig.Extensions[LockableExtType]
+  if ok == false {
+    return Deny
+  }
+
+  reqs_ser, ok := ext["requirements"]
+  if ok == false {
+    return Deny
+  }
+
+  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser)
+  if err != nil {
+    return Deny
+  }
+
+  requirements, ok := reqs_if.Interface().(map[NodeID]ReqState)
+  if ok == false {
+    return Deny
+  }
+
+  for req, _ := range(requirements) {
+    if req == current.Principal {
+      return policy.NodeRules[sig.NodeID].Allows(current.Action)
+    }
+  }
+
+  return Deny
+}

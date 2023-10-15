@@ -12,18 +12,36 @@ func TestGroupAdd(t *testing.T) {
   group, err := NewNode(ctx, nil, GroupNodeType, 10, nil, group_listener, NewGroupExt(nil))
   fatalErr(t, err)
 
-  user_id := RandID()
-  add_member_signal := NewAddMemberSignal(user_id)
-
+  add_subgroup_signal := NewAddSubGroupSignal("test_group")
   messages := Messages{}
+  messages = messages.Add(ctx, group.ID, group, nil, add_subgroup_signal)
+  fatalErr(t, ctx.Send(messages))
+
+  resp_1, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_subgroup_signal.Id)
+  fatalErr(t, err)
+
+  error_1, is_error := resp_1.(*ErrorSignal)
+  if is_error {
+    t.Fatalf("Error returned: %s", error_1.Error)
+  }
+
+  user_id := RandID()
+  add_member_signal := NewAddMemberSignal("test_group", user_id)
+
+  messages = Messages{}
   messages = messages.Add(ctx, group.ID, group, nil, add_member_signal)
   fatalErr(t, ctx.Send(messages))
 
-  _, err = WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_member_signal.Id)
+  resp_2, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_member_signal.Id)
   fatalErr(t, err)
 
+  error_2, is_error := resp_2.(*ErrorSignal)
+  if is_error {
+    t.Fatalf("Error returned: %s", error_2.Error)
+  }
+
   read_signal := NewReadSignal(map[ExtType][]string{
-    GroupExtType: {"members"},
+    GroupExtType: {"sub_groups"},
   })
 
   messages = Messages{}
@@ -35,26 +53,35 @@ func TestGroupAdd(t *testing.T) {
 
   read_response := response.(*ReadResultSignal)
 
-  members_serialized := read_response.Extensions[GroupExtType]["members"]
+  sub_groups_serialized := read_response.Extensions[GroupExtType]["sub_groups"]
 
-  _, member_value, remaining, err := DeserializeValue(ctx, members_serialized)
+  _, sub_groups_value, remaining, err := DeserializeValue(ctx, sub_groups_serialized)
 
   if len(remaining.Data) > 0 {
-    t.Fatalf("Data remaining after deserializing member list: %d", len(remaining.Data))
+    t.Fatalf("Data remaining after deserializing subgroups: %d", len(remaining.Data))
   }
 
-  member_list, ok := member_value.Interface().([]NodeID)
+  sub_groups, ok := sub_groups_value.Interface().(map[string][]NodeID)
   
   if ok != true {
-    t.Fatalf("member_list wrong type %s", member_value.Type())
+    t.Fatalf("sub_groups wrong type %s", sub_groups_value.Type())
   }
 
-  if len(member_list) != 1 {
-    t.Fatalf("member_list wrong length %d", len(member_list))
+  if len(sub_groups) != 1 {
+    t.Fatalf("sub_groups wrong length %d", len(sub_groups))
   }
 
-  if member_list[0] != user_id {
-    t.Fatalf("member_list wrong value %s", member_list[0])
+  test_subgroup, exists := sub_groups["test_group"]
+  if exists == false {
+    t.Fatal("test_group not in subgroups")
+  }
+
+  if len(test_subgroup) != 1 {
+    t.Fatalf("test_group wrong size %d/1", len(test_subgroup))
+  }
+
+  if test_subgroup[0] != user_id {
+    t.Fatalf("sub_groups wrong value %s", test_subgroup[0])
   }
 
   ctx.Log.Logf("test", "Read Response: %+v", read_response)
