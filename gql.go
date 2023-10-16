@@ -913,7 +913,7 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
 
     val_ser, field_exists := ext[gv_tag]
     if field_exists == false {
-      return nil, fmt.Errorf("%s is not in the fields of %+v in the result", gv_tag, ext_type)
+      return nil, fmt.Errorf("%s is not in the fields of %+v in the result for %s - %+v", gv_tag, ext_type, gql_name, node)
     }
 
     if val_ser.TypeStack[0] == ErrorType {
