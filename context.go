@@ -138,7 +138,6 @@ func (ctx *Context)RegisterSignal(reflect_type reflect.Type, signal_type SignalT
   return nil
 }
 
-// Add a node to a context, returns an error if the def is invalid or already exists in the context
 func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType, data interface{}) error {
   _, exists := ctx.Extensions[ext_type]
   if exists == true {
@@ -1193,7 +1192,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     if value == nil {
       data = nil
     } else {
-      data := make([]byte, 8)
+      data = make([]byte, 8)
       binary.BigEndian.PutUint64(data, uint64(value.Int()))
     }
     return SerializedValue{

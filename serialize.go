@@ -586,7 +586,7 @@ func DeserializeStruct(ctx *Context, struct_type reflect.Type) func(*Context, Se
         field_hash := SerializedType(binary.BigEndian.Uint64(field_hash_bytes))
         field_info, exists := struct_info.FieldMap[field_hash]
         if exists == false {
-          return nil, nil, value, fmt.Errorf("Field 0x%x is not valid for %+v: %d", field_hash, struct_info.Type, i)
+          return nil, nil, value, fmt.Errorf("Field 0x%x is not valid for %+v: %+v", field_hash, struct_info.Type, struct_info.FieldMap)
         }
         field_value := struct_value.FieldByIndex(field_info.Index)
 

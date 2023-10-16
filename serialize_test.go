@@ -4,6 +4,7 @@ import (
   "testing"
   "reflect"
   "fmt"
+  "time"
 )
 
 func TestSerializeTest(t *testing.T) {
@@ -27,6 +28,8 @@ func TestSerializeBasic(t *testing.T) {
   testSerializeComparable[int16](t, ctx, int16(-1234))
   testSerializeComparable[int32](t, ctx, int32(-12345))
   testSerializeComparable[int64](t, ctx, int64(-123456))
+  testSerializeComparable[time.Duration](t, ctx, time.Duration(100))
+  testSerializeComparable[time.Time](t, ctx, time.Now())
   testSerializeSlice[[]int](t, ctx, []int{123, 456, 789, 101112})
   testSerializeSlice[[]int](t, ctx, ([]int)(nil))
   testSerializeSliceSlice[[][]int](t, ctx, [][]int{{123, 456, 789, 101112}, {3253, 2341, 735, 212}, {123, 51}, nil})
