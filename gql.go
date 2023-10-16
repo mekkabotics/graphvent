@@ -843,6 +843,9 @@ type GQLExtContext struct {
   Query *graphql.Object
   Mutation *graphql.Object
   Subscription *graphql.Object
+
+  TypeMap map[reflect.Type]GQLTypeInfo
+  KindMap map[reflect.Kind]GQLTypeInfo
 }
 
 func (ctx *GQLExtContext) GetACLFields(obj_name string, names []string) (map[ExtType][]string, error) {
@@ -1159,6 +1162,110 @@ func NewGQLExtContext() *GQLExtContext {
     Fields: graphql.Fields{},
   })
 
+  kind_map := map[reflect.Kind]GQLTypeInfo{
+    reflect.String: {
+      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
+        return graphql.String, nil
+      },
+      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
+        return reflect.ValueOf(value), nil
+      },
+    },
+    reflect.Bool: {
+      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
+        return graphql.Boolean, nil
+      },
+      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
+        return reflect.ValueOf(value), nil
+      },
+    },
+  }
+  type_map := map[reflect.Type]GQLTypeInfo{
+    reflect.TypeOf([2]NodeID{}): {
+      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
+        return graphql.NewList(graphql.String), nil
+      },
+      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
+        l, ok := value.([]interface{})
+        if ok == false {
+          return reflect.Value{}, fmt.Errorf("not list: %s", reflect.TypeOf(value))
+        } else if len(l) != 2 {
+          return reflect.Value{}, fmt.Errorf("wrong length: %d/2", len(l))
+        }
+
+        id1_str, ok := l[0].(string)
+        if ok == false {
+          return reflect.Value{}, fmt.Errorf("not strg: %s", reflect.TypeOf(l[0]))
+        }
+        id1, err := ParseID(id1_str)
+        if err != nil {
+          return reflect.Value{}, err
+        }
+        id2_str, ok := l[1].(string)
+        if ok == false {
+          return reflect.Value{}, fmt.Errorf("not strg: %s", reflect.TypeOf(l[1]))
+        }
+        id2, err := ParseID(id2_str)
+        if err != nil {
+          return reflect.Value{}, err
+        }
+        return_value := reflect.New(reflect.TypeOf([2]NodeID{})).Elem()
+        return_value.Index(0).Set(reflect.ValueOf(id1))
+        return_value.Index(1).Set(reflect.ValueOf(id2))
+
+        return return_value, nil
+      },
+    },
+    reflect.TypeOf(time.Time{}): {
+      func(ctx *GQLExtContext, reflect_type reflect.Type) (graphql.Type, error) {
+        return graphql.DateTime, nil
+      },
+      func(ctx *GQLExtContext, value interface{}) (reflect.Value, error) {
+        return reflect.ValueOf(value), nil
+      },
+    },
+    reflect.TypeOf(&NodeID{}): {
+      func(ctx *GQLExtContext, reflect_type reflect.Type) (graphql.Type, error) {
+        return graphql.String, nil
+      },
+      func(ctx *GQLExtContext, value interface{}) (reflect.Value, error) {
+        str, ok := value.(string)
+        if ok == false {
+          return reflect.Value{}, fmt.Errorf("value is not string")
+        }
+  
+        if str == "" {
+          return reflect.New(reflect.TypeOf(&NodeID{})).Elem(), nil
+        }
+  
+        id_parsed, err := ParseID(str)
+        if err != nil {
+          return reflect.Value{}, err
+        }
+  
+        return reflect.ValueOf(&id_parsed), nil
+      },
+    },
+    reflect.TypeOf(NodeID{}): {
+      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
+        return graphql.String, nil
+      },
+      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
+        str, ok := value.(string)
+        if ok == false {
+          return reflect.Value{}, fmt.Errorf("value is not string")
+        }
+  
+        id_parsed, err := ParseID(str)
+        if err != nil {
+          return reflect.Value{}, err
+        }
+  
+        return reflect.ValueOf(id_parsed), nil
+      },
+    },
+  }
+
   context := GQLExtContext{
     Schema: graphql.Schema{},
     Types: []graphql.Type{},
@@ -1168,6 +1275,8 @@ func NewGQLExtContext() *GQLExtContext {
     NodeTypes: map[NodeType]*graphql.Object{},
     Interfaces: map[string]*Interface{},
     Fields: map[string]Field{},
+    KindMap: kind_map,
+    TypeMap: type_map,
   }
 
   var err error

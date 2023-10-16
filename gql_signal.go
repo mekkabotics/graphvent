@@ -8,63 +8,25 @@ import (
   "time"
 )
 
+type GQLTypeConverter func(*GQLExtContext, reflect.Type)(graphql.Type, error)
+type GQLValueConverter func(*GQLExtContext, interface{})(reflect.Value, error)
 type GQLTypeInfo struct {
-  graphql.Type
-  FromGQL func(interface{})(reflect.Value, error)
+  Type GQLTypeConverter
+  Value GQLValueConverter
 }
 
-var kind_gql_map = map[reflect.Kind]GQLTypeInfo{
-  reflect.String: {
-    graphql.String,
-    func(value interface{})(reflect.Value, error) {
-      return reflect.ValueOf(value), nil
-    },
-  },
-  reflect.Bool: {
-    graphql.Boolean,
-    func(value interface{})(reflect.Value, error) {
-      return reflect.ValueOf(value), nil
-    },
-  },
-}
-
-var type_gql_map = map[reflect.Type]GQLTypeInfo{
-  reflect.TypeOf(&NodeID{}): {
-    graphql.String,
-    func(value interface{}) (reflect.Value, error) {
-      str, ok := value.(string)
-      if ok == false {
-        return reflect.Value{}, fmt.Errorf("value is not string")
-      }
-
-      if str == "" {
-        return reflect.New(reflect.TypeOf(&NodeID{})).Elem(), nil
-      }
-
-      id_parsed, err := ParseID(str)
-      if err != nil {
-        return reflect.Value{}, err
-      }
-
-      return reflect.ValueOf(&id_parsed), nil
-    },
-  },
-  reflect.TypeOf(NodeID{}): {
-    graphql.String,
-    func(value interface{})(reflect.Value, error) {
-      str, ok := value.(string)
-      if ok == false {
-        return reflect.Value{}, fmt.Errorf("value is not string")
-      }
-
-      id_parsed, err := ParseID(str)
-      if err != nil {
-        return reflect.Value{}, err
-      }
-
-      return reflect.ValueOf(id_parsed), nil
-    },
-  },
+func GetGQLTypeInfo(ctx *GQLExtContext, reflect_type reflect.Type) (*GQLTypeInfo, error) {
+  type_info, type_mapped := ctx.TypeMap[reflect_type]
+  if type_mapped == false {
+    kind_info, kind_mapped := ctx.KindMap[reflect_type.Kind()]
+    if kind_mapped == false {
+      return nil, fmt.Errorf("Signal has unsupported type/kind: %s/%s", reflect_type, reflect_type.Kind())
+    } else {
+      return &kind_info, nil
+    }
+  } else {
+    return &type_info, nil
+  }
 }
 
 type StructFieldInfo struct {
@@ -74,7 +36,7 @@ type StructFieldInfo struct {
   Index []int
 }
 
-func SignalFromArgs(signal_type reflect.Type, fields []StructFieldInfo, args map[string]interface{}, id_index, direction_index []int) (Signal, error) {
+func SignalFromArgs(ctx *GQLExtContext, signal_type reflect.Type, fields []StructFieldInfo, args map[string]interface{}, id_index, direction_index []int) (Signal, error) {
   signal_value := reflect.New(signal_type)
 
   id_field := signal_value.Elem().FieldByIndex(id_index)
@@ -92,13 +54,32 @@ func SignalFromArgs(signal_type reflect.Type, fields []StructFieldInfo, args map
     if field_value.CanConvert(field.Type) == false {
       return nil, fmt.Errorf("Arg %s wrong type %s/%s", field.Name, field_value.Type(), field.Type)
     }
-    value, err := field.GQL.FromGQL(arg)
+    value, err := field.GQL.Value(ctx, arg)
     if err != nil {
       return nil, err
     }
     field_value.Set(value)
   }
   return signal_value.Interface().(Signal), nil
+}
+
+func ArgumentInfo(ctx *GQLExtContext, field reflect.StructField, gv_tag string) (*graphql.ArgumentConfig, StructFieldInfo, error) {
+  gql_info, err := GetGQLTypeInfo(ctx, field.Type)
+  if err != nil {
+    return nil, StructFieldInfo{}, err
+  }
+  gql_type, err := gql_info.Type(ctx, field.Type)
+  if err != nil {
+    return nil, StructFieldInfo{}, err
+  }
+  return &graphql.ArgumentConfig{
+    Type: gql_type,
+  }, StructFieldInfo{
+    gv_tag,
+    field.Type,
+    gql_info,
+    field.Index,
+  }, nil
 }
 
 func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, signal_type reflect.Type) error {
@@ -118,27 +99,14 @@ func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, sig
         _, exists := args[gv_tag]
         if exists == true {
           return fmt.Errorf("Signal has repeated tag %s", gv_tag)
-        }
-        var gql_info GQLTypeInfo
-        var type_mapped bool
-        gql_info, type_mapped = type_gql_map[field.Type]
-        if type_mapped == false {
-          var kind_mapped bool
-          gql_info, kind_mapped = kind_gql_map[field.Type.Kind()]
-          if kind_mapped == false {
-            return fmt.Errorf("Signal has unsupported type/kind: %s/%s", field.Type, field.Type.Kind())
+        } else {
+          config, info, err := ArgumentInfo(ext, field, gv_tag)
+          if err != nil {
+            return err
           }
+          args[gv_tag] = config
+          arg_info = append(arg_info, info)
         }
-
-        args[gv_tag] = &graphql.ArgumentConfig{
-          Type: gql_info.Type,
-        }
-        arg_info = append(arg_info, StructFieldInfo{
-          gv_tag,
-          field.Type,
-          &gql_info,
-          field.Index,
-        })
       }
     }
   }
@@ -161,7 +129,7 @@ func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, sig
       return nil, err
     }
 
-    signal, err := SignalFromArgs(signal_type, arg_info, p.Args, id_index, direction_index)
+    signal, err := SignalFromArgs(ctx.GQLContext, signal_type, arg_info, p.Args, id_index, direction_index)
     if err != nil {
       return nil, err
     }

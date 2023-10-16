@@ -1186,6 +1186,36 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterType(reflect.TypeOf(time.Duration(0)), DurationType,
+  func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error){
+    var data []byte
+    type_stack := []SerializedType{ctx_type}
+    if value == nil {
+      data = nil
+    } else {
+      data := make([]byte, 8)
+      binary.BigEndian.PutUint64(data, uint64(value.Int()))
+    }
+    return SerializedValue{
+      type_stack,
+      data,
+    }, nil
+  },func(ctx *Context, value SerializedValue)(reflect.Type,*reflect.Value,SerializedValue,error){
+    if value.Data == nil {
+      return reflect.TypeOf(time.Duration(0)), nil, value, nil
+    } else {
+      var bytes []byte
+      var err error 
+      bytes, value, err = value.PopData(8)
+      if err != nil {
+        return nil, nil, value, err
+      }
+      duration := time.Duration(int64(binary.BigEndian.Uint64(bytes)))
+      duration_value := reflect.ValueOf(duration)
+      return duration_value.Type(), &duration_value, value, nil
+    }
+  })
+
   err = ctx.RegisterType(reflect.TypeOf(time.Time{}), TimeType,
   func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value)(SerializedValue,error) {
     var data []byte
@@ -1317,6 +1347,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterPolicy(reflect.TypeOf(ACLProxyPolicy{}), ACLProxyPolicyType)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterSignal(reflect.TypeOf(StoppedSignal{}), StoppedSignalType)
   if err != nil {
     return nil, err
   }

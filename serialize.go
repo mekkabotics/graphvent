@@ -106,6 +106,7 @@ var (
   ACLSignalType            = NewSignalType("ACL")
   AddSubGroupSignalType    = NewSignalType("ADD_SUBGROUP")
   RemoveSubGroupSignalType = NewSignalType("REMOVE_SUBGROUP")
+  StoppedSignalType        = NewSignalType("STOPPED")
 
   MemberOfPolicyType      = NewPolicyType("USER_OF")
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
@@ -152,6 +153,7 @@ var (
   PendingACLType       = NewSerializedType("PENDING_ACL")
   PendingSignalType    = NewSerializedType("PENDING_SIGNAL")
   TimeType             = NewSerializedType("TIME")
+  DurationType         = NewSerializedType("DURATION")
   ResponseType         = NewSerializedType("RESPONSE")
   StatusType           = NewSerializedType("STATUS")
   TreeType             = NewSerializedType("TREE")
