@@ -67,6 +67,12 @@ func TestSerializeBasic(t *testing.T) {
   })
 
   testSerialize(t, ctx, Tree{
+    ErrorType: nil,
+    MapType: nil,
+    StringType: nil,
+  })
+
+  testSerialize(t, ctx, Tree{
     TreeType: nil,
   })
 

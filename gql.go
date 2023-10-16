@@ -242,7 +242,7 @@ func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
             fetcher: GraphiQL.createFetcher({
               url: '/gql',
               headers: {
-                "Authorization": ` + "`Basic ${res}`" + `,
+                "Authorization": ` + "`${res}`" + `,
               },
             }),
             defaultEditorToolsVisibility: true,

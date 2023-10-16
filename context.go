@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "crypto/ecdh"
+  "sort"
   "time"
   "encoding/binary"
   "errors"
@@ -975,6 +976,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       map_size := 0
 
       map_iter := value.MapRange()
+      type TreeMapValue struct{
+        Key SerializedType
+        Data []byte
+      }
+      value_stacks := []TreeMapValue{}
       for map_iter.Next() {
         map_size += 1
         key_reflect := map_iter.Key()
@@ -989,8 +995,19 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
           return SerializedValue{}, err
         }
 
-        data = append(data, key_value.Data...)
-        data = append(data, elem_value.Data...)
+        value_stacks = append(value_stacks, TreeMapValue{
+          SerializedType(key_reflect.Uint()),
+          append(key_value.Data, elem_value.Data...),
+        })
+      }
+
+      // Sort the value_stacks, then add them to `data`
+      sort.Slice(value_stacks, func(i, j int) bool {
+        return value_stacks[i].Key > value_stacks[j].Key
+      })
+
+      for _, stack := range(value_stacks) {
+        data = append(data, stack.Data...)
       }
 
       binary.BigEndian.PutUint64(data[0:8], uint64(map_size))

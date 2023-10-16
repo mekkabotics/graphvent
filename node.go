@@ -294,7 +294,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       }
       validated := ed25519.Verify(msg.Source, sig_data, msg.Signature)
       if validated == false {
-        ctx.Log.Logf("signal", "SIGNAL_VERIFY_ERR: %s - %+v", node.ID, msg)
+        ctx.Log.Logf("signal", "SIGNAL_VERIFY_ERR: %s - %s", node.ID, reflect.TypeOf(msg.Signal))
         continue
       }
 
@@ -426,7 +426,7 @@ func nodeLoop(ctx *Context, node *Node) error {
               }
               err = node.DequeueSignal(req_info.TimeoutID)
               if err != nil {
-                panic("dequeued a passed signal")
+                ctx.Log.Logf("node", "ACL_DEQUEUE_ERROR: timeout signal not in queue when trying to clear after counter hit 0 %s, %s - %s", err, signal.ID(), req_info.TimeoutID)
               }
               delete(node.PendingACLs, info.ID)
             } else {
