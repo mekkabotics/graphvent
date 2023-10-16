@@ -165,7 +165,6 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
           }
         }
       }
-      // TODO: put the cached results back into results to resolve
       responses[idx] = cache
     } else {
       ctx.Context.Log.Logf("gql_resolve_node", "Adding new response to node cache: %s, %+v", read_response.NodeID, read_response.Extensions)
