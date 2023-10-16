@@ -100,15 +100,16 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
 
       if resolve == true {
         read_signal = NewReadSignal(missing_exts)
+        ctx.Context.Log.Logf("gql_node", "sending read for %+v because of missing fields %+v", id, missing_exts)
       } else {
-        ctx.Context.Log.Logf("gql_subscribe", "Using cached response for %+v(%d)", id, i)
+        ctx.Context.Log.Logf("gql_node", "Using cached response for %+v(%d)", id, i)
         responses[i] = node
         continue
       }
     } else {
+      ctx.Context.Log.Logf("gql_node", "sending read for %+v", id)
       read_signal = NewReadSignal(ext_fields)
     }
-    ctx.Context.Log.Logf("gql", "READ_SIGNAL for %s - %+v", id, read_signal)
     // Create a read signal, send it to the specified node, and add the wait to the response map if the send returns no error
     msgs := Messages{}
     msgs = msgs.Add(ctx.Context, id, ctx.Server, ctx.Authorization, read_signal)
@@ -124,18 +125,17 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
       return nil, err
     }
 
-    ctx.Context.Log.Logf("gql", "SENT_READ_SIGNAL to %+s", id)
+    ctx.Context.Log.Logf("gql_node", "SENT_READ_SIGNAL to %+s", id)
   }
 
   errors := ""
-  ctx.Context.Log.Logf("gql", "RESP_CHANNELS: %+v", resp_channels)
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
     response, err := WaitForResponse(response_chan, time.Millisecond*100, sig_id)
     if err != nil {
       return nil, err
     }
-    ctx.Context.Log.Logf("gql", "GQL node response: %+v", response)
+    ctx.Context.Log.Logf("gql_node", "GQL node response: %+v", response)
 
     error_signal, is_error := response.(*ErrorSignal)
     if is_error {
@@ -171,7 +171,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
     }
 
   }
-  ctx.Context.Log.Logf("gql", "RESOLVED_NODES %+v - %+v", ids, responses)
+  ctx.Context.Log.Logf("gql_node", "RESOLVED_NODES %+v - %+v", ids, responses)
 
   if errors != "" {
     return nil, fmt.Errorf(errors)

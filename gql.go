@@ -1678,18 +1678,6 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
     return fmt.Errorf("Failed to start listener for server on %s", http_server.Addr)
   }
 
-  //cert, err := tls.X509KeyPair(ext.TLSCert, ext.TLSKey)
-  //if err != nil {
-  //  return err
-  //}
-
-  //config := tls.Config{
-  //  Certificates: []tls.Certificate{cert},
-  //  NextProtos: []string{"http/1.1"},
-  //}
-
-  //listener := tls.NewListener(l, &config)
-
   ext.http_done.Add(1)
   go func(qql_ext *GQLExt) {
     defer ext.http_done.Done()
