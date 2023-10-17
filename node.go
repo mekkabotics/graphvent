@@ -378,6 +378,11 @@ func nodeLoop(ctx *Context, node *Node) error {
       } else {
         ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL: %s@%s", node.ID, signal, t, node.NextSignal, node.NextSignal.Time)
       }
+
+      err = WriteNode(ctx, node)
+      if err != nil {
+        ctx.Log.Logf("node", "Node Write Error: %s", err)
+      }
     }
 
     ctx.Log.Logf("node", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
