@@ -1773,7 +1773,12 @@ func getContentPath(base string, path string) (string, error) {
   if err != nil && err != os.ErrNotExist {
     return "", err
   } else if path_info.IsDir() == true {
-    index_path := fmt.Sprintf("%s%s/index.html", base, path)
+    index_path := ""
+    if path[len(path)-1] != '/' {
+      index_path = fmt.Sprintf("%s%s/index.html", base, path)
+    } else {
+      index_path = fmt.Sprintf("%s%sindex.html", base, path)
+    }
     index_info, err := os.Stat(index_path)
     if err != nil {
       return "", err
@@ -1805,18 +1810,27 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
       static_path, err_2 := getContentPath("./site", r.URL.Path)
       if err_2 != nil {
         ctx.Log.Logf("gql", "File Resolve errors: %s - %s", err_1, err_2)
-        w.Header().Add("Content-Type", "application/json")
         w.WriteHeader(501)
         w.Write([]byte("{\"error\": \"server_error\"}"))
       } else {
         ctx.Log.Logf("gql", "STATIC_FILE: %s", static_path)
+        file, err := os.Open(static_path)
+        if err != nil {
+          w.WriteHeader(501)
+          w.Write([]byte("{\"error\": \"server_error\"}"))
+        }
+        http.ServeContent(w, r, static_path, time.Time{}, file)
         w.WriteHeader(200)
-        http.ServeFile(w, r, static_path)
       }
     } else {
       ctx.Log.Logf("gql", "CUSTOM_FILE: %s", custom_path)
+      file, err := os.Open(custom_path)
+      if err != nil {
+        w.WriteHeader(501)
+        w.Write([]byte("{\"error\": \"server_error\"}"))
+      }
+      http.ServeContent(w, r, custom_path, time.Time{}, file)
       w.WriteHeader(200)
-      http.ServeFile(w, r, custom_path)
     }
   })
 
