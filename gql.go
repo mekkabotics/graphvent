@@ -16,6 +16,7 @@ import (
   "encoding/json"
   "fmt"
   "io"
+  "os"
   "net"
   "net/http"
   "reflect"
@@ -1763,6 +1764,29 @@ func NewGQLExt(ctx *Context, listen string, tls_cert []byte, tls_key []byte) (*G
   }, nil
 }
 
+// Returns "${base}/${path}" if it's a file or "${base}/${path}/index.html" if it's a directory
+// Returns os.ErrInvalid if "${base}/${path}/index.html" is a directory
+func getContentPath(base string, path string) (string, error) {
+  full_path := fmt.Sprintf("%s%s", base, path)
+  path_info, err := os.Stat(full_path)
+
+  if err != nil && err != os.ErrNotExist {
+    return "", err
+  } else if path_info.IsDir() == true {
+    index_path := fmt.Sprintf("%s%s/index.html", base, path)
+    index_info, err := os.Stat(index_path)
+    if err != nil {
+      return "", err
+    } else if index_info.IsDir() == true {
+      return index_path, os.ErrInvalid
+    } else {
+      return index_path, nil
+    }
+  } else {
+    return full_path, nil
+  }
+}
+
 func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
   if ext.tcp_listener != nil || ext.http_server != nil {
     return fmt.Errorf("listener or server is still running, stop them first")
@@ -1774,8 +1798,27 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
   mux.HandleFunc("/graphiql", GraphiQLHandler())
 
   // Server the ./site directory to /site (TODO make configurable with better defaults)
-  fs := http.FileServer(http.Dir("./site"))
-  mux.Handle("/site/", http.StripPrefix("/site", fs))
+
+  mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request){
+    custom_path, err_1 := getContentPath("./custom", r.URL.Path)
+    if err_1 != nil {
+      static_path, err_2 := getContentPath("./site", r.URL.Path)
+      if err_2 != nil {
+        ctx.Log.Logf("gql", "File Resolve errors: %s - %s", err_1, err_2)
+        w.Header().Add("Content-Type", "application/json")
+        w.WriteHeader(501)
+        w.Write([]byte("{\"error\": \"server_error\"}"))
+      } else {
+        ctx.Log.Logf("gql", "STATIC_FILE: %s", static_path)
+        w.WriteHeader(200)
+        http.ServeFile(w, r, static_path)
+      }
+    } else {
+      ctx.Log.Logf("gql", "CUSTOM_FILE: %s", custom_path)
+      w.WriteHeader(200)
+      http.ServeFile(w, r, custom_path)
+    }
+  })
 
   http_server := &http.Server{
     Addr: ext.Listen,

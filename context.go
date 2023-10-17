@@ -12,7 +12,6 @@ import (
   "runtime"
   "sync"
   "github.com/google/uuid"
-  "encoding"
 
   badger "github.com/dgraph-io/badger/v3"
 )
@@ -1223,7 +1222,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       data = nil
     } else {
       data = make([]byte, 8)
-      time_ser, err := value.Interface().(encoding.BinaryMarshaler).MarshalBinary()
+      time_ser, err := value.Interface().(time.Time).GobEncode()
       if err != nil {
         return SerializedValue{}, err
       }
@@ -1249,9 +1248,10 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
       }
       data := value.Data[0:ser_size]
       value.Data = value.Data[ser_size:]
-      time_value := reflect.New(reflect.TypeOf(time.Time{})).Elem()
-      time_value.Addr().Interface().(encoding.BinaryUnmarshaler).UnmarshalBinary(data)
-      return time_value.Type(), &time_value, value, nil
+      time_value := reflect.New(reflect.TypeOf(time.Time{}))
+      time_value.Interface().(*time.Time).GobDecode(data)
+      time_nonptr := time_value.Elem()
+      return time_nonptr.Type(), &time_nonptr, value, nil
     }
   })
 
