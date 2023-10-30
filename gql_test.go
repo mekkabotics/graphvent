@@ -43,7 +43,7 @@ func TestGQLAuth(t *testing.T) {
 }
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "gqlws"})
+  ctx := logTestContext(t, []string{"test", "deserialize_types", "serialize_types", "gqlws"})
 
   TestNodeType := NewNodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})

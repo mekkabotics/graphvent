@@ -135,8 +135,15 @@ func (policy MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, si
     return Deny
   }
 
-  _, sub_groups_if, _, err := DeserializeValue(ctx, sub_groups_ser)
+  sub_groups_type, _, err := DeserializeType(ctx, sub_groups_ser.TypeStack)
   if err != nil {
+    ctx.Log.Logf("group", "Type deserialize error: %s", err)
+    return Deny
+  }
+
+  sub_groups_if, _, err := DeserializeValue(ctx, sub_groups_type, sub_groups_ser.Data)
+  if err != nil {
+    ctx.Log.Logf("group", "Value deserialize error: %s", err)
     return Deny
   }
 

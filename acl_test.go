@@ -56,7 +56,7 @@ func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *No
 }
 
 func TestACLBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "acl", "policy"})
+  ctx := logTestContext(t, []string{"serialize_types", "deserialize_types", "test", "listener_debug", "group", "acl", "policy"})
 
   listener, err := NewNode(ctx, nil, BaseNodeType, 100, nil, NewListenerExt(100))
   fatalErr(t, err)

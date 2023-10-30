@@ -924,18 +924,19 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
       return nil, fmt.Errorf(string(val_ser.Data))
     }
 
-    field_type, field_value, _, err := DeserializeValue(ctx.Context, val_ser)
+    field_type, _, err := DeserializeType(ctx.Context, val_ser.TypeStack)
     if err != nil {
       return nil, err
     }
 
-    if field_value == nil {
-      return nil, fmt.Errorf("%s returned a nil value of %+v type", gv_tag, field_type)
+    field_value, _, err := DeserializeValue(ctx.Context, field_type, val_ser.Data)
+    if err != nil {
+      return nil, err
     }
 
     ctx.Context.Log.Logf("gql", "Resolving %+v", field_value)
 
-    return resolve_fn(p, ctx, *field_value)
+    return resolve_fn(p, ctx, field_value)
   }
 
   ctx.Fields[gql_name] = Field{ext_type, gv_tag, &graphql.Field{
@@ -1282,6 +1283,21 @@ func NewGQLExtContext() *GQLExtContext {
 
   var err error
   err = context.RegisterInterface("Node", "DefaultNode", []string{}, []string{}, map[string]SelfField{}, map[string]ListField{})
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.RegisterField(graphql.String, "EventName", EventExtType, "name", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
+    name := val.String()
+    return name, nil
+  })
+
+  err = context.RegisterField(graphql.String, "State", EventExtType, "state", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
+    state := val.String()
+    return state, nil
+  })
+
+  err = context.RegisterInterface("Event", "EventNode", []string{"Node"}, []string{"EventName", "State"}, map[string]SelfField{}, map[string]ListField{})
   if err != nil {
     panic(err)
   }

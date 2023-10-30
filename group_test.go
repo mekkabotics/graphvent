@@ -55,10 +55,16 @@ func TestGroupAdd(t *testing.T) {
 
   sub_groups_serialized := read_response.Extensions[GroupExtType]["sub_groups"]
 
-  _, sub_groups_value, remaining, err := DeserializeValue(ctx, sub_groups_serialized)
+  sub_groups_type, remaining_types, err := DeserializeType(ctx, sub_groups_serialized.TypeStack)
+  fatalErr(t, err)
+  if len(remaining_types) > 0 {
+    t.Fatalf("Types remaining after deserializing subgroups: %d", len(remaining_types))
+  }
 
-  if len(remaining.Data) > 0 {
-    t.Fatalf("Data remaining after deserializing subgroups: %d", len(remaining.Data))
+  sub_groups_value, remaining, err := DeserializeValue(ctx, sub_groups_type, sub_groups_serialized.Data)
+  fatalErr(t, err)
+  if len(remaining) > 0 {
+    t.Fatalf("Data remaining after deserializing subgroups: %d", len(remaining_types))
   }
 
   sub_groups, ok := sub_groups_value.Interface().(map[string][]NodeID)

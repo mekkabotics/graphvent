@@ -353,7 +353,12 @@ func (policy RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingAC
     return Deny
   }
 
-  _, reqs_if, _, err := DeserializeValue(ctx, reqs_ser)
+  reqs_type, _, err := DeserializeType(ctx, reqs_ser.TypeStack)
+  if err != nil {
+    return Deny
+  }
+
+  reqs_if, _, err := DeserializeValue(ctx, reqs_type, reqs_ser.Data)
   if err != nil {
     return Deny
   }

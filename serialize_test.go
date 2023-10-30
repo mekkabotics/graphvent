@@ -8,14 +8,26 @@ import (
 )
 
 func TestSerializeTest(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "serialize"})
+  ctx := logTestContext(t, []string{"test", "serialize", "deserialize_types"})
   testSerialize(t, ctx, map[string][]NodeID{"test_group": {RandID(), RandID(), RandID()}})
+  testSerialize(t, ctx, map[NodeID]ReqInfo{
+    RandID(): {},
+    RandID(): {},
+    RandID(): {},
+  })
 }
 
 func TestSerializeBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
-  testSerializeComparable[string](t, ctx, "test")
+  ctx := logTestContext(t, []string{"test", "serialize"})
   testSerializeComparable[bool](t, ctx, true)
+
+  type bool_wrapped bool
+  err := ctx.RegisterType(reflect.TypeOf(bool_wrapped(true)), NewSerializedType("BOOL_WRAPPED"), nil, nil, nil, DeserializeBool[bool_wrapped])
+  fatalErr(t, err)
+  testSerializeComparable[bool_wrapped](t, ctx, true)
+
+  testSerializeSlice[[]bool](t, ctx, []bool{false, false, true, false})
+  testSerializeComparable[string](t, ctx, "test")
   testSerializeComparable[float32](t, ctx, 0.05)
   testSerializeComparable[float64](t, ctx, 0.05)
   testSerializeComparable[uint](t, ctx, uint(1234))
@@ -36,7 +48,19 @@ func TestSerializeBasic(t *testing.T) {
   testSerializeSliceSlice[[][]string](t, ctx, [][]string{{"123", "456", "789", "101112"}, {"3253", "2341", "735", "212"}, {"123", "51"}, nil})
 
   testSerialize(t, ctx, map[int8]map[*int8]string{})
+  testSerialize(t, ctx, map[int8]time.Time{
+    1: time.Now(),
+    3: time.Now().Add(time.Second),
+    0: time.Now().Add(time.Second*2),
+    4: time.Now().Add(time.Second*3),
+  })
 
+  testSerialize(t, ctx, Tree{
+    NodeTypeSerialized: nil,
+    SerializedTypeSerialized: Tree{
+      NodeTypeSerialized: Tree{},
+    },
+  })
 
   var i interface{} = nil
   testSerialize(t, ctx, i)
@@ -61,7 +85,10 @@ func TestSerializeBasic(t *testing.T) {
   }
 
   test_struct_type := reflect.TypeOf(test_struct{})
-  err := ctx.RegisterType(test_struct_type, NewSerializedType("TEST_STRUCT"), SerializeStruct(ctx, test_struct_type), DeserializeStruct(ctx, test_struct_type))
+  test_struct_info, err := GetStructInfo(ctx, test_struct_type)
+  fatalErr(t, err)
+
+  err = ctx.RegisterType(test_struct_type, NewSerializedType("TEST_STRUCT"), nil, SerializeStruct(test_struct_info), nil, DeserializeStruct(test_struct_info))
   fatalErr(t, err)
 
   testSerialize(t, ctx, test_struct{
@@ -70,7 +97,6 @@ func TestSerializeBasic(t *testing.T) {
   })
 
   testSerialize(t, ctx, Tree{
-    ErrorType: nil,
     MapType: nil,
     StringType: nil,
   })
@@ -89,9 +115,10 @@ func TestSerializeBasic(t *testing.T) {
 
   type test_slice []string
   test_slice_type := reflect.TypeOf(test_slice{})
-  err = ctx.RegisterType(test_slice_type, NewSerializedType("TEST_SLICE"), SerializeSlice, DeserializeSlice[test_slice](ctx))
+  err = ctx.RegisterType(test_slice_type, NewSerializedType("TEST_SLICE"), SerializeTypeStub, SerializeSlice, DeserializeTypeStub[test_slice], DeserializeSlice)
   fatalErr(t, err)
 
+  testSerialize[[]string](t, ctx, []string{"test_1", "test_2", "test_3"})
   testSerialize[test_slice](t, ctx, test_slice{"test_1", "test_2", "test_3"})
 
   testSerialize[Changes](t, ctx, Changes{"change_1", "change_2", "change_3"})
@@ -112,7 +139,9 @@ func TestSerializeStructTags(t *testing.T) {
   test_type := NewSerializedType("TEST_STRUCT")
   test_struct_type := reflect.TypeOf(test{})
   ctx.Log.Logf("test", "TEST_TYPE: %+v", test_type)
-  ctx.RegisterType(test_struct_type, test_type, SerializeStruct(ctx, test_struct_type), DeserializeStruct(ctx, test_struct_type))
+  test_struct_info, err := GetStructInfo(ctx, test_struct_type)
+  fatalErr(t, err)
+  ctx.RegisterType(test_struct_type, test_type, nil, SerializeStruct(test_struct_info), nil, DeserializeStruct(test_struct_info))
 
   test_int := 10
   test_string := "test"
@@ -190,7 +219,9 @@ func testSerializeComparable[T comparable](t *testing.T, ctx *Context, val T) {
 
 func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
   value := reflect.ValueOf(&val).Elem()
-  value_serialized, err := SerializeValue(ctx, value.Type(), &value)
+  type_stack, err := SerializeType(ctx, value.Type())
+  data, err := SerializeValue(ctx, value)
+  value_serialized := SerializedValue{type_stack, data}
   fatalErr(t, err)
   ctx.Log.Logf("test", "Serialized %+v to %+v", val, value_serialized)
 
@@ -206,19 +237,16 @@ func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
     t.Fatal("Data remaining after deserializing value")
   }
 
-  val_type, deserialized_value, remaining_deserialize, err := DeserializeValue(ctx, val_parsed)
+  val_type, remaining_types, err := DeserializeType(ctx, val_parsed.TypeStack)
+  deserialized_value, remaining_deserialize, err := DeserializeValue(ctx, val_type, val_parsed.Data)
   fatalErr(t, err)
 
-  if len(remaining_deserialize.Data) != 0 {
+  if len(remaining_deserialize) != 0 {
     t.Fatal("Data remaining after deserializing value")
-  } else if len(remaining_deserialize.TypeStack) != 0 {
+  } else if len(remaining_types) != 0 {
     t.Fatal("TypeStack remaining after deserializing value")
   } else if val_type != value.Type() {
     t.Fatal(fmt.Sprintf("DeserializeValue returned wrong reflect.Type %+v - %+v", val_type, reflect.TypeOf(val)))
-  } else if deserialized_value == nil {
-    t.Fatal("DeserializeValue returned no []reflect.Value")
-  } else if deserialized_value == nil {
-    t.Fatal("DeserializeValue returned nil *reflect.Value")
   } else if deserialized_value.CanConvert(val_type) == false {
     t.Fatal("DeserializeValue returned value that can't convert to original value")
   }

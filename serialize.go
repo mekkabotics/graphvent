@@ -3,7 +3,9 @@ package graphvent
 import (
   "crypto/sha512"
   "encoding/binary"
+  "encoding/gob"
   "fmt"
+  "math"
   "reflect"
   "sort"
 )
@@ -55,8 +57,10 @@ func (t PolicyType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
-type TypeSerialize func(*Context, SerializedType, reflect.Type, *reflect.Value) (SerializedValue, error)
-type TypeDeserialize func(*Context, SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error)
+type TypeSerializeFn func(*Context, reflect.Type) ([]SerializedType, error)
+type SerializeFn func(*Context, reflect.Value) ([]byte, error)
+type TypeDeserializeFn func(*Context, []SerializedType) (reflect.Type, []SerializedType, error)
+type DeserializeFn func(*Context, reflect.Type, []byte) (reflect.Value, []byte, error)
 
 func NewExtType(name string) ExtType {
   return ExtType(Hash(ExtTypeBase, name))
@@ -84,6 +88,7 @@ var (
   GQLExtType      = NewExtType("GQL")
   GroupExtType    = NewExtType("GROUP")
   ACLExtType      = NewExtType("ACL")
+  EventExtType    = NewExtType("EVENT")
 
   GQLNodeType   = NewNodeType("GQL")
   BaseNodeType  = NewNodeType("BASE")
@@ -107,6 +112,8 @@ var (
   AddSubGroupSignalType    = NewSignalType("ADD_SUBGROUP")
   RemoveSubGroupSignalType = NewSignalType("REMOVE_SUBGROUP")
   StoppedSignalType        = NewSignalType("STOPPED")
+  EventControlSignalType   = NewSignalType("EVENT_CONTORL")
+  EventStateSignalType     = NewSignalType("VEX_MATCH_STATUS")
 
   MemberOfPolicyType      = NewPolicyType("USER_OF")
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
@@ -160,306 +167,10 @@ var (
   SerializedTypeSerialized   = NewSerializedType("SERIALIZED_TYPE")
 )
 
-func SerializeSlice(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-  type_stack := []SerializedType{ctx_type}
-  var data []byte
-  if value == nil {
-    data = nil
-  } else if value.IsZero() {
-    data = []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}
-  } else if value.Len() == 0 {
-    data = []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
-  } else {
-    data := make([]byte, 8)
-    binary.BigEndian.PutUint64(data, uint64(value.Len()))
-
-    for i := 0; i < value.Len(); i += 1 {
-      val := value.Index(i)
-      element, err := SerializeValue(ctx, reflect_type.Elem(), &val)
-      if err != nil {
-        return SerializedValue{}, err
-      }
-      data = append(data, element.Data...)
-    }
-
-    return SerializedValue{
-      type_stack,
-      data,
-    }, nil
-  }
-  return SerializedValue{
-    type_stack,
-    data,
-  }, nil
-}
-
-func DeserializeSlice[T any](ctx *Context) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  var zero T
-  slice_type := reflect.TypeOf(zero)
-  zero_value, err := SerializeValue(ctx, slice_type.Elem(), nil)
-  if err != nil {
-    panic(err)
-  }
-  saved_type_stack := zero_value.TypeStack
-
-  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-    if value.Data == nil {
-      return slice_type, nil, value, nil
-    } else {
-      var err error
-      var slice_size_bytes []byte
-      slice_size_bytes, value, err = value.PopData(8)
-      if err != nil {
-        return nil, nil, value, err
-      }
-      slice_size := binary.BigEndian.Uint64(slice_size_bytes)
-      slice_value := reflect.New(slice_type).Elem()
-      if slice_size != 0xFFFFFFFFFFFFFFFF {
-        slice_unaddr := reflect.MakeSlice(slice_type, int(slice_size), int(slice_size))
-        slice_value.Set(slice_unaddr)
-        for i := uint64(0); i < slice_size; i += 1 {
-          var element_value *reflect.Value
-          var err error
-          tmp_value := SerializedValue{
-            saved_type_stack,
-            value.Data,
-          }
-
-          _, element_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
-          if err != nil {
-            return nil, nil, value, err
-          }
-
-          value.Data = tmp_value.Data
-          slice_elem := slice_value.Index(int(i))
-          slice_elem.Set(*element_value)
-        }
-      }
-
-      return slice_type, &slice_value, value, nil
-    }
-  }
-}
-
-func SerializeArray(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-  type_stack := []SerializedType{ctx_type}
-  if value == nil {
-    return SerializedValue{
-      type_stack,
-      nil,
-    }, nil
-  } else {
-    var element SerializedValue
-    var err error
-    var data []byte
-    for i := 0; i < value.Len(); i += 1 {
-      val := value.Index(i)
-      element, err = SerializeValue(ctx, reflect_type.Elem(), &val)
-      if err != nil {
-        return SerializedValue{}, err
-      }
-      data = append(data, element.Data...)
-    }
-    return SerializedValue{
-      type_stack,
-      data,
-    }, nil
-  }
-}
-
-func DeserializeArray[T any](ctx *Context) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  var zero T
-  array_type := reflect.TypeOf(zero)
-  array_size := array_type.Len()
-  zero_value, err := SerializeValue(ctx, array_type.Elem(), nil)
-  if err != nil {
-    panic(err)
-  }
-  saved_type_stack := zero_value.TypeStack
-  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-    if value.Data == nil {
-      return array_type, nil, value, nil
-    } else {
-      array_value := reflect.New(array_type).Elem()
-      for i := 0; i < array_size; i += 1 {
-        var element_value *reflect.Value
-        var err error
-        tmp_value := SerializedValue{
-          saved_type_stack,
-          value.Data,
-        }
-        _, element_value, tmp_value, err = DeserializeValue(ctx, tmp_value)
-        if err != nil {
-          return nil, nil, value, err
-        }
-        value.Data = tmp_value.Data
-        array_elem := array_value.Index(i)
-        array_elem.Set(*element_value)
-      }
-      return array_type, &array_value, value, nil
-    }
-  }
-}
-
-func SerializeUintN(size int) func(*Context, SerializedType, reflect.Type, *reflect.Value) (SerializedValue, error) {
-  var fill_data func([]byte, uint64) = nil
-  switch size {
-  case 1:
-    fill_data = func(data []byte, val uint64) {
-      data[0] = byte(val)
-    }
-  case 2:
-    fill_data = func(data []byte, val uint64) {
-      binary.BigEndian.PutUint16(data, uint16(val))
-    }
-  case 4:
-    fill_data = func(data []byte, val uint64) {
-      binary.BigEndian.PutUint32(data, uint32(val))
-    }
-  case 8:
-    fill_data = func(data []byte, val uint64) {
-      binary.BigEndian.PutUint64(data, val)
-    }
-  default:
-    panic(fmt.Sprintf("Cannot serialize uint of size %d", size))
-  }
-  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-    var data []byte = nil
-    if value != nil {
-      data = make([]byte, size)
-      fill_data(data, value.Uint())
-    }
-    return SerializedValue{
-      []SerializedType{ctx_type},
-      data,
-    }, nil
-  }
-}
-
-func DeserializeUintN[T interface {
-  ~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
-}](size int) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  var get_uint func([]byte) uint64
-  switch size {
-  case 1:
-    get_uint = func(data []byte) uint64 {
-      return uint64(data[0])
-    }
-  case 2:
-    get_uint = func(data []byte) uint64 {
-      return uint64(binary.BigEndian.Uint16(data))
-    }
-  case 4:
-    get_uint = func(data []byte) uint64 {
-      return uint64(binary.BigEndian.Uint32(data))
-    }
-  case 8:
-    get_uint = func(data []byte) uint64 {
-      return binary.BigEndian.Uint64(data)
-    }
-  default:
-    panic(fmt.Sprintf("Cannot deserialize int of size %d", size))
-  }
-  var zero T
-  uint_type := reflect.TypeOf(zero)
-  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-    if value.Data == nil {
-      return uint_type, nil, value, nil
-    } else {
-      var uint_bytes []byte
-      var err error
-      uint_bytes, value, err = value.PopData(size)
-      if err != nil {
-        return nil, nil, value, err
-      }
-      uint_value := reflect.New(uint_type).Elem()
-      uint_value.SetUint(get_uint(uint_bytes))
-      return uint_type, &uint_value, value, nil
-    }
-  }
-}
-
-func SerializeIntN(size int) func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-  var fill_data func([]byte, int64) = nil
-  switch size {
-  case 1:
-    fill_data = func(data []byte, val int64) {
-      data[0] = byte(val)
-    }
-  case 2:
-    fill_data = func(data []byte, val int64) {
-      binary.BigEndian.PutUint16(data, uint16(val))
-    }
-  case 4:
-    fill_data = func(data []byte, val int64) {
-      binary.BigEndian.PutUint32(data, uint32(val))
-    }
-  case 8:
-    fill_data = func(data []byte, val int64) {
-      binary.BigEndian.PutUint64(data, uint64(val))
-    }
-  default:
-    panic(fmt.Sprintf("Cannot serialize int of size %d", size))
-  }
-  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-    var data []byte = nil
-    if value != nil {
-      data = make([]byte, size)
-      fill_data(data, value.Int())
-    }
-    return SerializedValue{
-      []SerializedType{ctx_type},
-      data,
-    }, nil
-  }
-}
-
-func DeserializeIntN[T interface {
-  ~int | ~int8 | ~int16 | ~int32 | ~int64
-}](size int) func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  var get_int func([]byte) int64
-  switch size {
-  case 1:
-    get_int = func(data []byte) int64 {
-      return int64(data[0])
-    }
-  case 2:
-    get_int = func(data []byte) int64 {
-      return int64(binary.BigEndian.Uint16(data))
-    }
-  case 4:
-    get_int = func(data []byte) int64 {
-      return int64(binary.BigEndian.Uint32(data))
-    }
-  case 8:
-    get_int = func(data []byte) int64 {
-      return int64(binary.BigEndian.Uint64(data))
-    }
-  default:
-    panic(fmt.Sprintf("Cannot deserialize int of size %d", size))
-  }
-  var zero T
-  int_type := reflect.TypeOf(zero)
-  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-    if value.Data == nil {
-      return int_type, nil, value, nil
-    } else {
-      var int_bytes []byte
-      var err error
-      int_bytes, value, err = value.PopData(size)
-      if err != nil {
-        return nil, nil, value, err
-      }
-      int_value := reflect.New(int_type).Elem()
-      int_value.SetInt(get_int(int_bytes))
-      return int_type, &int_value, value, nil
-    }
-  }
-}
-
 type FieldInfo struct {
   Index     []int
   TypeStack []SerializedType
+  Type reflect.Type
 }
 
 type StructInfo struct {
@@ -477,7 +188,7 @@ type Deserializable interface {
 var deserializable_zero Deserializable = nil
 var DeserializableType = reflect.TypeOf(&deserializable_zero).Elem()
 
-func structInfo(ctx *Context, struct_type reflect.Type) StructInfo {
+func GetStructInfo(ctx *Context, struct_type reflect.Type) (StructInfo, error) {
   field_order := []SerializedType{}
   field_map := map[SerializedType]FieldInfo{}
   for _, field := range reflect.VisibleFields(struct_type) {
@@ -488,15 +199,16 @@ func structInfo(ctx *Context, struct_type reflect.Type) StructInfo {
       field_hash := Hash(FieldNameBase, gv_tag)
       _, exists := field_map[field_hash]
       if exists == true {
-        panic(fmt.Sprintf("gv tag %s is repeated", gv_tag))
+        return StructInfo{}, fmt.Errorf("gv tag %s is repeated", gv_tag)
       } else {
-        field_serialized, err := SerializeValue(ctx, field.Type, nil)
+        field_type_stack, err := SerializeType(ctx, field.Type)
         if err != nil {
-          panic(err)
+          return StructInfo{}, err
         }
         field_map[field_hash] = FieldInfo{
           field.Index,
-          field_serialized.TypeStack,
+          field_type_stack,
+          field.Type,
         }
         field_order = append(field_order, field_hash)
       }
@@ -527,155 +239,645 @@ func structInfo(ctx *Context, struct_type reflect.Type) StructInfo {
     field_map,
     post_deserialize,
     post_deserialize_idx,
-  }
-}
-
-func SerializeStruct(ctx *Context, struct_type reflect.Type) func(*Context, SerializedType, reflect.Type, *reflect.Value) (SerializedValue, error) {
-  struct_info := structInfo(ctx, struct_type)
-  return func(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-    type_stack := []SerializedType{ctx_type}
-    var data []byte
-    if value == nil {
-      data = nil
-    } else {
-      data = make([]byte, 8)
-      for _, field_hash := range struct_info.FieldOrder {
-        field_hash_bytes := make([]byte, 8)
-        binary.BigEndian.PutUint64(field_hash_bytes, uint64(field_hash))
-        field_info := struct_info.FieldMap[field_hash]
-        field_value := value.FieldByIndex(field_info.Index)
-        field_serialized, err := SerializeValue(ctx, field_value.Type(), &field_value)
-        if err != nil {
-          return SerializedValue{}, err
-        }
-        data = append(data, field_hash_bytes...)
-        data = append(data, field_serialized.Data...)
-      }
-      binary.BigEndian.PutUint64(data[0:8], uint64(len(struct_info.FieldOrder)))
-    }
-    return SerializedValue{
-      type_stack,
-      data,
-    }, nil
-  }
-}
-
-func DeserializeStruct(ctx *Context, struct_type reflect.Type) func(*Context, SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  struct_info := structInfo(ctx, struct_type)
-  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-    if value.Data == nil {
-      return struct_info.Type, nil, value, nil
-    } else {
-      var num_fields_bytes []byte
-      var err error
-      num_fields_bytes, value, err = value.PopData(8)
-      if err != nil {
-        return nil, nil, value, err
-      }
-      num_fields := int(binary.BigEndian.Uint64(num_fields_bytes))
-      ctx.Log.Logf("serialize", "Deserializing %d fields from %+v", num_fields, struct_info)
-
-      struct_value := reflect.New(struct_info.Type).Elem()
-
-      for i := 0; i < num_fields; i += 1 {
-        var field_hash_bytes []byte
-        field_hash_bytes, value, err = value.PopData(8)
-        if err != nil {
-          return nil, nil, value, err
-        }
-        field_hash := SerializedType(binary.BigEndian.Uint64(field_hash_bytes))
-        field_info, exists := struct_info.FieldMap[field_hash]
-        if exists == false {
-          return nil, nil, value, fmt.Errorf("Field 0x%x is not valid for %+v: %+v", field_hash, struct_info.Type, struct_info.FieldMap)
-        }
-        field_value := struct_value.FieldByIndex(field_info.Index)
-
-        tmp_value := SerializedValue{
-          field_info.TypeStack,
-          value.Data,
-        }
-
-        var field_reflect *reflect.Value
-        _, field_reflect, tmp_value, err = DeserializeValue(ctx, tmp_value)
-        if err != nil {
-          return nil, nil, value, err
-        }
-        value.Data = tmp_value.Data
-        field_value.Set(*field_reflect)
-      }
-
-      if struct_info.PostDeserialize == true {
-        ctx.Log.Logf("serialize", "running post-deserialize for %+v", struct_info.Type)
-        post_deserialize_method := struct_value.Addr().Method(struct_info.PostDeserializeIdx)
-        ret := post_deserialize_method.Call([]reflect.Value{reflect.ValueOf(ctx)})
-        if ret[0].IsZero() == false {
-          return nil, nil, value, ret[0].Interface().(error)
-        }
-      }
-
-      return struct_info.Type, &struct_value, value, err
-    }
-  }
-}
-
-func SerializeInterface(ctx *Context, ctx_type SerializedType, reflect_type reflect.Type, value *reflect.Value) (SerializedValue, error) {
-  var data []byte
-  type_stack := []SerializedType{ctx_type}
-  if value == nil {
-    data = nil
-  } else if value.IsZero() {
-    data = []byte{0x01}
-  } else {
-    data = []byte{0x00}
-    elem_value := value.Elem()
-    elem, err := SerializeValue(ctx, elem_value.Type(), &elem_value)
-    if err != nil {
-      return SerializedValue{}, err
-    }
-    elem_data, err := elem.MarshalBinary()
-    if err != nil {
-      return SerializedValue{}, err
-    }
-    data = append(data, elem_data...)
-  }
-  return SerializedValue{
-    type_stack,
-    data,
   }, nil
 }
 
-func DeserializeInterface[T any]() func(*Context, SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-  return func(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
-    var interface_zero T
-    var interface_type = reflect.ValueOf(&interface_zero).Type().Elem()
-    if value.Data == nil {
-      return interface_type, nil, value, nil
-    } else {
-      var flag_bytes []byte
-      var err error
-      flag_bytes, value, err = value.PopData(1)
+func SerializeStruct(info StructInfo)func(*Context, reflect.Value)([]byte, error) {
+  return func(ctx *Context, value reflect.Value) ([]byte, error) {
+    data := make([]byte, 8)
+    for _, field_hash := range(info.FieldOrder) {
+      field_hash_bytes := make([]byte, 8)
+      binary.BigEndian.PutUint64(field_hash_bytes, uint64(field_hash))
+
+      field_info := info.FieldMap[field_hash]
+      field_value := value.FieldByIndex(field_info.Index)
+
+      field_serialized, err := SerializeValue(ctx, field_value)
       if err != nil {
-        return nil, nil, value, err
+        return nil, err
       }
 
-      interface_value := reflect.New(interface_type).Elem()
-      nil_flag := flag_bytes[0]
-      if nil_flag == 0x01 {
-      } else if nil_flag == 0x00 {
-        var elem_value *reflect.Value
-        var elem_ser SerializedValue
-        elem_ser, value.Data, err = ParseSerializedValue(value.Data)
-        _, elem_value, _, err = DeserializeValue(ctx, elem_ser)
-        if err != nil {
-          return nil, nil, value, err
-        }
-        interface_value.Set(*elem_value)
-      } else {
-        return nil, nil, value, fmt.Errorf("Unknown interface nil_flag value 0x%x", nil_flag)
+      data = append(data, field_hash_bytes...)
+      data = append(data, field_serialized...)
+    }
+    binary.BigEndian.PutUint64(data[0:8], uint64(len(info.FieldOrder)))
+    return data, nil
+  }
+}
+
+func DeserializeStruct(info StructInfo)func(*Context, reflect.Type, []byte)(reflect.Value, []byte, error) {
+  return func(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+    if len(data) < 8 {
+      return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize struct %d/8", len(data))
+    }
+
+    num_field_bytes := data[:8]
+    data = data[8:]
+
+    num_fields := binary.BigEndian.Uint64(num_field_bytes)
+
+    struct_value := reflect.New(reflect_type).Elem()
+    for i := uint64(0); i < num_fields; i ++ {
+      field_hash_bytes := data[:8]
+      data = data[8:]
+      field_hash := SerializedType(binary.BigEndian.Uint64(field_hash_bytes))
+      field_info, exists := info.FieldMap[field_hash]
+      if exists == false {
+        return reflect.Value{}, nil, fmt.Errorf("0x%x is not a field in %+v", field_hash, info.Type)
       }
-      return interface_type, &interface_value, value, nil
+
+      var field_value reflect.Value
+      var err error
+      field_value, data, err = DeserializeValue(ctx, field_info.Type, data)
+      if err != nil {
+        return reflect.Value{}, nil, err
+      }
+
+      field_reflect := struct_value.FieldByIndex(field_info.Index)
+      field_reflect.Set(field_value)
+    }
+
+    return struct_value, data, nil
+  }
+}
+
+func SerializeGob(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 8)
+  gob_ser, err := value.Interface().(gob.GobEncoder).GobEncode()
+  if err != nil {
+    return nil, err
+  }
+
+  binary.BigEndian.PutUint64(data, uint64(len(gob_ser)))
+  return append(data, gob_ser...), nil
+}
+
+func DeserializeGob[T any, PT interface{gob.GobDecoder; *T}](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 8 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough bytes to deserialize gob %d/8", len(data))
+  }
+
+  size_bytes := data[:8]
+  size := binary.BigEndian.Uint64(size_bytes)
+  gob_data := data[8:8+size]
+  data = data[8+size:]
+
+  gob_ptr := reflect.New(reflect_type)
+  err := gob_ptr.Interface().(gob.GobDecoder).GobDecode(gob_data)
+  if err != nil {
+    return reflect.Value{}, nil, err
+  }
+
+  return gob_ptr.Elem(), data, nil
+}
+
+func SerializeInt8(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := []byte{byte(value.Int())}
+
+  return data, nil
+}
+
+func SerializeInt16(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 2)
+  binary.BigEndian.PutUint16(data, uint16(value.Int()))
+
+  return data, nil
+}
+
+func SerializeInt32(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 4)
+  binary.BigEndian.PutUint32(data, uint32(value.Int()))
+
+  return data, nil
+}
+
+func SerializeInt64(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 8)
+  binary.BigEndian.PutUint64(data, uint64(value.Int()))
+
+  return data, nil
+}
+
+func SerializeUint8(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := []byte{byte(value.Uint())}
+
+  return data, nil
+}
+
+func SerializeUint16(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 2)
+  binary.BigEndian.PutUint16(data, uint16(value.Uint()))
+
+  return data, nil
+}
+
+func SerializeUint32(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 4)
+  binary.BigEndian.PutUint32(data, uint32(value.Uint()))
+
+  return data, nil
+}
+
+func SerializeUint64(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 8)
+  binary.BigEndian.PutUint64(data, value.Uint())
+
+  return data, nil
+}
+
+func DeserializeUint64[T ~uint64 | ~int64](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  uint_size := 8
+  if len(data) < uint_size {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize uint %d/%d", len(data), uint_size)
+  }
+
+  uint_bytes := data[:uint_size]
+  data = data[uint_size:]
+  uint_value := reflect.New(reflect_type).Elem()
+
+  typed_value := T(binary.BigEndian.Uint64(uint_bytes))
+  uint_value.Set(reflect.ValueOf(typed_value))
+
+  return uint_value, data, nil
+}
+
+func DeserializeUint32[T ~uint32 | ~uint | ~int32 | ~int](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  uint_size := 4
+  if len(data) < uint_size {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize uint %d/%d", len(data), uint_size)
+  }
+
+  uint_bytes := data[:uint_size]
+  data = data[uint_size:]
+  uint_value := reflect.New(reflect_type).Elem()
+
+  typed_value := T(binary.BigEndian.Uint32(uint_bytes))
+  uint_value.Set(reflect.ValueOf(typed_value))
+
+  return uint_value, data, nil
+}
+
+func DeserializeUint16[T ~uint16 | ~int16](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  uint_size := 2
+  if len(data) < uint_size {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize uint %d/%d", len(data), uint_size)
+  }
+
+  uint_bytes := data[:uint_size]
+  data = data[uint_size:]
+  uint_value := reflect.New(reflect_type).Elem()
+
+  typed_value := T(binary.BigEndian.Uint16(uint_bytes))
+  uint_value.Set(reflect.ValueOf(typed_value))
+
+  return uint_value, data, nil
+}
+
+func DeserializeUint8[T ~uint8 | ~int8](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  uint_size := 1
+  if len(data) < uint_size {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize uint %d/%d", len(data), uint_size)
+  }
+
+  uint_bytes := data[:uint_size]
+  data = data[uint_size:]
+  uint_value := reflect.New(reflect_type).Elem()
+
+  typed_value := T(uint_bytes[0])
+  uint_value.Set(reflect.ValueOf(typed_value))
+
+  return uint_value, data, nil
+}
+
+func SerializeFloat64(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 8)
+  float_representation := math.Float64bits(value.Float())
+  binary.BigEndian.PutUint64(data, float_representation)
+  return data, nil
+}
+
+func DeserializeFloat64[T ~float64](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 8 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize float64 %d/8", len(data))
+  }
+
+  float_bytes := data[0:8]
+  data = data[8:]
+
+  float_representation := binary.BigEndian.Uint64(float_bytes)
+  float := math.Float64frombits(float_representation)
+
+  float_value := reflect.New(reflect_type).Elem()
+  float_value.Set(reflect.ValueOf(T(float)))
+
+  return float_value, data, nil
+}
+
+func SerializeFloat32(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 4)
+  float_representation := math.Float32bits(float32(value.Float()))
+  binary.BigEndian.PutUint32(data, float_representation)
+  return data, nil
+}
+
+func DeserializeFloat32[T ~float32](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 4 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize float32 %d/4", len(data))
+  }
+
+  float_bytes := data[0:4]
+  data = data[4:]
+
+  float_representation := binary.BigEndian.Uint32(float_bytes)
+  float := math.Float32frombits(float_representation)
+
+  float_value := reflect.New(reflect_type).Elem()
+  float_value.Set(reflect.ValueOf(T(float)))
+
+  return float_value, data, nil
+}
+
+func SerializeString(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := make([]byte, 8)
+  binary.BigEndian.PutUint64(data, uint64(value.Len()))
+
+  return append(data, []byte(value.String())...), nil
+}
+
+func DeserializeString(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 8 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize string %d/8", len(data))
+  }
+
+  size_bytes := data[0:8]
+  data = data[8:]
+
+  size := binary.BigEndian.Uint64(size_bytes)
+  if len(data) < int(size) {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize string of len %d, %d/%d", size, len(data), size)
+  }
+
+  string_value := reflect.New(reflect_type).Elem()
+  string_value.Set(reflect.ValueOf(string(data[:size])))
+  data = data[size:]
+
+  return string_value, data, nil
+}
+
+func SerializeBool(ctx *Context, value reflect.Value) ([]byte, error) {
+  if value.Bool() == true {
+    return []byte{0xFF}, nil
+  } else {
+    return []byte{0x00}, nil
+  }
+}
+
+func DeserializeBool[T ~bool](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 1 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize bool %d/1", len(data))
+  }
+  byte := data[0]
+  data = data[1:]
+
+  bool_value := reflect.New(reflect_type).Elem()
+  if byte == 0x00 {
+    bool_value.Set(reflect.ValueOf(T(false)))
+  } else {
+    bool_value.Set(reflect.ValueOf(T(true)))
+  }
+
+  return bool_value, data, nil
+}
+
+func DeserializeTypePointer(ctx *Context, type_stack []SerializedType) (reflect.Type, []SerializedType, error) {
+  elem_type, remaining, err := DeserializeType(ctx, type_stack)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  return reflect.PointerTo(elem_type), remaining, nil
+}
+
+func SerializePointer(ctx *Context, value reflect.Value) ([]byte, error) {
+  if value.IsZero() {
+    return []byte{0x00}, nil
+  } else {
+    flags := []byte{0x01}
+
+    elem_data, err := SerializeValue(ctx, value.Elem())
+    if err != nil {
+      return nil, err
+    }
+
+    return append(flags, elem_data...), nil
+  }
+}
+
+func DeserializePointer(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 1 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize pointer %d/1", len(data))
+  }
+
+  flags := data[0]
+  data = data[1:]
+
+  pointer_value := reflect.New(reflect_type).Elem()
+
+  if flags != 0x00 {
+    var element_value reflect.Value
+    var err error
+    element_value, data, err = DeserializeValue(ctx, reflect_type.Elem(), data)
+    if err != nil {
+      return reflect.Value{}, nil, err
+    }
+
+    pointer_value.Set(element_value.Addr())
+  }
+
+  return pointer_value, data, nil
+}
+
+func SerializeTypeStub(ctx *Context, reflect_type reflect.Type) ([]SerializedType, error) {
+  return nil, nil
+}
+
+func DeserializeTypeStub[T any](ctx *Context, type_stack []SerializedType) (reflect.Type, []SerializedType, error) {
+  var zero T
+  return reflect.TypeOf(zero), type_stack, nil
+}
+
+func SerializeTypeElem(ctx *Context, reflect_type reflect.Type) ([]SerializedType, error) {
+  return SerializeType(ctx, reflect_type.Elem())
+}
+
+func SerializeSlice(ctx *Context, value reflect.Value) ([]byte, error) {
+  if value.IsZero() {
+    return []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, nil
+  } else if value.Len() == 0 {
+    return []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, nil
+  } else {
+    data := make([]byte, 8)
+    binary.BigEndian.PutUint64(data, uint64(value.Len()))
+
+    for i := 0; i < value.Len(); i += 1 {
+      val := value.Index(i)
+      element, err := SerializeValue(ctx, val)
+      if err != nil {
+        return nil, err
+      }
+      data = append(data, element...)
+    }
+
+    return data, nil
+  }
+}
+
+func DeserializeTypeSlice(ctx *Context, type_stack []SerializedType) (reflect.Type, []SerializedType, error) {
+  elem_type, remaining, err := DeserializeType(ctx, type_stack)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  reflect_type := reflect.SliceOf(elem_type)
+  return reflect_type, remaining, nil
+}
+
+func DeserializeSlice(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 8 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize slice %d/8", len(data))
+  }
+
+  slice_size := binary.BigEndian.Uint64(data[0:8])
+  slice_value := reflect.New(reflect_type).Elem()
+  data = data[8:]
+
+  if slice_size != 0xFFFFFFFFFFFFFFFF {
+    slice_unaddr := reflect.MakeSlice(reflect_type, int(slice_size), int(slice_size))
+    slice_value.Set(slice_unaddr)
+    for i := uint64(0); i < slice_size; i += 1 {
+      var element_value reflect.Value
+      var err error
+      element_value, data, err = DeserializeValue(ctx, reflect_type.Elem(), data)
+      if err != nil {
+        return reflect.Value{}, nil, err
+      }
+
+      slice_elem := slice_value.Index(int(i))
+      slice_elem.Set(element_value)
     }
   }
+
+  return slice_value, data, nil
+}
+
+func SerializeTypeMap(ctx *Context, reflect_type reflect.Type) ([]SerializedType, error) {
+  key_stack, err := SerializeType(ctx, reflect_type.Key())
+  if err != nil {
+    return nil, err
+  }
+
+  elem_stack, err := SerializeType(ctx, reflect_type.Elem())
+  if err != nil {
+    return nil, err
+  }
+
+  return append(key_stack, elem_stack...), nil
+}
+
+func DeserializeTypeMap(ctx *Context, type_stack []SerializedType) (reflect.Type, []SerializedType, error) {
+  key_type, after_key, err := DeserializeType(ctx, type_stack)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  elem_type, after_elem, err := DeserializeType(ctx, after_key)
+  if err != nil {
+    return nil, nil, err
+  }
+
+  map_type := reflect.MapOf(key_type, elem_type)
+  return map_type, after_elem, nil
+}
+
+func SerializeMap(ctx *Context, value reflect.Value) ([]byte, error) {
+  if value.IsZero() == true {
+    return []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, nil
+  }
+
+  map_data := []byte{}
+  map_size := uint64(0)
+  map_iter := value.MapRange()
+  for map_iter.Next() {
+    map_size = map_size + 1
+    key := map_iter.Key()
+    val := map_iter.Value()
+
+    key_data, err := SerializeValue(ctx, key)
+    if err != nil {
+      return nil, err
+    }
+    map_data = append(map_data, key_data...)
+
+    val_data, err := SerializeValue(ctx, val)
+    if err != nil {
+      return nil, err
+    }
+    map_data = append(map_data, val_data...)
+  }
+
+  size_data := make([]byte, 8)
+  binary.BigEndian.PutUint64(size_data, map_size)
+
+  return append(size_data, map_data...), nil
+}
+
+func DeserializeMap(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 8 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize map %d/8", len(data))
+  }
+
+  size_bytes := data[:8]
+  data = data[8:]
+
+  size := binary.BigEndian.Uint64(size_bytes)
+
+  map_value := reflect.New(reflect_type).Elem()
+  if size == 0xFFFFFFFFFFFFFFFF {
+    return map_value, data, nil
+  }
+
+  map_unaddr := reflect.MakeMapWithSize(reflect_type, int(size))
+  map_value.Set(map_unaddr)
+
+  for i := uint64(0); i < size; i++ {
+    var err error
+    var key_value reflect.Value
+    key_value, data, err = DeserializeValue(ctx, reflect_type.Key(), data)
+    if err != nil {
+      return reflect.Value{}, nil, err
+    }
+
+    var val_value reflect.Value
+    val_value, data, err = DeserializeValue(ctx, reflect_type.Elem(), data)
+    if err != nil {
+      return reflect.Value{}, nil, err
+    }
+
+    map_value.SetMapIndex(key_value, val_value)
+  }
+
+  return map_value, data, nil
+}
+
+func SerializeTypeArray(ctx *Context, reflect_type reflect.Type) ([]SerializedType, error) {
+  size := SerializedType(reflect_type.Len())
+  elem_stack, err := SerializeType(ctx, reflect_type.Elem())
+  if err != nil {
+    return nil, err
+  }
+
+  return append([]SerializedType{size}, elem_stack...), nil
+}
+
+func SerializeArray(ctx *Context, value reflect.Value) ([]byte, error) {
+  data := []byte{}
+  for i := 0; i < value.Len(); i += 1 {
+    element := value.Index(i)
+    element_data, err := SerializeValue(ctx, element)
+    if err != nil {
+      return nil, err
+    }
+    data = append(data, element_data...)
+  }
+
+  return data, nil
+}
+
+func DeserializeTypeArray(ctx *Context, type_stack []SerializedType) (reflect.Type, []SerializedType, error) {
+  if len(type_stack) < 1 {
+    return nil, nil, fmt.Errorf("Not enough valued in type stack to deserialize array")
+  }
+
+  size := int(type_stack[0])
+  element_type, remaining, err := DeserializeType(ctx, type_stack[1:])
+  if err != nil {
+    return nil, nil, err
+  }
+
+  array_type := reflect.ArrayOf(size, element_type)
+  return array_type, remaining, nil
+}
+
+func DeserializeArray(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  array_value := reflect.New(reflect_type).Elem()
+  for i := 0; i < array_value.Len(); i += 1 {
+    var element_value reflect.Value
+    var err error
+    element_value, data, err = DeserializeValue(ctx, reflect_type.Elem(), data)
+    if err != nil {
+      return reflect.Value{}, nil, err
+    }
+
+    element := array_value.Index(i)
+    element.Set(element_value)
+  }
+
+  return array_value, data, nil
+}
+
+func SerializeInterface(ctx *Context, value reflect.Value) ([]byte, error) {
+  if value.IsZero() == true {
+    return []byte{0xFF}, nil
+  }
+
+  type_stack, err := SerializeType(ctx, value.Elem().Type())
+  if err != nil {
+    return nil, err
+  }
+
+  data, err := SerializeValue(ctx, value.Elem())
+  if err != nil {
+    return nil, err
+  }
+
+  serialized_value, err := SerializedValue{type_stack, data}.MarshalBinary()
+  if err != nil {
+    return nil, err
+  }
+
+  return append([]byte{0x00}, serialized_value...), nil
+}
+
+func DeserializeInterface(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 1 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize interface %d/1", len(data))
+  }
+
+  flags := data[0]
+  data = data[1:]
+  if flags == 0xFF {
+    return reflect.New(reflect_type).Elem(), data, nil
+  }
+
+  serialized_value, remaining, err := ParseSerializedValue(data)
+  elem_type, types_remaining, err := DeserializeType(ctx, serialized_value.TypeStack)
+  if err != nil {
+    return reflect.Value{}, nil, err
+  } else if len(types_remaining) > 0 {
+    return reflect.Value{}, nil, fmt.Errorf("Types remaining in interface stack after deserializing")
+  }
+
+  elem_value, data_remaining, err := DeserializeValue(ctx, elem_type, serialized_value.Data)
+  if err != nil {
+    return reflect.Value{}, nil, err
+  } else if len(data_remaining) > 0 {
+    return reflect.Value{}, nil, fmt.Errorf("Data remaining in interface data after deserializing")
+  }
+
+  interface_value := reflect.New(reflect_type).Elem()
+  interface_value.Set(elem_value)
+
+  return interface_value, remaining, nil
 }
 
 type SerializedValue struct {
@@ -683,63 +885,73 @@ type SerializedValue struct {
   Data      []byte
 }
 
-func (value SerializedValue) PopType() (SerializedType, SerializedValue, error) {
-  if len(value.TypeStack) == 0 {
-    return SerializedType(0), value, fmt.Errorf("No elements in TypeStack")
-  }
-  ctx_type := value.TypeStack[0]
-  value.TypeStack = value.TypeStack[1:]
-  return ctx_type, value, nil
-}
-
-func (value SerializedValue) PopData(n int) ([]byte, SerializedValue, error) {
-  if len(value.Data) < n {
-    return nil, value, fmt.Errorf("Not enough data %d/%d", len(value.Data), n)
-  }
-  data := value.Data[0:n]
-  value.Data = value.Data[n:]
-
-  return data, value, nil
-}
-
 func SerializeAny[T any](ctx *Context, value T) (SerializedValue, error) {
   reflect_value := reflect.ValueOf(value)
-  return SerializeValue(ctx, reflect_value.Type(), &reflect_value)
+  type_stack, err := SerializeType(ctx, reflect_value.Type())
+  if err != nil {
+    return SerializedValue{}, err
+  }
+  data, err := SerializeValue(ctx, reflect_value)
+  if err != nil {
+    return SerializedValue{}, err
+  }
+  return SerializedValue{type_stack, data}, nil
 }
 
-func SerializeValue(ctx *Context, t reflect.Type, value *reflect.Value) (SerializedValue, error) {
-  ctx.Log.Logf("serialize", "Serializing: %+v - %+v", t, value)
-  type_info, type_exists := ctx.TypeReflects[t]
+func SerializeType(ctx *Context, reflect_type reflect.Type) ([]SerializedType, error) {
+  ctx.Log.Logf("serialize", "Serializing type %+v", reflect_type)
+
+  type_info, type_exists := ctx.TypeReflects[reflect_type]
+  var serialize_type TypeSerializeFn = nil
   var ctx_type SerializedType
-  var ctx_name string
-  var serialize TypeSerialize = nil
   if type_exists == true {
+    serialize_type = type_info.TypeSerialize
     ctx_type = type_info.Type
-    ctx_name = type_info.Reflect.Name()
+  }
+
+  if serialize_type == nil {
+    kind_info, handled := ctx.Kinds[reflect_type.Kind()]
+    if handled == true {
+      if type_exists == false {
+        ctx_type = kind_info.Type
+      }
+      serialize_type = kind_info.TypeSerialize
+    }
+  }
+
+  type_stack := []SerializedType{ctx_type}
+  if serialize_type != nil {
+    extra_types, err := serialize_type(ctx, reflect_type)
+    if err != nil {
+      return nil, err
+    }
+    return append(type_stack, extra_types...), nil
+  } else {
+    return type_stack, nil
+  }
+}
+
+func SerializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
+  ctx.Log.Logf("serialize", "Serializing value %+v", value)
+
+  type_info, type_exists := ctx.TypeReflects[value.Type()]
+  var serialize SerializeFn = nil
+  if type_exists == true {
     if type_info.Serialize != nil {
       serialize = type_info.Serialize
     }
   }
 
-  kind := t.Kind()
-  kind_info, handled := ctx.Kinds[kind]
-  if handled == false {
-    return SerializedValue{}, fmt.Errorf("Don't know how to serialize kind %+v", kind)
-  } else if type_exists == false {
-    ctx_type = kind_info.Type
-    ctx_name = kind_info.Reflect.String()
-  }
-
   if serialize == nil {
-    serialize = kind_info.Serialize
+    kind_info, handled := ctx.Kinds[value.Kind()]
+    if handled {
+      serialize = kind_info.Serialize
+    } else {
+      return nil, fmt.Errorf("Don't know how to serialize %+v", value.Type())
+    }
   }
 
-  serialized_value, err := serialize(ctx, ctx_type, t, value)
-  if err != nil {
-    return serialized_value, err
-  }
-  ctx.Log.Logf("serialize", "Serialized %+v: %+v", ctx_name, serialized_value)
-  return serialized_value, err
+  return serialize(ctx, value)
 }
 
 func ExtField(ctx *Context, ext Extension, field_name string) (reflect.Value, error) {
@@ -763,8 +975,15 @@ func SerializeField(ctx *Context, ext Extension, field_name string) (SerializedV
   if err != nil {
     return SerializedValue{}, err
   }
-
-  return SerializeValue(ctx, field_value.Type(), &field_value)
+  type_stack, err := SerializeType(ctx, field_value.Type())
+  if err != nil {
+    return SerializedValue{}, err
+  }
+  data, err := SerializeValue(ctx, field_value)
+  if err != nil {
+    return SerializedValue{}, err
+  }
+  return SerializedValue{type_stack, data}, nil
 }
 
 func (value SerializedValue) MarshalBinary() ([]byte, error) {
@@ -806,47 +1025,52 @@ func ParseSerializedValue(data []byte) (SerializedValue, []byte, error) {
   }, data[data_end:], nil
 }
 
-func DeserializeValue(ctx *Context, value SerializedValue) (reflect.Type, *reflect.Value, SerializedValue, error) {
+func DeserializeValue(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  ctx.Log.Logf("serialize", "Deserializing %+v with %d bytes", reflect_type, len(data))
+  var deserialize DeserializeFn = nil
 
-  var deserialize TypeDeserialize = nil
-  var reflect_type reflect.Type = nil
-  var reflect_value *reflect.Value = nil
-
-  ctx_type, value, err := value.PopType()
-  if err != nil {
-    return nil, nil, value, err
+  type_info, type_exists := ctx.TypeReflects[reflect_type]
+  if type_exists == true {
+    deserialize = type_info.Deserialize
+  } else {
+    kind_info, exists := ctx.Kinds[reflect_type.Kind()]
+    if exists == false {
+      return reflect.Value{}, nil, fmt.Errorf("Cannot deserialize %+v/%+v: unknown type/kind", reflect_type, reflect_type.Kind())
+    }
+    deserialize = kind_info.Deserialize
   }
 
-  var ctx_name string
+  return deserialize(ctx, reflect_type, data)
+}
+
+func DeserializeType(ctx *Context, type_stack []SerializedType) (reflect.Type, []SerializedType, error) {
+  ctx.Log.Logf("deserialize_types", "Deserializing type stack %+v", type_stack)
+  var deserialize_type TypeDeserializeFn = nil
+  var reflect_type reflect.Type = nil
+
+  if len(type_stack) < 1 {
+    return nil, nil, fmt.Errorf("No elements in type stack to deserialize(DeserializeType)")
+  }
+
+  ctx_type := type_stack[0]
+  type_stack = type_stack[1:]
 
   type_info, type_exists := ctx.Types[SerializedType(ctx_type)]
   if type_exists == true {
-    deserialize = type_info.Deserialize
-    ctx_name = type_info.Reflect.Name()
+    deserialize_type = type_info.TypeDeserialize
+    reflect_type = type_info.Reflect
   } else {
     kind_info, exists := ctx.KindTypes[SerializedType(ctx_type)]
     if exists == false {
-      return nil, nil, value, fmt.Errorf("Cannot deserialize 0x%x: unknown type/kind", ctx_type)
+      return nil, nil, fmt.Errorf("Cannot deserialize 0x%x: unknown type/kind", ctx_type)
     }
-    deserialize = kind_info.Deserialize
-    ctx_name = kind_info.Reflect.String()
+    deserialize_type = kind_info.TypeDeserialize
+    reflect_type = kind_info.Base
   }
 
-  ctx.Log.Logf("serialize", "Deserializing: %+v(%+v) - %+v", ctx_name, ctx_type, value.TypeStack)
-
-  if value.Data == nil {
-    reflect_type, _, value, err = deserialize(ctx, value)
+  if deserialize_type == nil {
+    return reflect_type, type_stack, nil
   } else {
-    reflect_type, reflect_value, value, err = deserialize(ctx, value)
+    return deserialize_type(ctx, type_stack)
   }
-  if err != nil {
-    return nil, nil, value, err
-  }
-
-  if reflect_value != nil {
-    ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v", reflect_type, reflect_value.Interface(), err)
-  } else {
-    ctx.Log.Logf("serialize", "Deserialized %+v - %+v - %+v", reflect_type, reflect_value, err)
-  }
-  return reflect_type, reflect_value, value, nil
 }
