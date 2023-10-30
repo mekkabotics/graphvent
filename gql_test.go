@@ -242,7 +242,7 @@ func TestGQLServer(t *testing.T) {
 }
 
 func TestGQLDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "node"})
+  ctx := logTestContext(t, []string{"test", "serialize", "serialize_types", "deserialize_types", "node"})
 
   TestUserNodeType := NewNodeType("TEST_USER")
   err := ctx.RegisterNodeType(TestUserNodeType, []ExtType{})

@@ -297,6 +297,15 @@ func DeserializeStruct(info StructInfo)func(*Context, reflect.Type, []byte)(refl
       field_reflect.Set(field_value)
     }
 
+    if info.PostDeserialize == true {
+      post_deserialize_method := struct_value.Addr().Method(info.PostDeserializeIdx)
+      results := post_deserialize_method.Call([]reflect.Value{reflect.ValueOf(ctx)})
+      err_if := results[0].Interface()
+      if err_if != nil {
+        return reflect.Value{}, nil, err_if.(error)
+      }
+    }
+
     return struct_value, data, nil
   }
 }
