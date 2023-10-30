@@ -75,7 +75,7 @@ func NewMessage(ctx *Context, dest NodeID, source *Node, authorization *ClientAu
     return nil, err
   }
 
-  ser, err := signal_ser.MarshalBinary()
+  signal_chunks, err := signal_ser.Chunks()
   if err != nil {
     return nil, err
   }
@@ -89,7 +89,7 @@ func NewMessage(ctx *Context, dest NodeID, source *Node, authorization *ClientAu
     return nil, err
   }
   sig_data := append(dest_ser, source_ser...)
-  sig_data = append(sig_data, ser...)
+  sig_data = append(sig_data, signal_chunks.Slice()...)
   var message_auth *Authorization = nil
   if authorization != nil {
     sig_data = append(sig_data, authorization.Signature...)

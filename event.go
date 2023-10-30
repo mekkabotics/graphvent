@@ -6,9 +6,9 @@ import (
 )
 
 type EventExt struct {
-  Name string `"name"`
-  State string `"state"`
-  Parent *NodeID `"parent"`
+  Name string `gv:"name"`
+  State string `gv:"state"`
+  Parent *NodeID `gv:"parent"`
 }
 
 func NewEventExt(parent *NodeID, name string) *EventExt {
@@ -91,19 +91,33 @@ func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
     messages = messages.Add(ctx, *ext.Parent, node, nil, signal)
   }
 
+  return messages, changes
+}
+
+type TestEventExt struct {}
+
+func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
+  var messages Messages = nil
+  var changes Changes = nil
+
   switch sig := signal.(type) {
   case *EventControlSignal:
-    info, exists := transitions[sig.Command]
-    if exists == true {
-      if ext.State == info.from_state {
-        ext.State = info.to_state
-        messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-        node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
-      } else {
-        messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_state"))
-      }
+    event_ext, err := GetExt[*EventExt](node, EventExtType)
+    if err != nil {
+      messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "not_event"))
     } else {
-      messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_command"))
+      info, exists := transitions[sig.Command]
+      if exists == true {
+        if event_ext.State == info.from_state {
+          event_ext.State = info.to_state
+          messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
+          node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, event_ext.State, time.Now()))
+        } else {
+          messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_state"))
+        }
+      } else {
+        messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_command"))
+      }
     }
   }
 

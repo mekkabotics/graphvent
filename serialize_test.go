@@ -13,7 +13,6 @@ func TestSerializeTest(t *testing.T) {
   testSerialize(t, ctx, map[NodeID]ReqInfo{
     RandID(): {},
     RandID(): {},
-    RandID(): {},
   })
 }
 
@@ -220,16 +219,16 @@ func testSerializeComparable[T comparable](t *testing.T, ctx *Context, val T) {
 func testSerialize[T any](t *testing.T, ctx *Context, val T) T {
   value := reflect.ValueOf(&val).Elem()
   type_stack, err := SerializeType(ctx, value.Type())
-  data, err := SerializeValue(ctx, value)
-  value_serialized := SerializedValue{type_stack, data}
+  chunks, err := SerializeValue(ctx, value)
+  value_serialized := SerializedValue{type_stack, chunks.Slice()}
   fatalErr(t, err)
-  ctx.Log.Logf("test", "Serialized %+v to %+v", val, value_serialized)
+  ctx.Log.Logf("test", "Serialized %+v to %+v(%d)", val, value_serialized, len(value_serialized.Data))
 
-  ser, err := value_serialized.MarshalBinary()
+  value_chunks, err := value_serialized.Chunks()
   fatalErr(t, err)
-  ctx.Log.Logf("test", "Binary: %+v", ser)
+  ctx.Log.Logf("test", "Binary: %+v", value_chunks.Slice())
 
-  val_parsed, remaining_parse, err := ParseSerializedValue(ser)
+  val_parsed, remaining_parse, err := ParseSerializedValue(value_chunks.Slice())
   fatalErr(t, err)
   ctx.Log.Logf("test", "Parsed: %+v", val_parsed)
 

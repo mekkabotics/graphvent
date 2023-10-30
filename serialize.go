@@ -2,6 +2,7 @@ package graphvent
 
 import (
   "crypto/sha512"
+  "encoding"
   "encoding/binary"
   "encoding/gob"
   "fmt"
@@ -57,8 +58,118 @@ func (t PolicyType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
+type Chunk struct {
+  Data []byte
+  Next *Chunk
+}
+
+type Chunks struct {
+  First *Chunk
+  Last *Chunk
+}
+
+func (chunks Chunks) String() string {
+  cur := chunks.First
+  str := fmt.Sprintf("Chunks(")
+  for cur != nil {
+    str = fmt.Sprintf("%s%+v, ", str, cur)
+    cur = cur.Next
+  }
+
+  return fmt.Sprintf("%s)", str)
+}
+
+func NewChunks(datas ...[]byte) Chunks {
+  var first *Chunk = nil
+  var last *Chunk = nil
+
+  if len(datas) >= 1 {
+    first = &Chunk{
+      Data: datas[0],
+      Next: nil,
+    }
+    last = first
+
+    for _, data := range(datas[1:]) {
+      last.Next = &Chunk{
+        Data: data,
+        Next: nil,
+      }
+      last = last.Next
+    }
+  }
+
+  if (first == nil || last == nil) && (first != last) {
+    panic(fmt.Sprintf("Attempted to construct invalid Chunks with NewChunks %+v - %+v", first, last))
+  }
+  return Chunks{
+    First: first,
+    Last: last,
+  }
+}
+
+func (chunks Chunks) AddDataToEnd(datas ...[]byte) Chunks {
+  if chunks.First == nil && chunks.Last == nil {
+    return NewChunks(datas...)
+  } else if chunks.First == nil || chunks.Last == nil {
+    panic(fmt.Sprintf("Invalid chunks %+v", chunks))
+  }
+
+  for _, data := range(datas) {
+    chunks.Last.Next = &Chunk{
+      Data: data,
+      Next: nil,
+    }
+    chunks.Last = chunks.Last.Next
+  }
+
+  return chunks
+}
+
+func (chunks Chunks) AddChunksToEnd(new_chunks Chunks) Chunks {
+  if chunks.Last == nil && chunks.First == nil {
+    return new_chunks
+  } else if chunks.Last == nil || chunks.First == nil {
+    panic(fmt.Sprintf("Invalid chunks %+v", chunks))
+  } else if new_chunks.Last == nil && new_chunks.First == nil {
+    return chunks
+  } else if new_chunks.Last == nil || new_chunks.First == nil {
+    panic(fmt.Sprintf("Invalid new_chunks %+v", new_chunks))
+  } else {
+    chunks.Last.Next = new_chunks.First
+    chunks.Last = new_chunks.Last
+    return chunks
+  }
+}
+
+func (chunks Chunks) GetSerializedSize() int {
+  total_size := 0
+  cur := chunks.First
+
+  for cur != nil {
+    total_size += len(cur.Data)
+    cur = cur.Next
+  }
+  return total_size
+}
+
+func (chunks Chunks) Slice() []byte {
+  total_size := chunks.GetSerializedSize()
+  data := make([]byte, total_size)
+  data_ptr := 0
+
+  cur := chunks.First
+  for cur != nil {
+    copy(data[data_ptr:], cur.Data)
+    data_ptr += len(cur.Data)
+    cur = cur.Next
+  }
+
+  return data
+}
+
 type TypeSerializeFn func(*Context, reflect.Type) ([]SerializedType, error)
-type SerializeFn func(*Context, reflect.Value) ([]byte, error)
+type SerializeFn func(*Context, reflect.Value) (Chunks, error)
 type TypeDeserializeFn func(*Context, []SerializedType) (reflect.Type, []SerializedType, error)
 type DeserializeFn func(*Context, reflect.Type, []byte) (reflect.Value, []byte, error)
 
@@ -242,9 +353,9 @@ func GetStructInfo(ctx *Context, struct_type reflect.Type) (StructInfo, error) {
   }, nil
 }
 
-func SerializeStruct(info StructInfo)func(*Context, reflect.Value)([]byte, error) {
-  return func(ctx *Context, value reflect.Value) ([]byte, error) {
-    data := make([]byte, 8)
+func SerializeStruct(info StructInfo)func(*Context, reflect.Value)(Chunks, error) {
+  return func(ctx *Context, value reflect.Value) (Chunks, error) {
+    struct_chunks := Chunks{}
     for _, field_hash := range(info.FieldOrder) {
       field_hash_bytes := make([]byte, 8)
       binary.BigEndian.PutUint64(field_hash_bytes, uint64(field_hash))
@@ -252,16 +363,17 @@ func SerializeStruct(info StructInfo)func(*Context, reflect.Value)([]byte, error
       field_info := info.FieldMap[field_hash]
       field_value := value.FieldByIndex(field_info.Index)
 
-      field_serialized, err := SerializeValue(ctx, field_value)
+      field_chunks, err := SerializeValue(ctx, field_value)
       if err != nil {
-        return nil, err
+        return Chunks{}, err
       }
 
-      data = append(data, field_hash_bytes...)
-      data = append(data, field_serialized...)
+      struct_chunks = struct_chunks.AddDataToEnd(field_hash_bytes).AddChunksToEnd(field_chunks)
+      ctx.Log.Logf("serialize", "STRUCT_FIELD_CHUNKS: %+v", field_chunks)
     }
-    binary.BigEndian.PutUint64(data[0:8], uint64(len(info.FieldOrder)))
-    return data, nil
+    size_data := make([]byte, 8)
+    binary.BigEndian.PutUint64(size_data, uint64(len(info.FieldOrder)))
+    return NewChunks(size_data).AddChunksToEnd(struct_chunks), nil
   }
 }
 
@@ -283,7 +395,7 @@ func DeserializeStruct(info StructInfo)func(*Context, reflect.Type, []byte)(refl
       field_hash := SerializedType(binary.BigEndian.Uint64(field_hash_bytes))
       field_info, exists := info.FieldMap[field_hash]
       if exists == false {
-        return reflect.Value{}, nil, fmt.Errorf("0x%x is not a field in %+v", field_hash, info.Type)
+        return reflect.Value{}, nil, fmt.Errorf("%+v is not a field in %+v", field_hash, info.Type)
       }
 
       var field_value reflect.Value
@@ -310,15 +422,15 @@ func DeserializeStruct(info StructInfo)func(*Context, reflect.Type, []byte)(refl
   }
 }
 
-func SerializeGob(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeGob(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 8)
   gob_ser, err := value.Interface().(gob.GobEncoder).GobEncode()
   if err != nil {
-    return nil, err
+    return Chunks{}, err
   }
 
   binary.BigEndian.PutUint64(data, uint64(len(gob_ser)))
-  return append(data, gob_ser...), nil
+  return NewChunks(data, gob_ser), nil
 }
 
 func DeserializeGob[T any, PT interface{gob.GobDecoder; *T}](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
@@ -340,58 +452,58 @@ func DeserializeGob[T any, PT interface{gob.GobDecoder; *T}](ctx *Context, refle
   return gob_ptr.Elem(), data, nil
 }
 
-func SerializeInt8(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeInt8(ctx *Context, value reflect.Value) (Chunks, error) {
   data := []byte{byte(value.Int())}
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeInt16(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeInt16(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 2)
   binary.BigEndian.PutUint16(data, uint16(value.Int()))
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeInt32(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeInt32(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 4)
   binary.BigEndian.PutUint32(data, uint32(value.Int()))
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeInt64(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeInt64(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 8)
   binary.BigEndian.PutUint64(data, uint64(value.Int()))
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeUint8(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeUint8(ctx *Context, value reflect.Value) (Chunks, error) {
   data := []byte{byte(value.Uint())}
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeUint16(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeUint16(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 2)
   binary.BigEndian.PutUint16(data, uint16(value.Uint()))
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeUint32(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeUint32(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 4)
   binary.BigEndian.PutUint32(data, uint32(value.Uint()))
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
-func SerializeUint64(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeUint64(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 8)
   binary.BigEndian.PutUint64(data, value.Uint())
 
-  return data, nil
+  return NewChunks(data), nil
 }
 
 func DeserializeUint64[T ~uint64 | ~int64](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
@@ -458,11 +570,11 @@ func DeserializeUint8[T ~uint8 | ~int8](ctx *Context, reflect_type reflect.Type,
   return uint_value, data, nil
 }
 
-func SerializeFloat64(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeFloat64(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 8)
   float_representation := math.Float64bits(value.Float())
   binary.BigEndian.PutUint64(data, float_representation)
-  return data, nil
+  return NewChunks(data), nil
 }
 
 func DeserializeFloat64[T ~float64](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
@@ -482,11 +594,11 @@ func DeserializeFloat64[T ~float64](ctx *Context, reflect_type reflect.Type, dat
   return float_value, data, nil
 }
 
-func SerializeFloat32(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeFloat32(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 4)
   float_representation := math.Float32bits(float32(value.Float()))
   binary.BigEndian.PutUint32(data, float_representation)
-  return data, nil
+  return NewChunks(data), nil
 }
 
 func DeserializeFloat32[T ~float32](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
@@ -506,14 +618,14 @@ func DeserializeFloat32[T ~float32](ctx *Context, reflect_type reflect.Type, dat
   return float_value, data, nil
 }
 
-func SerializeString(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeString(ctx *Context, value reflect.Value) (Chunks, error) {
   data := make([]byte, 8)
   binary.BigEndian.PutUint64(data, uint64(value.Len()))
 
-  return append(data, []byte(value.String())...), nil
+  return NewChunks(data, []byte(value.String())), nil
 }
 
-func DeserializeString(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+func DeserializeString[T ~string](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
   if len(data) < 8 {
     return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize string %d/8", len(data))
   }
@@ -527,17 +639,17 @@ func DeserializeString(ctx *Context, reflect_type reflect.Type, data []byte) (re
   }
 
   string_value := reflect.New(reflect_type).Elem()
-  string_value.Set(reflect.ValueOf(string(data[:size])))
+  string_value.Set(reflect.ValueOf(T(string(data[:size]))))
   data = data[size:]
 
   return string_value, data, nil
 }
 
-func SerializeBool(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeBool(ctx *Context, value reflect.Value) (Chunks, error) {
   if value.Bool() == true {
-    return []byte{0xFF}, nil
+    return NewChunks([]byte{0xFF}), nil
   } else {
-    return []byte{0x00}, nil
+    return NewChunks([]byte{0x00}), nil
   }
 }
 
@@ -567,18 +679,18 @@ func DeserializeTypePointer(ctx *Context, type_stack []SerializedType) (reflect.
   return reflect.PointerTo(elem_type), remaining, nil
 }
 
-func SerializePointer(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializePointer(ctx *Context, value reflect.Value) (Chunks, error) {
   if value.IsZero() {
-    return []byte{0x00}, nil
+    return NewChunks([]byte{0x00}), nil
   } else {
-    flags := []byte{0x01}
+    flags := NewChunks([]byte{0x01})
 
-    elem_data, err := SerializeValue(ctx, value.Elem())
+    elem_chunks, err := SerializeValue(ctx, value.Elem())
     if err != nil {
-      return nil, err
+      return Chunks{}, err
     }
 
-    return append(flags, elem_data...), nil
+    return flags.AddChunksToEnd(elem_chunks), nil
   }
 }
 
@@ -619,25 +731,26 @@ func SerializeTypeElem(ctx *Context, reflect_type reflect.Type) ([]SerializedTyp
   return SerializeType(ctx, reflect_type.Elem())
 }
 
-func SerializeSlice(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeSlice(ctx *Context, value reflect.Value) (Chunks, error) {
   if value.IsZero() {
-    return []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, nil
+    return NewChunks([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}), nil
   } else if value.Len() == 0 {
-    return []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, nil
+    return NewChunks([]byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}), nil
   } else {
-    data := make([]byte, 8)
-    binary.BigEndian.PutUint64(data, uint64(value.Len()))
-
+    slice_chunks := Chunks{}
     for i := 0; i < value.Len(); i += 1 {
       val := value.Index(i)
-      element, err := SerializeValue(ctx, val)
+      element_chunks, err := SerializeValue(ctx, val)
       if err != nil {
-        return nil, err
+        return Chunks{}, err
       }
-      data = append(data, element...)
+      slice_chunks = slice_chunks.AddChunksToEnd(element_chunks)
     }
 
-    return data, nil
+    size_data := make([]byte, 8)
+    binary.BigEndian.PutUint64(size_data, uint64(value.Len()))
+
+    return NewChunks(size_data).AddChunksToEnd(slice_chunks), nil
   }
 }
 
@@ -708,12 +821,12 @@ func DeserializeTypeMap(ctx *Context, type_stack []SerializedType) (reflect.Type
   return map_type, after_elem, nil
 }
 
-func SerializeMap(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeMap(ctx *Context, value reflect.Value) (Chunks, error) {
   if value.IsZero() == true {
-    return []byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}, nil
+    return NewChunks([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}), nil
   }
 
-  map_data := []byte{}
+  map_chunks := Chunks{}
   map_size := uint64(0)
   map_iter := value.MapRange()
   for map_iter.Next() {
@@ -721,23 +834,23 @@ func SerializeMap(ctx *Context, value reflect.Value) ([]byte, error) {
     key := map_iter.Key()
     val := map_iter.Value()
 
-    key_data, err := SerializeValue(ctx, key)
+    key_chunks, err := SerializeValue(ctx, key)
     if err != nil {
-      return nil, err
+      return Chunks{}, err
     }
-    map_data = append(map_data, key_data...)
+    map_chunks = map_chunks.AddChunksToEnd(key_chunks)
 
-    val_data, err := SerializeValue(ctx, val)
+    val_chunks, err := SerializeValue(ctx, val)
     if err != nil {
-      return nil, err
+      return Chunks{}, err
     }
-    map_data = append(map_data, val_data...)
+    map_chunks = map_chunks.AddChunksToEnd(val_chunks)
   }
 
   size_data := make([]byte, 8)
   binary.BigEndian.PutUint64(size_data, map_size)
 
-  return append(size_data, map_data...), nil
+  return NewChunks(size_data).AddChunksToEnd(map_chunks), nil
 }
 
 func DeserializeMap(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
@@ -788,15 +901,42 @@ func SerializeTypeArray(ctx *Context, reflect_type reflect.Type) ([]SerializedTy
   return append([]SerializedType{size}, elem_stack...), nil
 }
 
-func SerializeArray(ctx *Context, value reflect.Value) ([]byte, error) {
-  data := []byte{}
+func SerializeUUID(ctx *Context, value reflect.Value) (Chunks, error) {
+  uuid_ser, err := value.Interface().(encoding.BinaryMarshaler).MarshalBinary()
+  if err != nil {
+    return Chunks{}, err
+  }
+
+  if len(uuid_ser) != 16 {
+    return Chunks{}, fmt.Errorf("Wrong length of uuid: %d/16", len(uuid_ser))
+  }
+
+  return NewChunks(uuid_ser), nil
+}
+
+func DeserializeUUID[T ~[16]byte](ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
+  if len(data) < 16 {
+    return reflect.Value{}, nil, fmt.Errorf("Not enough data to deserialize UUID %d/16", len(data))
+  }
+
+  uuid_bytes := data[:16]
+  data = data[16:]
+
+  uuid_value := reflect.New(reflect_type).Elem()
+  uuid_value.Set(reflect.ValueOf(T(uuid_bytes)))
+
+  return uuid_value, data, nil
+}
+
+func SerializeArray(ctx *Context, value reflect.Value) (Chunks, error) {
+  data := Chunks{}
   for i := 0; i < value.Len(); i += 1 {
     element := value.Index(i)
-    element_data, err := SerializeValue(ctx, element)
+    element_chunks, err := SerializeValue(ctx, element)
     if err != nil {
-      return nil, err
+      return Chunks{}, err
     }
-    data = append(data, element_data...)
+    data = data.AddChunksToEnd(element_chunks)
   }
 
   return data, nil
@@ -834,27 +974,29 @@ func DeserializeArray(ctx *Context, reflect_type reflect.Type, data []byte) (ref
   return array_value, data, nil
 }
 
-func SerializeInterface(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeInterface(ctx *Context, value reflect.Value) (Chunks, error) {
   if value.IsZero() == true {
-    return []byte{0xFF}, nil
+    return NewChunks([]byte{0xFF}), nil
   }
 
   type_stack, err := SerializeType(ctx, value.Elem().Type())
   if err != nil {
-    return nil, err
+    return Chunks{}, err
   }
 
-  data, err := SerializeValue(ctx, value.Elem())
+  elem_chunks, err := SerializeValue(ctx, value.Elem())
   if err != nil {
-    return nil, err
+    return Chunks{}, err
   }
 
-  serialized_value, err := SerializedValue{type_stack, data}.MarshalBinary()
+  data := elem_chunks.Slice()
+
+  serialized_chunks, err := SerializedValue{type_stack, data}.Chunks()
   if err != nil {
-    return nil, err
+    return Chunks{}, err
   }
 
-  return append([]byte{0x00}, serialized_value...), nil
+  return NewChunks([]byte{0x00}).AddChunksToEnd(serialized_chunks), nil
 }
 
 func DeserializeInterface(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
@@ -904,7 +1046,8 @@ func SerializeAny[T any](ctx *Context, value T) (SerializedValue, error) {
   if err != nil {
     return SerializedValue{}, err
   }
-  return SerializedValue{type_stack, data}, nil
+
+  return SerializedValue{type_stack, data.Slice()}, nil
 }
 
 func SerializeType(ctx *Context, reflect_type reflect.Type) ([]SerializedType, error) {
@@ -940,9 +1083,7 @@ func SerializeType(ctx *Context, reflect_type reflect.Type) ([]SerializedType, e
   }
 }
 
-func SerializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
-  ctx.Log.Logf("serialize", "Serializing value %+v", value)
-
+func SerializeValue(ctx *Context, value reflect.Value) (Chunks, error) {
   type_info, type_exists := ctx.TypeReflects[value.Type()]
   var serialize SerializeFn = nil
   if type_exists == true {
@@ -956,7 +1097,7 @@ func SerializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
     if handled {
       serialize = kind_info.Serialize
     } else {
-      return nil, fmt.Errorf("Don't know how to serialize %+v", value.Type())
+      return Chunks{}, fmt.Errorf("Don't know how to serialize %+v", value.Type())
     }
   }
 
@@ -992,25 +1133,21 @@ func SerializeField(ctx *Context, ext Extension, field_name string) (SerializedV
   if err != nil {
     return SerializedValue{}, err
   }
-  return SerializedValue{type_stack, data}, nil
+  return SerializedValue{type_stack, data.Slice()}, nil
 }
 
-func (value SerializedValue) MarshalBinary() ([]byte, error) {
-  data := make([]byte, value.SerializedSize())
-  binary.BigEndian.PutUint64(data[0:8], uint64(len(value.TypeStack)))
-  binary.BigEndian.PutUint64(data[8:16], uint64(len(value.Data)))
+func (value SerializedValue) Chunks() (Chunks, error) {
+  header_data := make([]byte, 16)
+  binary.BigEndian.PutUint64(header_data[0:8], uint64(len(value.TypeStack)))
+  binary.BigEndian.PutUint64(header_data[8:16], uint64(len(value.Data)))
 
-  for i, t := range value.TypeStack {
-    type_start := (i + 2) * 8
-    type_end := (i + 3) * 8
-    binary.BigEndian.PutUint64(data[type_start:type_end], uint64(t))
+  type_stack_bytes := make([][]byte, len(value.TypeStack))
+  for i, ctx_type := range(value.TypeStack) {
+    type_stack_bytes[i] = make([]byte, 8)
+    binary.BigEndian.PutUint64(type_stack_bytes[i], uint64(ctx_type))
   }
 
-  return append(data, value.Data...), nil
-}
-
-func (value SerializedValue) SerializedSize() uint64 {
-  return uint64((len(value.TypeStack) + 2) * 8)
+  return NewChunks(header_data).AddDataToEnd(type_stack_bytes...).AddDataToEnd(value.Data), nil
 }
 
 func ParseSerializedValue(data []byte) (SerializedValue, []byte, error) {

@@ -369,7 +369,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.String, reflect.TypeOf(""), StringType, nil, SerializeString, nil, DeserializeString)
+  err = ctx.RegisterKind(reflect.String, reflect.TypeOf(""), StringType, nil, SerializeString, nil, DeserializeString[string])
   if err != nil {
     return nil, err
   }
@@ -491,13 +491,13 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   node_id_type := reflect.TypeOf(RandID())
-  err = ctx.RegisterType(node_id_type, NodeIDType, SerializeTypeStub, SerializeArray, DeserializeTypeStub[NodeID], DeserializeArray)
+  err = ctx.RegisterType(node_id_type, NodeIDType, SerializeTypeStub, SerializeUUID, DeserializeTypeStub[NodeID], DeserializeUUID[NodeID])
   if err != nil {
     return nil, err
   }
 
   uuid_type := reflect.TypeOf(uuid.UUID{})
-  err = ctx.RegisterType(uuid_type, UUIDType, SerializeTypeStub, SerializeArray, DeserializeTypeStub[uuid.UUID], DeserializeArray)
+  err = ctx.RegisterType(uuid_type, UUIDType, SerializeTypeStub, SerializeUUID, DeserializeTypeStub[uuid.UUID], DeserializeUUID[uuid.UUID])
   if err != nil {
     return nil, err
   }

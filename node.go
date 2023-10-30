@@ -270,7 +270,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", err, msg.Signal)
       }
-      ser, err := signal_ser.MarshalBinary()
+      chunks, err := signal_ser.Chunks()
       if err != nil {
         ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", err, signal_ser)
         continue
@@ -287,7 +287,7 @@ func nodeLoop(ctx *Context, node *Node) error {
         continue
       }
       sig_data := append(dst_id_ser, src_id_ser...)
-      sig_data = append(sig_data, ser...)
+      sig_data = append(sig_data, chunks.Slice()...)
       if msg.Authorization != nil {
         sig_data = append(sig_data, msg.Authorization.Signature...)
       }
@@ -656,12 +656,12 @@ func WriteNode(ctx *Context, node *Node) error {
   if err != nil {
     return err
   }
-  bytes, err := node_serialized.MarshalBinary()
+  chunks, err := node_serialized.Chunks()
   if err != nil {
     return err
   }
 
-  ctx.Log.Logf("db_data", "DB_DATA: %+v", bytes)
+  ctx.Log.Logf("db_data", "DB_DATA: %+v", chunks.Slice())
 
   id_bytes, err := node.ID.MarshalBinary()
   if err != nil {
@@ -670,7 +670,7 @@ func WriteNode(ctx *Context, node *Node) error {
   ctx.Log.Logf("db", "DB_WRITE_ID: %+v", id_bytes)
 
   return ctx.DB.Update(func(txn *badger.Txn) error {
-    return txn.Set(id_bytes, bytes)
+    return txn.Set(id_bytes, chunks.Slice())
   })
 }
 
