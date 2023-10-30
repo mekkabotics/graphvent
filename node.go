@@ -293,7 +293,7 @@ func nodeLoop(ctx *Context, node *Node) error {
       }
       validated := ed25519.Verify(msg.Source, sig_data, msg.Signature)
       if validated == false {
-        ctx.Log.Logf("signal", "SIGNAL_VERIFY_ERR: %s - %s", node.ID, reflect.TypeOf(msg.Signal))
+        ctx.Log.Logf("signal_verify", "SIGNAL_VERIFY_ERR: %s - %s", node.ID, reflect.TypeOf(msg.Signal))
         continue
       }
 

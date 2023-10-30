@@ -9,6 +9,7 @@ import (
   "math"
   "reflect"
   "sort"
+  "bytes"
 )
 
 const (
@@ -826,7 +827,7 @@ func SerializeMap(ctx *Context, value reflect.Value) (Chunks, error) {
     return NewChunks([]byte{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}), nil
   }
 
-  map_chunks := Chunks{}
+  map_chunks := []Chunks{}
   map_size := uint64(0)
   map_iter := value.MapRange()
   for map_iter.Next() {
@@ -838,19 +839,30 @@ func SerializeMap(ctx *Context, value reflect.Value) (Chunks, error) {
     if err != nil {
       return Chunks{}, err
     }
-    map_chunks = map_chunks.AddChunksToEnd(key_chunks)
 
     val_chunks, err := SerializeValue(ctx, val)
     if err != nil {
       return Chunks{}, err
     }
-    map_chunks = map_chunks.AddChunksToEnd(val_chunks)
+
+    chunks := key_chunks.AddChunksToEnd(val_chunks)
+    map_chunks = append(map_chunks, chunks)
   }
+
+  // Sort map_chunks
+  sort.Slice(map_chunks, func(i, j int) bool {
+    return bytes.Compare(map_chunks[i].First.Data, map_chunks[j].First.Data) < 0
+  })
+  chunks := Chunks{}
+  for _, chunk := range(map_chunks) {
+    chunks = chunks.AddChunksToEnd(chunk)
+  }
+
 
   size_data := make([]byte, 8)
   binary.BigEndian.PutUint64(size_data, map_size)
 
-  return NewChunks(size_data).AddChunksToEnd(map_chunks), nil
+  return NewChunks(size_data).AddChunksToEnd(chunks), nil
 }
 
 func DeserializeMap(ctx *Context, reflect_type reflect.Type, data []byte) (reflect.Value, []byte, error) {
