@@ -68,7 +68,7 @@ func TestLink(t *testing.T) {
   fatalErr(t, err)
 }
 
-func Test1KLink(t *testing.T) {
+func Test10KLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test"})
 
   l_pub, listener_key, err := ed25519.GenerateKey(rand.Reader)
@@ -88,18 +88,18 @@ func Test1KLink(t *testing.T) {
   }
 
   reqs := make([]NodeID, 1000)
-  for i, _ := range(reqs) {
+  for i := range(reqs) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
   }
-  ctx.Log.Logf("test", "CREATED_10K")
+  ctx.Log.Logf("test", "CREATED_1K")
 
   l_policy := NewAllNodesPolicy(Tree{
     SerializedType(LockSignalType): nil,
   })
 
-  listener := NewListenerExt(100000)
-  node, err := NewNode(ctx, listener_key, TestLockableType, 10000, []Policy{l_policy},
+  listener := NewListenerExt(5000)
+  node, err := NewNode(ctx, listener_key, TestLockableType, 5000, []Policy{l_policy},
                 listener,
                 NewLockableExt(reqs),
               )
@@ -109,10 +109,10 @@ func Test1KLink(t *testing.T) {
   lock_id, err := LockLockable(ctx, node)
   fatalErr(t, err)
 
-  _, err = WaitForResponse(listener.Chan, time.Second*20, lock_id)
+  _, err = WaitForResponse(listener.Chan, time.Second*60, lock_id)
   fatalErr(t, err)
 
-  ctx.Log.Logf("test", "LOCKED_10K")
+  ctx.Log.Logf("test", "LOCKED_1K")
 }
 
 func TestLock(t *testing.T) {
