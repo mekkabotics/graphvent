@@ -71,7 +71,8 @@ type Signal interface {
   Permission() Tree
 }
 
-func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UUID) (ResponseSignal, error) {
+func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UUID) (ResponseSignal, []Signal, error) {
+  signals := []Signal{}
   var timeout_channel <- chan time.Time
   if timeout > 0 {
     timeout_channel = time.After(timeout)
@@ -81,23 +82,24 @@ func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UU
     select {
     case signal := <- listener:
       if signal == nil {
-        return nil, fmt.Errorf("LISTENER_CLOSED")
-      }
-      resp_signal, ok := signal.(ResponseSignal)
-      if ok == false {
-        continue
+        return nil, signals, fmt.Errorf("LISTENER_CLOSED")
       }
 
-      if resp_signal.ResponseID() == req_id {
-        return resp_signal, nil
+      resp_signal, ok := signal.(ResponseSignal)
+      if ok == true && resp_signal.ResponseID() == req_id {
+        return resp_signal, signals, nil
+      } else {
+        signals = append(signals, signal)
       }
+
     case <-timeout_channel:
-      return nil, fmt.Errorf("LISTENER_TIMEOUT")
+      return nil, signals, fmt.Errorf("LISTENER_TIMEOUT")
     }
   }
-  return nil, fmt.Errorf("UNREACHABLE")
+  return nil, signals, fmt.Errorf("UNREACHABLE")
 }
 
+//TODO: Add []Signal return as well for other signals
 func WaitForSignal[S Signal](listener chan Signal, timeout time.Duration, check func(S)bool) (S, error) {
   var zero S
   var timeout_channel <- chan time.Time

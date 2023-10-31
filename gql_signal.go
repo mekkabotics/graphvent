@@ -143,7 +143,7 @@ func (ext *GQLExtContext) AddSignalMutation(name string, send_id_key string, sig
       return nil, err
     }
 
-    response, err := WaitForResponse(response_chan, 100*time.Millisecond, signal.ID())
+    response, _, err := WaitForResponse(response_chan, 100*time.Millisecond, signal.ID())
     if err != nil {
       ctx.Ext.FreeResponseChannel(signal.ID())
       return nil, err

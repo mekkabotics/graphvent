@@ -65,6 +65,19 @@ func (signal EventControlSignal) Permission() Tree {
   }
 }
 
+func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
+  var messages Messages = nil
+  var changes Changes = nil
+
+  if signal.Direction() == Up && ext.Parent != nil {
+    messages = messages.Add(ctx, *ext.Parent, node, nil, signal)
+  }
+
+  return messages, changes
+}
+
+type TestEventExt struct {}
+
 var transitions = map[string]struct{
   from_state string
   to_state string
@@ -83,18 +96,6 @@ var transitions = map[string]struct{
   },
 }
 
-func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
-  var messages Messages = nil
-  var changes Changes = nil
-
-  if signal.Direction() == Up && ext.Parent != nil {
-    messages = messages.Add(ctx, *ext.Parent, node, nil, signal)
-  }
-
-  return messages, changes
-}
-
-type TestEventExt struct {}
 
 func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil

@@ -48,7 +48,7 @@ func TestLink(t *testing.T) {
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, link_signal.ID())
+  _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, link_signal.ID())
   fatalErr(t, err)
 
   info, exists := l1_lockable.Requirements[l2.ID]
@@ -64,7 +64,7 @@ func TestLink(t *testing.T) {
   err = ctx.Send(msgs)
   fatalErr(t, err)
 
-  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, unlink_signal.ID())
+  _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, unlink_signal.ID())
   fatalErr(t, err)
 }
 
@@ -109,7 +109,7 @@ func Test10KLink(t *testing.T) {
   lock_id, err := LockLockable(ctx, node)
   fatalErr(t, err)
 
-  _, err = WaitForResponse(listener.Chan, time.Second*60, lock_id)
+  _, _, err = WaitForResponse(listener.Chan, time.Second*60, lock_id)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "LOCKED_1K")
@@ -147,22 +147,22 @@ func TestLock(t *testing.T) {
   id_1, err := LockLockable(ctx, l0)
   ctx.Log.Logf("test", "ID_1: %s", id_1)
   fatalErr(t, err)
-  _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_1)
+  _, _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_1)
   fatalErr(t, err)
 
   id_2, err := LockLockable(ctx, l1)
   fatalErr(t, err)
-  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_2)
+  _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_2)
   fatalErr(t, err)
 
   id_3, err := UnlockLockable(ctx, l0)
   fatalErr(t, err)
-  _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_3)
+  _, _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_3)
   fatalErr(t, err)
 
   id_4, err := LockLockable(ctx, l1)
   fatalErr(t, err)
 
-  _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_4)
+  _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_4)
   fatalErr(t, err)
 }

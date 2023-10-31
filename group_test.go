@@ -17,7 +17,7 @@ func TestGroupAdd(t *testing.T) {
   messages = messages.Add(ctx, group.ID, group, nil, add_subgroup_signal)
   fatalErr(t, ctx.Send(messages))
 
-  resp_1, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_subgroup_signal.Id)
+  resp_1, _, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_subgroup_signal.Id)
   fatalErr(t, err)
 
   error_1, is_error := resp_1.(*ErrorSignal)
@@ -32,7 +32,7 @@ func TestGroupAdd(t *testing.T) {
   messages = messages.Add(ctx, group.ID, group, nil, add_member_signal)
   fatalErr(t, ctx.Send(messages))
 
-  resp_2, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_member_signal.Id)
+  resp_2, _, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, add_member_signal.Id)
   fatalErr(t, err)
 
   error_2, is_error := resp_2.(*ErrorSignal)
@@ -48,7 +48,7 @@ func TestGroupAdd(t *testing.T) {
   messages = messages.Add(ctx, group.ID, group, nil, read_signal)
   fatalErr(t, ctx.Send(messages))
 
-  response, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, read_signal.Id)
+  response, _, err := WaitForResponse(group_listener.Chan, 10*time.Millisecond, read_signal.Id)
   fatalErr(t, err)
 
   read_response := response.(*ReadResultSignal)

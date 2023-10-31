@@ -129,7 +129,7 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   errors := ""
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
-    response, err := WaitForResponse(response_chan, time.Millisecond*100, sig_id)
+    response, _, err := WaitForResponse(response_chan, time.Millisecond*100, sig_id)
     if err != nil {
       return nil, err
     }

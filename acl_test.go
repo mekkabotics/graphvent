@@ -26,7 +26,7 @@ func testSendACL[S Signal](t *testing.T, ctx *Context, listener *Node, action Tr
   fatalErr(t, err)
 
   acl_signal := NewACLSignal(listener.ID, action)
-  response := testSend(t, ctx, acl_signal, listener, acl_node)
+  response, _ := testSend(t, ctx, acl_signal, listener, acl_node)
 
   checkSignal(t, response, check)
 }
@@ -41,7 +41,7 @@ func testErrorSignal(t *testing.T, error_string string) func(*ErrorSignal){
 
 func testSuccess(*SuccessSignal){}
 
-func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *Node) ResponseSignal {
+func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *Node) (ResponseSignal, []Signal) {
   source_listener, err := GetExt[*ListenerExt](source, ListenerExtType)
   fatalErr(t, err)
 
@@ -49,10 +49,10 @@ func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *No
   messages = messages.Add(ctx, destination.ID, source, nil, signal)
   fatalErr(t, ctx.Send(messages))
 
-  response, err := WaitForResponse(source_listener.Chan, time.Millisecond*10, signal.ID())
+  response, signals, err := WaitForResponse(source_listener.Chan, time.Millisecond*10, signal.ID())
   fatalErr(t, err)
 
-  return response
+  return response, signals
 }
 
 func TestACLBasic(t *testing.T) {
@@ -85,11 +85,11 @@ func TestACLBasic(t *testing.T) {
   }, testErrorSignal(t, "acl_denied"))
 
   add_subgroup_signal := NewAddSubGroupSignal("test_group")
-  add_subgroup_response := testSend(t, ctx, add_subgroup_signal, listener, group)
+  add_subgroup_response, _ := testSend(t, ctx, add_subgroup_signal, listener, group)
   checkSignal(t, add_subgroup_response, testSuccess)
 
   add_member_signal := NewAddMemberSignal("test_group", listener.ID)
-  add_member_response := testSend(t, ctx, add_member_signal, listener, group)
+  add_member_response, _ := testSend(t, ctx, add_member_signal, listener, group)
   checkSignal(t, add_member_response, testSuccess)
 
   testSendACL(t, ctx, listener, nil, []Policy{
