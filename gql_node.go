@@ -129,11 +129,17 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
   errors := ""
   for sig_id, response_chan := range(resp_channels) {
     // Wait for the response, returning an error on timeout
-    response, _, err := WaitForResponse(response_chan, time.Millisecond*100, sig_id)
+    response, other, err := WaitForResponse(response_chan, time.Millisecond*100, sig_id)
     if err != nil {
       return nil, err
     }
     ctx.Context.Log.Logf("gql_resolve_node", "GQL node response: %+v", response)
+    ctx.Context.Log.Logf("gql_resolve_node", "GQL node other messages: %+v", other)
+
+    // for now, just put signals we didn't want back into the 'queue'
+    for _, other_signal := range(other) {
+      response_chan <- other_signal
+    }
 
     error_signal, is_error := response.(*ErrorSignal)
     if is_error {
@@ -159,10 +165,12 @@ func ResolveNodes(ctx *ResolveContext, p graphql.ResolveParams, ids []NodeID) ([
       ctx.Context.Log.Logf("gql_resolve_node", "Merging new response with cached: %s, %+v - %+v", read_response.NodeID, cache, read_response.Extensions)
       for ext_type, fields := range(read_response.Extensions) {
         cached_fields, exists := cache.Data[ext_type]
-        if exists == true {
-          for field_name, field_value := range(fields) {
-            cached_fields[field_name] = field_value
-          }
+        if exists == false {
+          cached_fields = map[string]SerializedValue{}
+          cache.Data[ext_type] = cached_fields
+        }
+        for field_name, field_value := range(fields) {
+          cached_fields[field_name] = field_value
         }
       }
       responses[idx] = cache

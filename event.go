@@ -78,7 +78,7 @@ func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
 
 type TestEventExt struct {}
 
-var transitions = map[string]struct{
+var test_event_transitions = map[string]struct{
   from_state string
   to_state string
 }{
@@ -107,9 +107,10 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
     if err != nil {
       messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "not_event"))
     } else {
-      info, exists := transitions[sig.Command]
+      info, exists := test_event_transitions[sig.Command]
       if exists == true {
         if event_ext.State == info.from_state {
+          ctx.Log.Logf("event", "%s %s->%s", node.ID, info.from_state, info.to_state)
           event_ext.State = info.to_state
           messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
           node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, event_ext.State, time.Now()))

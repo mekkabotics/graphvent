@@ -604,7 +604,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
       extra_fields := map[string]interface{}{}
       extra_fields["body"] = string(str)
       extra_fields["headers"] = r.Header
-      ctx.Log.Logm("gql", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
+      ctx.Log.Logm("gql_errors", extra_fields, "wrong result, unexpected errors: %v", result.Errors)
     }
     json.NewEncoder(w).Encode(result)
   }
@@ -773,7 +773,7 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
               if len(next.Errors) > 0 {
                 extra_fields := map[string]interface{}{}
                 extra_fields["query"] = string(msg.Payload.Query)
-                ctx.Log.Logm("gqlws", extra_fields, "ERROR: wrong result, unexpected errors: %+v", next.Errors)
+                ctx.Log.Logm("gql_errors", extra_fields, "ERROR: wrong result, unexpected errors: %+v", next.Errors)
                 continue
               }
               ctx.Log.Logf("gqlws", "DATA: %+v", next.Data)
@@ -912,7 +912,7 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
 
     ext, ext_exists := node.Data[ext_type]
     if ext_exists == false {
-      return nil, fmt.Errorf("%+v is not in the extensions of the result", ext_type)
+      return nil, fmt.Errorf("%+v is not in the extensions of the result: %+v", ext_type, node.Data)
     }
 
     val_ser, field_exists := ext[gv_tag]

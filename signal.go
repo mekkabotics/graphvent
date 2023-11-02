@@ -331,6 +331,10 @@ type ReadSignal struct {
   Extensions map[ExtType][]string `json:"extensions"`
 }
 
+func (signal ReadSignal) String() string {
+  return fmt.Sprintf("ReadSignal(%s, %+v)", signal.SignalHeader, signal.Extensions)
+}
+
 func (signal ReadSignal) Permission() Tree {
   ret := Tree{}
   for ext, fields := range(signal.Extensions) {
@@ -342,6 +346,7 @@ func (signal ReadSignal) Permission() Tree {
   }
   return Tree{SerializedType(ReadSignalType): ret}
 }
+
 func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
   return &ReadSignal{
     NewSignalHeader(Direct),
@@ -355,6 +360,11 @@ type ReadResultSignal struct {
   NodeType NodeType
   Extensions map[ExtType]map[string]SerializedValue
 }
+
+func (signal ReadResultSignal) String() string {
+  return fmt.Sprintf("ReadResultSignal(%s, %s, %+v, %+v)", signal.SignalHeader, signal.NodeID, signal.NodeType, signal.Extensions)
+}
+
 func (signal ReadResultSignal) Permission() Tree {
   return Tree{
     ResponseType: {
