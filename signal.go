@@ -202,6 +202,11 @@ func NewStopSignal() *StopSignal {
 type SuccessSignal struct {
   ResponseHeader
 }
+
+func (signal SuccessSignal) String() string {
+  return fmt.Sprintf("SuccessSignal(%s)", signal.SignalHeader)
+}
+
 func (signal SuccessSignal) Permission() Tree {
   return Tree{
     ResponseType: {

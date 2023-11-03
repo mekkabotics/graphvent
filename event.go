@@ -50,6 +50,10 @@ type EventControlSignal struct {
   Command string
 }
 
+func (signal EventControlSignal) String() string {
+  return fmt.Sprintf("EventControlSignal(%s, %s)", signal.SignalHeader, signal.Command)
+}
+
 func NewEventControlSignal(command string) *EventControlSignal {
   return &EventControlSignal{
     NewSignalHeader(Direct),
@@ -76,19 +80,29 @@ func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
   return messages, changes
 }
 
-type TestEventExt struct {}
+type TestEventExt struct {
+  Length time.Duration
+}
 
 var test_event_transitions = map[string]struct{
   from_state string
   to_state string
 }{
-  "start": {
+  "ready?": {
     "init",
+    "ready",
+  },
+  "start": {
+    "ready",
     "running",
+  },
+  "abort": {
+    "ready",
+    "init",
   },
   "stop": {
     "running",
-    "init",
+    "stopped",
   },
   "finish": {
     "running",
@@ -114,6 +128,9 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
           event_ext.State = info.to_state
           messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
           node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, event_ext.State, time.Now()))
+          if event_ext.State == "running" {
+            node.QueueSignal(time.Now().Add(ext.Length), NewEventControlSignal("finish"))
+          }
         } else {
           messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_state"))
         }
