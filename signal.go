@@ -24,6 +24,10 @@ func NewTimeoutSignal(req_id uuid.UUID) *TimeoutSignal {
   }
 }
 
+func (signal TimeoutSignal) String() string {
+  return fmt.Sprintf("TimeoutSignal(%s)", &signal.ResponseHeader)
+}
+
 // Timeouts are internal only, no permission allows sending them
 func (signal TimeoutSignal) Permission() Tree {
   return nil
