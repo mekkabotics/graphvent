@@ -312,7 +312,7 @@ func (ctx *Context) getNode(id NodeID) (*Node, error) {
   return target, nil
 }
 
-// Route a Signal to dest. Currently only local context routing is supported
+// Route Messages to dest. Currently only local context routing is supported
 func (ctx *Context) Send(messages Messages) error {
   for _, msg := range(messages) {
     if msg.Dest == ZeroID {
@@ -430,6 +430,16 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterKind(reflect.Int64, reflect.TypeOf(int64(0)), Int64Type, nil, SerializeInt64, nil, DeserializeUint64[int64])
+  if err != nil {
+    return nil, err
+  }
+
+  wait_info_type := reflect.TypeOf(WaitInfo{})
+  wait_info_info, err := GetStructInfo(ctx, wait_info_type)
+  if err != nil {
+    return nil, err
+  }
+  err = ctx.RegisterType(wait_info_type, WaitInfoType, nil, SerializeStruct(wait_info_info), nil, DeserializeStruct(wait_info_info))
   if err != nil {
     return nil, err
   }

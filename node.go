@@ -146,6 +146,38 @@ func (node *Node) Allows(ctx *Context, principal_id NodeID, action Tree)(map[uui
   return nil, Deny
 }
 
+type WaitInfo struct {
+  NodeID NodeID `gv:"node"`
+  Timeout uuid.UUID `gv:"timeout"`
+}
+
+type WaitMap map[uuid.UUID]WaitInfo
+
+// Removes a signal from the wait_map and dequeue the associated timeout signal
+// Returns the data, and whether or not the ID was found in the wait_map
+func (node *Node) ProcessResponse(wait_map WaitMap, response ResponseSignal) (WaitInfo, bool) {
+  wait_info, is_processed := wait_map[response.ResponseID()]
+  if is_processed == true {
+    delete(wait_map, response.ResponseID())
+    if response.ID() != wait_info.Timeout {
+      node.DequeueSignal(wait_info.Timeout)
+    }
+    return wait_info, true
+  }
+  return WaitInfo{}, false
+}
+
+// Creates a timeout signal for signal, queues it for the node at the timeout, and adds the info to the wait map
+func (node *Node) QueueTimeout(dest NodeID, signal Signal, timeout time.Duration, wait_map WaitMap) {
+  timeout_signal := NewTimeoutSignal(signal.ID())
+  node.QueueSignal(time.Now().Add(timeout), timeout_signal)
+
+  wait_map[signal.ID()] = WaitInfo{
+    NodeID: dest,
+    Timeout: timeout_signal.Id,
+  }
+}
+
 func (node *Node) QueueSignal(time time.Time, signal Signal) {
   node.SignalQueue = append(node.SignalQueue, QueuedSignal{signal, time})
   node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)

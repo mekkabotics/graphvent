@@ -69,6 +69,13 @@ func (signal EventControlSignal) Permission() Tree {
   }
 }
 
+func (ext *EventExt) UpdateState(node *Node, state string) {
+  if ext.State != state {
+    ext.State = state
+    node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
+  }
+}
+
 func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil
   var changes Changes = nil
@@ -125,9 +132,8 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
       if exists == true {
         if event_ext.State == info.from_state {
           ctx.Log.Logf("event", "%s %s->%s", node.ID, info.from_state, info.to_state)
-          event_ext.State = info.to_state
           messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-          node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, event_ext.State, time.Now()))
+          event_ext.UpdateState(node, info.to_state)
           if event_ext.State == "running" {
             node.QueueSignal(time.Now().Add(ext.Length), NewEventControlSignal("finish"))
           }
