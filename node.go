@@ -167,12 +167,12 @@ func (node *Node) ProcessResponse(wait_map WaitMap, response ResponseSignal) (Wa
   return WaitInfo{}, false
 }
 
-// Creates a timeout signal for signal, queues it for the node at the timeout, and adds the info to the wait map
-func (node *Node) QueueTimeout(dest NodeID, signal Signal, timeout time.Duration, wait_map WaitMap) {
+// Creates a timeout signal for signal, queues it for the node at the timeout, and returns the WaitInfo
+func (node *Node) QueueTimeout(dest NodeID, signal Signal, timeout time.Duration) WaitInfo {
   timeout_signal := NewTimeoutSignal(signal.ID())
   node.QueueSignal(time.Now().Add(timeout), timeout_signal)
 
-  wait_map[signal.ID()] = WaitInfo{
+  return WaitInfo{
     NodeID: dest,
     Timeout: timeout_signal.Id,
   }
