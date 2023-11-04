@@ -582,16 +582,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  req_info_type := reflect.TypeOf(ReqInfo{})
-  req_info_info, err := GetStructInfo(ctx, req_info_type)
-  if err != nil {
-    return nil, err
-  }
-  err = ctx.RegisterType(req_info_type, ReqInfoType, nil, SerializeStruct(req_info_info), nil, DeserializeStruct(req_info_info))
-  if err != nil {
-    return nil, err
-  }
-
   err = ctx.RegisterExtension(reflect.TypeOf((*LockableExt)(nil)), LockableExtType, nil)
   if err != nil {
     return nil, err

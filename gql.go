@@ -1389,7 +1389,7 @@ func NewGQLExtContext() *GQLExtContext {
       "requirements",
       LockableExtType,
       func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value) ([]NodeID, error) {
-        id_strs, ok := value.Interface().(map[NodeID]ReqInfo)
+        id_strs, ok := value.Interface().(map[NodeID]ReqState)
         if ok == false {
           return nil, fmt.Errorf("can't parse requirements %+v as map[NodeID]ReqState", value.Type())
         }

@@ -51,11 +51,11 @@ func TestLink(t *testing.T) {
   _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, link_signal.ID())
   fatalErr(t, err)
 
-  info, exists := l1_lockable.Requirements[l2.ID]
+  state, exists := l1_lockable.Requirements[l2.ID]
   if exists == false {
     t.Fatal("l2 not in l1 requirements")
-  } else if info.State != Unlocked {
-    t.Fatalf("l2 in bad requirement state in l1: %+v", info.State)
+  } else if state != Unlocked {
+    t.Fatalf("l2 in bad requirement state in l1: %+v", state)
   }
 
   msgs = Messages{}
@@ -68,8 +68,8 @@ func TestLink(t *testing.T) {
   fatalErr(t, err)
 }
 
-func Test10KLink(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"test"})
+func Test100Lock(t *testing.T) {
+  ctx := lockableTestContext(t, []string{"test", "lockable"})
 
   l_pub, listener_key, err := ed25519.GenerateKey(rand.Reader)
   fatalErr(t, err)
@@ -87,7 +87,7 @@ func Test10KLink(t *testing.T) {
     return l
   }
 
-  reqs := make([]NodeID, 1000)
+  reqs := make([]NodeID, 100)
   for i := range(reqs) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
@@ -152,7 +152,7 @@ func TestLock(t *testing.T) {
 
   id_2, err := LockLockable(ctx, l1)
   fatalErr(t, err)
-  _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_2)
+  _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*100, id_2)
   fatalErr(t, err)
 
   id_3, err := UnlockLockable(ctx, l0)

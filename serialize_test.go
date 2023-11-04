@@ -10,9 +10,9 @@ import (
 func TestSerializeTest(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "serialize", "deserialize_types"})
   testSerialize(t, ctx, map[string][]NodeID{"test_group": {RandID(), RandID(), RandID()}})
-  testSerialize(t, ctx, map[NodeID]ReqInfo{
-    RandID(): {},
-    RandID(): {},
+  testSerialize(t, ctx, map[NodeID]ReqState{
+    RandID(): Locked,
+    RandID(): Unlocked,
   })
 }
 

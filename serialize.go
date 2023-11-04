@@ -256,7 +256,6 @@ var (
   MapType       = NewSerializedType("MAP")
 
   ReqStateType         = NewSerializedType("REQ_STATE")
-  ReqInfoType          = NewSerializedType("REQ_INFO")
   WaitInfoType         = NewSerializedType("WAIT_INFO")
   SignalDirectionType  = NewSerializedType("SIGNAL_DIRECTION")
   NodeStructType       = NewSerializedType("NODE_STRUCT")
