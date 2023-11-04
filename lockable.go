@@ -298,12 +298,26 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
   var messages Messages = nil
   var changes Changes = nil
 
-  //TODO: Handle timeout errors better
   wait_info, found := node.ProcessResponse(ext.WaitInfos, signal)
   if found == true {
     state, found := ext.Requirements[wait_info.NodeID]
     if found == true {
       ctx.Log.Logf("lockable", "%s timed out %s", wait_info.NodeID, ReqStateStrings[state])
+      switch state {
+      case Locking:
+        ext.State = AbortingLock
+        ext.Requirements[wait_info.NodeID] = Unlocked
+        for id, state := range(ext.Requirements) {
+          if state == Locked {
+            ext.Requirements[id] = Unlocking
+            lock_signal := NewLockSignal("unlock")
+            ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 100*time.Millisecond)
+            messages = messages.Add(ctx, id, node, nil, lock_signal)
+            ctx.Log.Logf("lockable", "sent abort unlock to %s from %s", id, node.ID)
+          }
+        }
+      case Unlocking:
+      }
     } else {
       ctx.Log.Logf("lockable", "%s timed out", wait_info.NodeID)
     }
