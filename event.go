@@ -8,10 +8,10 @@ import (
 type EventExt struct {
   Name string `gv:"name"`
   State string `gv:"state"`
-  Parent *NodeID `gv:"parent"`
+  Parent NodeID `gv:"parent"`
 }
 
-func NewEventExt(parent *NodeID, name string) *EventExt {
+func NewEventExt(parent NodeID, name string) *EventExt {
   return &EventExt{
     Name: name,
     State: "init",
@@ -80,8 +80,8 @@ func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
   var messages Messages = nil
   var changes Changes = nil
 
-  if signal.Direction() == Up && ext.Parent != nil {
-    messages = messages.Add(ctx, *ext.Parent, node, nil, signal)
+  if signal.Direction() == Up && ext.Parent != node.ID {
+    messages = messages.Add(ctx, ext.Parent, node, nil, signal)
   }
 
   return messages, changes

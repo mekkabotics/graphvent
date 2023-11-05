@@ -208,7 +208,7 @@ type SuccessSignal struct {
 }
 
 func (signal SuccessSignal) String() string {
-  return fmt.Sprintf("SuccessSignal(%s)", signal.SignalHeader)
+  return fmt.Sprintf("SuccessSignal(%s)", signal.ResponseHeader)
 }
 
 func (signal SuccessSignal) Permission() Tree {
@@ -229,7 +229,7 @@ type ErrorSignal struct {
   Error string
 }
 func (signal ErrorSignal) String() string {
-  return fmt.Sprintf("ErrorSignal(%s, %s)", signal.SignalHeader, signal.Error)
+  return fmt.Sprintf("ErrorSignal(%s, %s)", signal.ResponseHeader, signal.Error)
 }
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
@@ -371,7 +371,7 @@ type ReadResultSignal struct {
 }
 
 func (signal ReadResultSignal) String() string {
-  return fmt.Sprintf("ReadResultSignal(%s, %s, %+v, %+v)", signal.SignalHeader, signal.NodeID, signal.NodeType, signal.Extensions)
+  return fmt.Sprintf("ReadResultSignal(%s, %s, %+v, %+v)", signal.ResponseHeader, signal.NodeID, signal.NodeType, signal.Extensions)
 }
 
 func (signal ReadResultSignal) Permission() Tree {

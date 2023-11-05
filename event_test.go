@@ -1,9 +1,11 @@
 package graphvent
 
 import (
-	"reflect"
-	"testing"
-	"time"
+  "crypto/ed25519"
+  "reflect"
+  "testing"
+  "time"
+  "crypto/rand"
 )
 
 func TestEvent(t *testing.T) {
@@ -12,8 +14,9 @@ func TestEvent(t *testing.T) {
   fatalErr(t, err)
 
 
+  event_public, event_private, err := ed25519.GenerateKey(rand.Reader)
   event_listener := NewListenerExt(100)
-  event, err := NewNode(ctx, nil, BaseNodeType, 100, nil, NewEventExt(nil, "Test Event"), &TestEventExt{time.Second}, event_listener)
+  event, err := NewNode(ctx, event_private, BaseNodeType, 100, nil, NewEventExt(KeyID(event_public), "Test Event"), &TestEventExt{time.Second}, event_listener)
   fatalErr(t, err)
 
   response, signals := testSend(t, ctx, NewEventControlSignal("ready?"), event, event)
