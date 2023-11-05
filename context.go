@@ -552,12 +552,12 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  pending_signal_type := reflect.TypeOf(PendingSignal{})
+  pending_signal_type := reflect.TypeOf(PendingACLSignal{})
   pending_signal_info, err := GetStructInfo(ctx, pending_signal_type)
   if err != nil {
     return nil, err
   }
-  err = ctx.RegisterType(pending_signal_type, PendingSignalType, nil, SerializeStruct(pending_signal_info), nil, DeserializeStruct(pending_signal_info))
+  err = ctx.RegisterType(pending_signal_type, PendingACLSignalType, nil, SerializeStruct(pending_signal_info), nil, DeserializeStruct(pending_signal_info))
   if err != nil {
     return nil, err
   }

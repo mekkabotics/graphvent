@@ -38,7 +38,7 @@ func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal 
   }
   switch sig := signal.(type) {
   case *StatusSignal:
-    ctx.Log.Logf("listener_status", "STATUS: %s - %s", sig.Source, sig.Changes)
+    ctx.Log.Logf("listener_status", "%s - %+v", sig.Source, sig.Changes)
   }
   return nil, nil
 }

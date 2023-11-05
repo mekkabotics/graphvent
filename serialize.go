@@ -270,7 +270,7 @@ var (
   NodeIDType           = NewSerializedType("NODE_ID")
   UUIDType             = NewSerializedType("UUID")
   PendingACLType       = NewSerializedType("PENDING_ACL")
-  PendingSignalType    = NewSerializedType("PENDING_SIGNAL")
+  PendingACLSignalType = NewSerializedType("PENDING_ACL_SIGNAL")
   TimeType             = NewSerializedType("TIME")
   DurationType         = NewSerializedType("DURATION")
   ResponseType         = NewSerializedType("RESPONSE")

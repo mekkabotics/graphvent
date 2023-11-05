@@ -75,7 +75,7 @@ func Test100Lock(t *testing.T) {
   fatalErr(t, err)
   listener_id := KeyID(l_pub)
   child_policy := NewPerNodePolicy(map[NodeID]Tree{
-    listener_id: Tree{
+    listener_id: {
       SerializedType(LockSignalType): nil,
     },
   })
@@ -92,7 +92,7 @@ func Test100Lock(t *testing.T) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
   }
-  ctx.Log.Logf("test", "CREATED_1K")
+  ctx.Log.Logf("test", "CREATED_100")
 
   l_policy := NewAllNodesPolicy(Tree{
     SerializedType(LockSignalType): nil,
@@ -109,10 +109,16 @@ func Test100Lock(t *testing.T) {
   lock_id, err := LockLockable(ctx, node)
   fatalErr(t, err)
 
-  _, _, err = WaitForResponse(listener.Chan, time.Second*60, lock_id)
+  response, _, err := WaitForResponse(listener.Chan, time.Second*60, lock_id)
   fatalErr(t, err)
 
-  ctx.Log.Logf("test", "LOCKED_1K")
+  switch resp := response.(type) {
+  case *SuccessSignal:
+  default:
+    t.Fatalf("Unexpected response to lock - %s", resp)
+  }
+
+  ctx.Log.Logf("test", "LOCKED_100")
 }
 
 func TestLock(t *testing.T) {

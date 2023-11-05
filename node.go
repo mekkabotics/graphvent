@@ -79,7 +79,7 @@ type PendingACL struct {
   Source NodeID
 }
 
-type PendingSignal struct {
+type PendingACLSignal struct {
   Policy uuid.UUID
   Timeout uuid.UUID
   ID uuid.UUID
@@ -91,11 +91,12 @@ type Node struct {
   Key ed25519.PrivateKey `gv:"key"`
   ID NodeID
   Type NodeType `gv:"type"`
+  // TODO: move each extension to it's own db key, and extend changes to notify which extension was changed
   Extensions map[ExtType]Extension `gv:"extensions"`
   Policies []Policy `gv:"policies"`
 
   PendingACLs map[uuid.UUID]PendingACL `gv:"pending_acls"`
-  PendingSignals map[uuid.UUID]PendingSignal `gv:"pending_signal"`
+  PendingACLSignals map[uuid.UUID]PendingACLSignal `gv:"pending_signal"`
 
   // Channel for this node to receive messages from the Context
   MsgChan chan *Message
@@ -106,6 +107,8 @@ type Node struct {
 
   Active atomic.Bool
 
+  // TODO: enhance WriteNode to write SignalQueue to a different key, and use writeSignalQueue to decide whether or not to update it
+  writeSignalQueue bool
   SignalQueue []QueuedSignal `gv:"signal_queue"`
   NextSignal *QueuedSignal
 }
@@ -181,6 +184,7 @@ func (node *Node) QueueTimeout(dest NodeID, signal Signal, timeout time.Duration
 func (node *Node) QueueSignal(time time.Time, signal Signal) {
   node.SignalQueue = append(node.SignalQueue, QueuedSignal{signal, time})
   node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+  node.writeSignalQueue = true
 }
 
 func (node *Node) DequeueSignal(id uuid.UUID) error {
@@ -198,14 +202,9 @@ func (node *Node) DequeueSignal(id uuid.UUID) error {
   node.SignalQueue[idx] = node.SignalQueue[len(node.SignalQueue)-1]
   node.SignalQueue = node.SignalQueue[:len(node.SignalQueue)-1]
   node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+  node.writeSignalQueue = true
 
   return nil
-}
-
-func (node *Node) ClearSignalQueue() {
-  node.SignalQueue = []QueuedSignal{}
-  node.NextSignal = nil
-  node.TimeoutChan = nil
 }
 
 func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
@@ -359,7 +358,7 @@ func nodeLoop(ctx *Context, node *Node) error {
               msgs = append(msgs, m)
               timeout_signal := NewTimeoutSignal(m.Signal.ID())
               node.QueueSignal(time.Now().Add(time.Second), timeout_signal)
-              node.PendingSignals[m.Signal.ID()] = PendingSignal{policy_type, timeout_signal.Id, msg.Signal.ID()}
+              node.PendingACLSignals[m.Signal.ID()] = PendingACLSignal{policy_type, timeout_signal.Id, msg.Signal.ID()}
             }
           }
           node.PendingACLs[msg.Signal.ID()] = PendingACL{
@@ -404,6 +403,8 @@ func nodeLoop(ctx *Context, node *Node) error {
       node.SignalQueue = node.SignalQueue[:(l-1)]
 
       node.NextSignal, node.TimeoutChan = SoonestSignal(node.SignalQueue)
+      node.writeSignalQueue = true
+
       if node.NextSignal == nil {
         ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL nil@%+v", node.ID, signal, t, node.TimeoutChan)
       } else {
@@ -420,9 +421,9 @@ func nodeLoop(ctx *Context, node *Node) error {
 
     response, ok := signal.(ResponseSignal)
     if ok == true {
-      info, waiting := node.PendingSignals[response.ResponseID()]
+      info, waiting := node.PendingACLSignals[response.ResponseID()]
       if waiting == true {
-        delete(node.PendingSignals, response.ResponseID())
+        delete(node.PendingACLSignals, response.ResponseID())
         ctx.Log.Logf("pending", "FOUND_PENDING_SIGNAL: %s - %s", node.ID, signal)
 
         req_info, exists := node.PendingACLs[info.ID]
@@ -653,7 +654,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_si
     Extensions: ext_map,
     Policies: policies,
     PendingACLs: map[uuid.UUID]PendingACL{},
-    PendingSignals: map[uuid.UUID]PendingSignal{},
+    PendingACLSignals: map[uuid.UUID]PendingACLSignal{},
     MsgChan: make(chan *Message, buffer_size),
     BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},

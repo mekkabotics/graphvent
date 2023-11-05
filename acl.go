@@ -33,14 +33,14 @@ func (signal ACLSignal) Permission() Tree {
 type ACLExt struct {
   Policies []Policy `gv:"policies"`
   PendingACLs map[uuid.UUID]PendingACL `gv:"pending_acls"`
-  Pending map[uuid.UUID]PendingSignal `gv:"pending"`
+  Pending map[uuid.UUID]PendingACLSignal `gv:"pending"`
 }
 
 func NewACLExt(policies []Policy) *ACLExt {
   return &ACLExt{
     Policies: policies,
     PendingACLs: map[uuid.UUID]PendingACL{},
-    Pending: map[uuid.UUID]PendingSignal{},
+    Pending: map[uuid.UUID]PendingACLSignal{},
   }
 }
 
@@ -144,7 +144,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
         total_messages += len(policy_messages)
         for _, message := range(policy_messages) {
           timeout_signal := NewTimeoutSignal(message.Signal.ID())
-          ext.Pending[message.Signal.ID()] = PendingSignal{
+          ext.Pending[message.Signal.ID()] = PendingACLSignal{
             Policy: policy_id,
             Timeout: timeout_signal.Id,
             ID: sig.Id,
