@@ -9,7 +9,7 @@ import (
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"signal", "node", "db", "listener"})
+  ctx := logTestContext(t, []string{"signal", "serialize", "node", "db", "listener"})
   node_type := NewNodeType("test")
   err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
   fatalErr(t, err)
