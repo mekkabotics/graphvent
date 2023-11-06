@@ -733,7 +733,6 @@ func WriteNodeChanges(ctx *Context, node *Node, changes Changes) error {
         return err
       }
       ext_serialized[ext_type] = serialized_ext
-      ctx.Log.Logf("db", "extension 0x%x - %+v - %+v", ext_type, serialized_ext.TypeStack, serialized_ext.Data)
     }
   }
 

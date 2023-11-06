@@ -247,7 +247,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
           }
 
           lock_signal := NewLockSignal("lock")
-          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 100*time.Millisecond)
+          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 5000*time.Millisecond)
           ext.Requirements[id] = Locking
 
           messages = messages.Add(ctx, id, node, nil, lock_signal)
