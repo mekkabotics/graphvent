@@ -46,10 +46,18 @@ func RandID() NodeID {
   return NodeID(uuid.New())
 }
 
-type Changes []string
+type Changes map[ExtType][]string
 
-func (changes Changes) Add(detail string) Changes {
-  return append(changes, detail)
+func (changes *Changes) Add(ext ExtType, fields ...string) {
+  if *changes == nil {
+    *changes = Changes{}
+  }
+  current, exists := (*changes)[ext]
+  if exists == false {
+    current = []string{}
+  }
+  current = append(current, fields...)
+  (*changes)[ext] = current
 }
 
 // Extensions are data attached to nodes that process signals
@@ -533,14 +541,18 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   for ext_type, ext := range(node.Extensions) {
     ctx.Log.Logf("node_process", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
     ext_messages, ext_changes := ext.Process(ctx, node, source, signal)
+    ctx.Log.Logf("gql", "%s changes %+v", reflect.TypeOf(ext), ext_changes)
     if len(ext_messages) != 0 {
       messages = append(messages, ext_messages...)
     }
 
     if len(ext_changes) != 0 {
-      changes = append(changes, ext_changes...)
+      for ext, change_list := range(ext_changes) {
+        changes[ext] = append(changes[ext], change_list...)
+      }
     }
   }
+  ctx.Log.Logf("gql", "changes after process %+v", changes)
 
   if len(messages) != 0 {
     send_err := ctx.Send(messages)

@@ -59,6 +59,12 @@ func (t PolicyType) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
+type FieldTag SerializedType
+
+func (t FieldTag) String() string {
+  return fmt.Sprintf("0x%x", uint64(t))
+}
+
 type Chunk struct {
   Data []byte
   Next *Chunk
@@ -190,6 +196,10 @@ func NewPolicyType(name string) PolicyType {
   return PolicyType(Hash(PolicyTypeBase, name))
 }
 
+func NewFieldTag(tag_string string) FieldTag {
+  return FieldTag(Hash(FieldNameBase, tag_string))
+}
+
 func NewSerializedType(name string) SerializedType {
   return Hash(SerializedTypeBase, name)
 }
@@ -227,7 +237,8 @@ var (
   EventControlSignalType   = NewSignalType("EVENT_CONTORL")
   EventStateSignalType     = NewSignalType("VEX_MATCH_STATUS")
 
-  MemberOfPolicyType      = NewPolicyType("USER_OF")
+  MemberOfPolicyType      = NewPolicyType("MEMBER_OF")
+  ParentOfPolicyType      = NewPolicyType("PARENT_OF")
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
   PerNodePolicyType       = NewPolicyType("PER_NODE")
   AllNodesPolicyType      = NewPolicyType("ALL_NODES")

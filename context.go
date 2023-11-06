@@ -315,6 +315,7 @@ func (ctx *Context) getNode(id NodeID) (*Node, error) {
 // Route Messages to dest. Currently only local context routing is supported
 func (ctx *Context) Send(messages Messages) error {
   for _, msg := range(messages) {
+    ctx.Log.Logf("signal", "Sending %s -> %+v", msg.Dest, msg)
     if msg.Dest == ZeroID {
       panic("Can't send to null ID")
     }
@@ -480,7 +481,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(Changes{}), ChangesSerialized, SerializeTypeStub, SerializeSlice, DeserializeTypeStub[Changes], DeserializeSlice)
+  err = ctx.RegisterType(reflect.TypeOf(Changes{}), ChangesSerialized, SerializeTypeStub, SerializeMap, DeserializeTypeStub[Changes], DeserializeMap)
   if err != nil {
     return nil, err
   }
@@ -609,6 +610,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = ctx.RegisterExtension(reflect.TypeOf((*EventExt)(nil)), EventExtType, nil)
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterPolicy(reflect.TypeOf(ParentOfPolicy{}), ParentOfPolicyType)
   if err != nil {
     return nil, err
   }

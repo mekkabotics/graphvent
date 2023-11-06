@@ -238,7 +238,7 @@ func (signal ErrorSignal) Permission() Tree {
     },
   }
 }
-func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) Signal {
+func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) *ErrorSignal {
   return &ErrorSignal{
     NewResponseHeader(req_id, Direct),
     fmt.Sprintf(fmt_string, args...),

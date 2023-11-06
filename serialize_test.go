@@ -119,8 +119,6 @@ func TestSerializeBasic(t *testing.T) {
 
   testSerialize[[]string](t, ctx, []string{"test_1", "test_2", "test_3"})
   testSerialize[test_slice](t, ctx, test_slice{"test_1", "test_2", "test_3"})
-
-  testSerialize[Changes](t, ctx, Changes{"change_1", "change_2", "change_3"})
 }
 
 type test struct {

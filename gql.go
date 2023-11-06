@@ -1562,6 +1562,7 @@ type GQLExt struct {
   resolver_response map[uuid.UUID]chan Signal
   resolver_response_lock sync.RWMutex
 
+  State string `gv:"state"`
   TLSKey []byte `gv:"tls_key"`
   TLSCert []byte `gv:"tls_cert"`
   Listen string `gv:"listen"`
@@ -1692,7 +1693,8 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     ctx.Log.Logf("gql", "starting gql server %s", node.ID)
     err := ext.StartGQLServer(ctx, node)
     if err == nil {
-      changes = changes.Add("server_started")
+      ctx.Log.Logf("gql", "started gql server on %s", ext.Listen)
+      changes.Add(GQLExtType, "state")
     } else {
       ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
@@ -1873,6 +1875,7 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
 
   ext.tcp_listener = l
   ext.http_server = http_server
+  ext.State = "running"
   return nil
 }
 
@@ -1884,5 +1887,6 @@ func (ext *GQLExt) StopGQLServer() error {
   ext.http_done.Wait()
   ext.tcp_listener = nil
   ext.http_server = nil
+  ext.State = "stopped"
   return nil
 }

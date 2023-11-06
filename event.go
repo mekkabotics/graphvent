@@ -5,6 +5,40 @@ import (
   "fmt"
 )
 
+type ParentOfPolicy struct {
+  PolicyHeader
+  Policy Tree
+}
+
+func NewParentOfPolicy(policy Tree) *ParentOfPolicy {
+  return &ParentOfPolicy{
+    PolicyHeader: NewPolicyHeader(),
+    Policy: policy,
+  }
+}
+
+func (policy ParentOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
+  event_ext, err := GetExt[*EventExt](node, EventExtType)
+  if err != nil {
+    ctx.Log.Logf("event", "ParentOfPolicy, node not event %s", node.ID)
+    return nil, Deny
+  }
+
+  if event_ext.Parent == principal_id {
+    return nil, policy.Policy.Allows(action)
+  }
+
+  return nil, Deny
+}
+
+func (policy ParentOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+  return Deny
+}
+
+var DefaultEventPolicy = NewParentOfPolicy(Tree{
+  SerializedType(EventControlSignalType): nil,
+})
+
 type EventExt struct {
   Name string `gv:"name"`
   State string `gv:"state"`
@@ -147,4 +181,22 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
   }
 
   return messages, changes
+}
+
+type TransitionValidation struct {
+  ToState string
+}
+
+func(ext *EventExt) ValidateEventCommand(signal *EventControlSignal, commands map[string]map[string]string) (string, *ErrorSignal) {
+  transitions, command_mapped := commands[signal.Command]
+  if command_mapped == false {
+    return "", NewErrorSignal(signal.Id, "unknown command %s", signal.Command)
+  } else {
+    new_state, valid_transition := transitions[ext.State]
+    if valid_transition == false {
+      return "", NewErrorSignal(signal.Id, "invalid command state %s(%s)", signal.Command, ext.State)
+    } else {
+      return new_state, nil
+    }
+  }
 }

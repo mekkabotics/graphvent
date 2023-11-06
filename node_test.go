@@ -19,7 +19,11 @@ func TestNodeDB(t *testing.T) {
   fatalErr(t, err)
 
   _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
-    return slices.Contains(sig.Changes, "started") && sig.Source == node.ID
+    gql_changes, has_gql := sig.Changes[GQLExtType]
+    if has_gql == true {
+      return slices.Contains(gql_changes, "state") && sig.Source == node.ID
+    }
+    return false
   })
 
   msgs := Messages{}

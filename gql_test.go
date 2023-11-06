@@ -43,7 +43,7 @@ func TestGQLAuth(t *testing.T) {
 }
 
 func TestGQLServer(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "deserialize_types", "serialize_types", "gqlws"})
+  ctx := logTestContext(t, []string{"test", "deserialize_types", "serialize_types", "gqlws", "gql"})
 
   TestNodeType := NewNodeType("TEST")
   err := ctx.RegisterNodeType(TestNodeType, []ExtType{LockableExtType})
@@ -218,7 +218,9 @@ func TestGQLServer(t *testing.T) {
     ctx.Log.Logf("test", "SUB: %s", resp[:n])
 
     msgs := Messages{}
-    msgs = msgs.Add(ctx, gql.ID, gql, nil, NewStatusSignal(gql.ID, Changes{"test_status"}))
+    test_changes := Changes{}
+    test_changes.Add(GQLExtType, "state")
+    msgs = msgs.Add(ctx, gql.ID, gql, nil, NewStatusSignal(gql.ID, test_changes))
     err = ctx.Send(msgs)
     fatalErr(t, err)
 
