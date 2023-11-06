@@ -102,6 +102,7 @@ type Node struct {
   Type NodeType `gv:"type"`
   // TODO: move each extension to it's own db key, and extend changes to notify which extension was changed
   Extensions map[ExtType]Extension
+
   Policies []Policy `gv:"policies"`
 
   PendingACLs map[uuid.UUID]PendingACL `gv:"pending_acls"`
@@ -235,6 +236,7 @@ func runNode(ctx *Context, node *Node) {
   ctx.Log.Logf("node", "RUN_START: %s", node.ID)
   err := nodeLoop(ctx, node)
   if err != nil {
+    ctx.Log.Logf("node", "%s runNode err %s", node.ID, err)
     panic(err)
   }
   ctx.Log.Logf("node", "RUN_STOP: %s", node.ID)
@@ -399,6 +401,7 @@ func nodeLoop(ctx *Context, node *Node) error {
         }
       }
       if i == -1 {
+        ctx.Log.Logf("node", "node.NextSignal not in node.SignalQueue, paniccing")
         panic("node.NextSignal not in node.SignalQueue")
       }
       l := len(node.SignalQueue)
@@ -494,6 +497,7 @@ func nodeLoop(ctx *Context, node *Node) error {
     default:
       err := node.Process(ctx, source, signal)
       if err != nil {
+        ctx.Log.Logf("node", "%s process error %s", node.ID, err)
         panic(err)
       }
     }
@@ -858,6 +862,8 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
     return nil, fmt.Errorf("node wrong type %s", node_value.Type())
   }
 
+  ctx.Log.Logf("db", "Deserialized node bytes %+v", node)
+
   signal_queue_value, remaining, err := DeserializeValue(ctx, reflect.TypeOf([]QueuedSignal{}), sq_bytes)
   if err != nil {
     return nil, err
@@ -894,7 +900,7 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
   node.NextSignal, node.TimeoutChan = SoonestSignal(signal_queue)
 
   ctx.AddNode(id, node) 
-  ctx.Log.Logf("db", "loaded %s", id)
+  ctx.Log.Logf("db", "loaded %+v", node)
   go runNode(ctx, node)
 
   return node, nil
