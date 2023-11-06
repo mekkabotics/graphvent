@@ -103,8 +103,9 @@ func (signal EventControlSignal) Permission() Tree {
   }
 }
 
-func (ext *EventExt) UpdateState(node *Node, state string) {
+func (ext *EventExt) UpdateState(node *Node, changes Changes, state string) {
   if ext.State != state {
+    changes.Add(EventExtType, "changes")
     ext.State = state
     node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
   }
@@ -125,29 +126,21 @@ type TestEventExt struct {
   Length time.Duration
 }
 
-var test_event_transitions = map[string]struct{
-  from_state string
-  to_state string
-}{
+var test_event_commands = map[string]map[string]string{
   "ready?": {
-    "init",
-    "ready",
+    "init": "ready",
   },
   "start": {
-    "ready",
-    "running",
+    "ready": "running",
   },
   "abort": {
-    "ready",
-    "init",
+    "ready": "init",
   },
   "stop": {
-    "running",
-    "stopped",
+    "running": "stopped",
   },
   "finish": {
-    "running",
-    "done",
+    "running": "done",
   },
 }
 
@@ -162,20 +155,17 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
     if err != nil {
       messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "not_event"))
     } else {
-      info, exists := test_event_transitions[sig.Command]
-      if exists == true {
-        if event_ext.State == info.from_state {
-          ctx.Log.Logf("event", "%s %s->%s", node.ID, info.from_state, info.to_state)
-          messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-          event_ext.UpdateState(node, info.to_state)
-          if event_ext.State == "running" {
-            node.QueueSignal(time.Now().Add(ext.Length), NewEventControlSignal("finish"))
-          }
-        } else {
-          messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_state"))
-        }
+      ctx.Log.Logf("event", "%s got %s EventControlSignal while in %s", node.ID, sig.Command, event_ext.State)
+      new_state, error_signal := event_ext.ValidateEventCommand(sig, test_event_commands)
+      if error_signal != nil {
+        messages = messages.Add(ctx, source, node, nil, error_signal)
       } else {
-        messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "bad_command"))
+        switch sig.Command {
+        case "start":
+          node.QueueSignal(time.Now().Add(ext.Length), NewEventControlSignal("finish"))
+        }
+        event_ext.UpdateState(node, changes, new_state)
+        messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
       }
     }
   }
