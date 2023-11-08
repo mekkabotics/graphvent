@@ -1838,7 +1838,6 @@ func (ext *GQLExt) StartGQLServer(ctx *Context, node *Node) error {
           w.Write([]byte("{\"error\": \"server_error\"}"))
         }
         http.ServeContent(w, r, static_path, time.Time{}, file)
-        w.WriteHeader(200)
       }
     } else {
       ctx.Log.Logf("gql", "CUSTOM_FILE: %s", custom_path)
