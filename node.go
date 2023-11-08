@@ -158,8 +158,9 @@ func (node *Node) Allows(ctx *Context, principal_id NodeID, action Tree)(map[uui
 }
 
 type WaitInfo struct {
-  NodeID NodeID `gv:"node"`
+  Destination NodeID `gv:"destination"`
   Timeout uuid.UUID `gv:"timeout"`
+  Reason string `gv:"reason"`
 }
 
 type WaitMap map[uuid.UUID]WaitInfo
@@ -178,14 +179,28 @@ func (node *Node) ProcessResponse(wait_map WaitMap, response ResponseSignal) (Wa
   return WaitInfo{}, false
 }
 
+func (node *Node) NewTimeout(reason string, dest NodeID, timeout time.Duration) (WaitInfo, uuid.UUID) {
+  id := uuid.New()
+
+  timeout_signal := NewTimeoutSignal(id)
+  node.QueueSignal(time.Now().Add(timeout), timeout_signal)
+
+  return WaitInfo{
+    Destination: dest,
+    Timeout: timeout_signal.Id,
+    Reason: reason,
+  }, id
+}
+
 // Creates a timeout signal for signal, queues it for the node at the timeout, and returns the WaitInfo
-func (node *Node) QueueTimeout(dest NodeID, signal Signal, timeout time.Duration) WaitInfo {
+func (node *Node) QueueTimeout(reason string, dest NodeID, signal Signal, timeout time.Duration) WaitInfo {
   timeout_signal := NewTimeoutSignal(signal.ID())
   node.QueueSignal(time.Now().Add(timeout), timeout_signal)
 
   return WaitInfo{
-    NodeID: dest,
+    Destination: dest,
     Timeout: timeout_signal.Id,
+    Reason: reason,
   }
 }
 

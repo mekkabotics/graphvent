@@ -73,18 +73,18 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
 
   info, info_found := node.ProcessResponse(ext.WaitInfos, signal)
   if info_found {
-    state, found := ext.Requirements[info.NodeID]
+    state, found := ext.Requirements[info.Destination]
     if found == true {
       ctx.Log.Logf("lockable", "got mapped response %+v for %+v in state %s", signal, info, ReqStateStrings[state])
       switch state {
       case Locking:
         ext.State = AbortingLock
-        ext.Requirements[info.NodeID] = Unlocked
+        ext.Requirements[info.Destination] = Unlocked
         for id, state := range(ext.Requirements) {
           if state == Locked {
             ext.Requirements[id] = Unlocking
             lock_signal := NewLockSignal("unlock")
-            ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 100*time.Millisecond)
+            ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("unlock", id, lock_signal, 100*time.Millisecond)
             messages = messages.Add(ctx, id, node, nil, lock_signal)
             ctx.Log.Logf("lockable", "sent abort unlock to %s from %s", id, node.ID)
           }
@@ -92,7 +92,7 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
       case Unlocking:
       }
     } else {
-      ctx.Log.Logf("lockable", "Got mapped error %s, but %s isn't a requirement", signal, info.NodeID)
+      ctx.Log.Logf("lockable", "Got mapped error %s, but %s isn't a requirement", signal, info.Destination)
     }
   }
 
@@ -143,16 +143,16 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
 
   info, info_found := node.ProcessResponse(ext.WaitInfos, signal)
   if info_found == true {
-    state, found := ext.Requirements[info.NodeID]
+    state, found := ext.Requirements[info.Destination]
     if found == false {
-      ctx.Log.Logf("lockable", "Got success signal for requirement that is no longer in the map(%s), ignoring...", info.NodeID)
+      ctx.Log.Logf("lockable", "Got success signal for requirement that is no longer in the map(%s), ignoring...", info.Destination)
     } else {
       ctx.Log.Logf("lockable", "got mapped response %+v for %+v in state %s", signal, info, ReqStateStrings[state])
       switch state {
       case Locking:
         switch ext.State {
         case Locking:
-          ext.Requirements[info.NodeID] = Locked
+          ext.Requirements[info.Destination] = Locked
           locked := 0
           for _, s := range(ext.Requirements) {
             if s == Locked {
@@ -170,13 +170,13 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
             ctx.Log.Logf("lockable", "PARTIAL LOCK: %s - %d/%d", node.ID, locked, len(ext.Requirements))
           }
         case AbortingLock:
-          ext.Requirements[info.NodeID] = Unlocking
+          ext.Requirements[info.Destination] = Unlocking
 
           lock_signal := NewLockSignal("unlock")
-          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(info.NodeID, lock_signal, 100*time.Millisecond)
-          messages = messages.Add(ctx, info.NodeID, node, nil, lock_signal)
+          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("unlock", info.Destination, lock_signal, 100*time.Millisecond)
+          messages = messages.Add(ctx, info.Destination, node, nil, lock_signal)
 
-          ctx.Log.Logf("lockable", "sending abort_lock to %s for %s", info.NodeID, node.ID)
+          ctx.Log.Logf("lockable", "sending abort_lock to %s for %s", info.Destination, node.ID)
         }
       case AbortingLock:
         ctx.Log.Logf("lockable", "Got success signal in AbortingLock %s", node.ID)
@@ -247,7 +247,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
           }
 
           lock_signal := NewLockSignal("lock")
-          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 5000*time.Millisecond)
+          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("lock", id, lock_signal, 5000*time.Millisecond)
           ext.Requirements[id] = Locking
 
           messages = messages.Add(ctx, id, node, nil, lock_signal)
@@ -279,7 +279,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
           }
 
           lock_signal := NewLockSignal("unlock")
-          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 100*time.Millisecond)
+          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("unlock", id, lock_signal, 100*time.Millisecond)
           ext.Requirements[id] = Unlocking
 
           messages = messages.Add(ctx, id, node, nil, lock_signal)
@@ -300,18 +300,18 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
 
   wait_info, found := node.ProcessResponse(ext.WaitInfos, signal)
   if found == true {
-    state, found := ext.Requirements[wait_info.NodeID]
+    state, found := ext.Requirements[wait_info.Destination]
     if found == true {
-      ctx.Log.Logf("lockable", "%s timed out %s", wait_info.NodeID, ReqStateStrings[state])
+      ctx.Log.Logf("lockable", "%s timed out %s", wait_info.Destination, ReqStateStrings[state])
       switch state {
       case Locking:
         ext.State = AbortingLock
-        ext.Requirements[wait_info.NodeID] = Unlocked
+        ext.Requirements[wait_info.Destination] = Unlocked
         for id, state := range(ext.Requirements) {
           if state == Locked {
             ext.Requirements[id] = Unlocking
             lock_signal := NewLockSignal("unlock")
-            ext.WaitInfos[lock_signal.Id] = node.QueueTimeout(id, lock_signal, 100*time.Millisecond)
+            ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("unlock", id, lock_signal, 100*time.Millisecond)
             messages = messages.Add(ctx, id, node, nil, lock_signal)
             ctx.Log.Logf("lockable", "sent abort unlock to %s from %s", id, node.ID)
           }
@@ -319,7 +319,7 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
       case Unlocking:
       }
     } else {
-      ctx.Log.Logf("lockable", "%s timed out", wait_info.NodeID)
+      ctx.Log.Logf("lockable", "%s timed out", wait_info.Destination)
     }
   }
 
