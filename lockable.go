@@ -318,8 +318,21 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
     changes.Add(LockableExtType, "wait_infos")
     state, found := ext.Requirements[wait_info.Destination]
     if found == true {
-      ctx.Log.Logf("lockable", "%s timed out %s", wait_info.Destination, ReqStateStrings[state])
-      switch state {
+      ctx.Log.Logf("lockable", "%s timed out %s while %s was %s", wait_info.Destination, ReqStateStrings[state], node.ID, ReqStateStrings[state])
+      switch ext.State {
+      case AbortingLock:
+        ext.Requirements[wait_info.Destination] = Unlocked
+        all_unlocked := true
+        for _, state := range(ext.Requirements) {
+          if state != Unlocked {
+            all_unlocked = false
+            break
+          }
+        }
+        if all_unlocked == true {
+          changes.Add(LockableExtType, "state")
+          ext.State = Unlocked
+        }
       case Locking:
         ext.State = AbortingLock
         ext.Requirements[wait_info.Destination] = Unlocked
