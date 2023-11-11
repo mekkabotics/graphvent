@@ -5,6 +5,12 @@ import (
   "time"
 )
 
+var AllowAnyLockPolicy = NewAllNodesPolicy(Tree{
+  SerializedType(LockSignalType): {
+    Hash(LockStateBase, "lock"): nil,
+  },
+})
+
 type ReqState byte
 const (
   Unlocked = ReqState(0)
@@ -69,7 +75,7 @@ func LockLockable(ctx *Context, node *Node) (uuid.UUID, error) {
 
 func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeID, signal *ErrorSignal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   info, info_found := node.ProcessResponse(ext.WaitInfos, signal)
   if info_found {
@@ -116,7 +122,7 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
 
 func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID, signal *LinkSignal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
   if ext.State == Unlocked {
     switch signal.Action {
     case "add":
@@ -151,7 +157,7 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID
 
 func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source NodeID, signal *SuccessSignal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
   if source == node.ID {
     return messages, changes
   }
@@ -235,7 +241,7 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
 // Handle a LockSignal and update the extensions owner/requirement states
 func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID, signal *LockSignal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   switch signal.State {
   case "lock":
@@ -311,7 +317,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
 
 func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source NodeID, signal *TimeoutSignal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   wait_info, found := node.ProcessResponse(ext.WaitInfos, signal)
   if found == true {
@@ -359,7 +365,7 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
 // LockSignal and LinkSignal Direct signals are processed to update the requirement/dependency/lock state
 func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   switch signal.Direction() {
   case Up:

@@ -105,7 +105,7 @@ func (signal EventControlSignal) Permission() Tree {
 
 func (ext *EventExt) UpdateState(node *Node, changes Changes, state string) {
   if ext.State != state {
-    changes.Add(EventExtType, "changes")
+    changes.Add(EventExtType, "state")
     ext.State = state
     node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
   }
@@ -113,7 +113,7 @@ func (ext *EventExt) UpdateState(node *Node, changes Changes, state string) {
 
 func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   if signal.Direction() == Up && ext.Parent != node.ID {
     messages = messages.Add(ctx, ext.Parent, node, nil, signal)
@@ -147,7 +147,7 @@ var test_event_commands = map[string]map[string]string{
 
 func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   switch sig := signal.(type) {
   case *EventControlSignal:

@@ -225,7 +225,7 @@ func NewGroupExt(sub_groups map[string][]NodeID) *GroupExt {
 
 func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   switch sig := signal.(type) {
   case *AddMemberSignal:

@@ -1656,7 +1656,7 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
 
 func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
-  var changes Changes = nil
+  var changes = Changes{}
 
   switch sig := signal.(type) {
   case *SuccessSignal:
