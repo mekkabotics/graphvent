@@ -75,9 +75,24 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
   if info_found {
     state, found := ext.Requirements[info.Destination]
     if found == true {
-      ctx.Log.Logf("lockable", "got mapped response %+v for %+v in state %s", signal, info, ReqStateStrings[state])
-      switch state {
+      changes.Add(LockableExtType, "wait_infos")
+      ctx.Log.Logf("lockable", "got mapped response %+v for %+v in state %s while in %s", signal, info, ReqStateStrings[state], ReqStateStrings[ext.State])
+      switch ext.State {
+      case AbortingLock:
+        ext.Requirements[info.Destination] = Unlocked
+        all_unlocked := true
+        for _, state := range(ext.Requirements) {
+          if state != Unlocked {
+            all_unlocked = false
+            break
+          }
+        }
+        if all_unlocked == true {
+          changes.Add(LockableExtType, "state")
+          ext.State = Unlocked
+        }
       case Locking:
+        changes.Add(LockableExtType, "state")
         ext.State = AbortingLock
         ext.Requirements[info.Destination] = Unlocked
         for id, state := range(ext.Requirements) {
@@ -247,7 +262,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
           }
 
           lock_signal := NewLockSignal("lock")
-          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("lock", id, lock_signal, 5000*time.Millisecond)
+          ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("lock", id, lock_signal, 500*time.Millisecond)
           ext.Requirements[id] = Locking
 
           messages = messages.Add(ctx, id, node, nil, lock_signal)
@@ -255,7 +270,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
       }
     default:
       messages = messages.Add(ctx, source, node, nil, NewErrorSignal(signal.ID(), "not_unlocked"))
-      ctx.Log.Logf("lockable", "Tried to lock %s while locked", node.ID)
+      ctx.Log.Logf("lockable", "Tried to lock %s while %s", node.ID, ext.State)
     }
   case "unlock":
     if ext.State == Locked {
@@ -300,6 +315,7 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
 
   wait_info, found := node.ProcessResponse(ext.WaitInfos, signal)
   if found == true {
+    changes.Add(LockableExtType, "wait_infos")
     state, found := ext.Requirements[wait_info.Destination]
     if found == true {
       ctx.Log.Logf("lockable", "%s timed out %s", wait_info.Destination, ReqStateStrings[state])
@@ -362,6 +378,40 @@ func (ext *LockableExt) Process(ctx *Context, node *Node, source NodeID, signal 
   default:
   }
   return messages, changes
+}
+
+type OwnerOfPolicy struct {
+  PolicyHeader
+  Rules Tree `gv:"rules"`
+}
+
+func NewOwnerOfPolicy(rules Tree) OwnerOfPolicy {
+  return OwnerOfPolicy{
+    PolicyHeader: NewPolicyHeader(),
+    Rules: rules,
+  }
+}
+
+func (policy OwnerOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
+  return Deny
+}
+
+func (policy OwnerOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
+  l_ext, err := GetExt[*LockableExt](node, LockableExtType)
+  if err != nil {
+    ctx.Log.Logf("lockable", "OwnerOfPolicy.Allows called on node without LockableExt")
+    return nil, Deny
+  }
+
+  if l_ext.Owner == nil {
+    return nil, Deny
+  }
+
+  if principal_id == *l_ext.Owner {
+    return nil, Allow
+  }
+
+  return nil, Deny
 }
 
 type RequirementOfPolicy struct {

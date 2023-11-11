@@ -81,7 +81,7 @@ func NewEventStateSignal(source NodeID, state string, t time.Time) *EventStateSi
 
 type EventControlSignal struct {
   SignalHeader
-  Command string
+  Command string `gv:"command"`
 }
 
 func (signal EventControlSignal) String() string {

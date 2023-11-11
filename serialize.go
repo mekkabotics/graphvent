@@ -238,6 +238,7 @@ var (
   EventStateSignalType     = NewSignalType("VEX_MATCH_STATUS")
 
   MemberOfPolicyType      = NewPolicyType("MEMBER_OF")
+  OwnerOfPolicyType       = NewPolicyType("OWNER_OF")
   ParentOfPolicyType      = NewPolicyType("PARENT_OF")
   RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
   PerNodePolicyType       = NewPolicyType("PER_NODE")

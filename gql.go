@@ -1292,12 +1292,12 @@ func NewGQLExtContext() *GQLExtContext {
     return name, nil
   })
 
-  err = context.RegisterField(graphql.String, "State", EventExtType, "state", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
+  err = context.RegisterField(graphql.String, "EventState", EventExtType, "state", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
     state := val.String()
     return state, nil
   })
 
-  err = context.RegisterInterface("Event", "EventNode", []string{"Node"}, []string{"EventName", "State"}, map[string]SelfField{}, map[string]ListField{})
+  err = context.RegisterInterface("Event", "EventNode", []string{"Node"}, []string{"EventName", "EventState"}, map[string]SelfField{}, map[string]ListField{})
   if err != nil {
     panic(err)
   }
@@ -1371,7 +1371,20 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterInterface("Lockable", "DefaultLockable", []string{"Node"}, []string{}, map[string]SelfField{
+  err = context.RegisterField(graphql.String, "LockableState", LockableExtType, "state",
+  func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
+    state, ok := value.Interface().(ReqState)
+    if ok == false {
+      return nil, fmt.Errorf("value is %+v, not ReqState", value.Type())
+    }
+
+    return ReqStateStrings[state], nil
+  })
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.RegisterInterface("Lockable", "DefaultLockable", []string{"Node"}, []string{"LockableState"}, map[string]SelfField{
     "Owner": {
       "owner",
       LockableExtType,
@@ -1414,7 +1427,7 @@ func NewGQLExtContext() *GQLExtContext {
     panic(err)
   }
 
-  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"Listen", "Owner", "Requirements", "SubGroups"})
+  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"LockableState", "Listen", "Owner", "Requirements", "SubGroups"})
   if err != nil {
     panic(err)
   }
@@ -1430,6 +1443,11 @@ func NewGQLExtContext() *GQLExtContext {
   }
 
   err = context.AddSignalMutation("removeMember", "group_id", reflect.TypeOf(RemoveMemberSignal{}))
+  if err != nil {
+    panic(err)
+  }
+
+  err = context.AddSignalMutation("eventControl", "event_id", reflect.TypeOf(EventControlSignal{}))
   if err != nil {
     panic(err)
   }

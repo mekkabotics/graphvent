@@ -614,6 +614,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterPolicy(reflect.TypeOf(OwnerOfPolicy{}), OwnerOfPolicyType)
+  if err != nil {
+    return nil, err
+  }
+
   err = ctx.RegisterPolicy(reflect.TypeOf(ParentOfPolicy{}), ParentOfPolicyType)
   if err != nil {
     return nil, err
