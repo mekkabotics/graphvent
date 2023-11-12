@@ -267,6 +267,8 @@ var (
   InterfaceType = NewSerializedType("INTERFACE")
   MapType       = NewSerializedType("MAP")
 
+  EventStateType       = NewSerializedType("EVENT_STATE")
+  EventCommandType     = NewSerializedType("EVENT_COMMAND")
   ReqStateType         = NewSerializedType("REQ_STATE")
   WaitInfoType         = NewSerializedType("WAIT_INFO")
   SignalDirectionType  = NewSerializedType("SIGNAL_DIRECTION")

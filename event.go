@@ -5,6 +5,9 @@ import (
   "fmt"
 )
 
+type EventCommand string
+type EventState string
+
 type ParentOfPolicy struct {
   PolicyHeader
   Policy Tree
@@ -41,7 +44,7 @@ var DefaultEventPolicy = NewParentOfPolicy(Tree{
 
 type EventExt struct {
   Name string `gv:"name"`
-  State string `gv:"state"`
+  State EventState `gv:"state"`
   Parent NodeID `gv:"parent"`
 }
 
@@ -55,9 +58,9 @@ func NewEventExt(parent NodeID, name string) *EventExt {
 
 type EventStateSignal struct {
   SignalHeader
-  Source NodeID
-  State string
-  Time time.Time
+  Source NodeID `gv:"source"`
+  State EventState `gv:"state"`
+  Time time.Time `gv:"time"`
 }
 
 func (signal EventStateSignal) Permission() Tree {
@@ -70,7 +73,7 @@ func (signal EventStateSignal) String() string {
   return fmt.Sprintf("EventStateSignal(%s, %s, %s, %+v)", signal.SignalHeader, signal.Source, signal.State, signal.Time)
 }
 
-func NewEventStateSignal(source NodeID, state string, t time.Time) *EventStateSignal {
+func NewEventStateSignal(source NodeID, state EventState, t time.Time) *EventStateSignal {
   return &EventStateSignal{
     SignalHeader: NewSignalHeader(Up),
     Source: source,
@@ -81,14 +84,14 @@ func NewEventStateSignal(source NodeID, state string, t time.Time) *EventStateSi
 
 type EventControlSignal struct {
   SignalHeader
-  Command string `gv:"command"`
+  Command EventCommand `gv:"command"`
 }
 
 func (signal EventControlSignal) String() string {
   return fmt.Sprintf("EventControlSignal(%s, %s)", signal.SignalHeader, signal.Command)
 }
 
-func NewEventControlSignal(command string) *EventControlSignal {
+func NewEventControlSignal(command EventCommand) *EventControlSignal {
   return &EventControlSignal{
     NewSignalHeader(Direct),
     command,
@@ -98,12 +101,12 @@ func NewEventControlSignal(command string) *EventControlSignal {
 func (signal EventControlSignal) Permission() Tree {
   return Tree{
     SerializedType(EventControlSignalType): {
-      Hash("command", signal.Command): nil,
+      Hash("command", string(signal.Command)): nil,
     },
   }
 }
 
-func (ext *EventExt) UpdateState(node *Node, changes Changes, state string) {
+func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState) {
   if ext.State != state {
     changes.Add(EventExtType, "state")
     ext.State = state
@@ -126,7 +129,8 @@ type TestEventExt struct {
   Length time.Duration
 }
 
-var test_event_commands = map[string]map[string]string{
+type EventCommandMap map[EventCommand]map[EventState]EventState
+var test_event_commands = EventCommandMap{
   "ready?": {
     "init": "ready",
   },
@@ -173,11 +177,7 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
   return messages, changes
 }
 
-type TransitionValidation struct {
-  ToState string
-}
-
-func(ext *EventExt) ValidateEventCommand(signal *EventControlSignal, commands map[string]map[string]string) (string, *ErrorSignal) {
+func(ext *EventExt) ValidateEventCommand(signal *EventControlSignal, commands EventCommandMap) (EventState, *ErrorSignal) {
   transitions, command_mapped := commands[signal.Command]
   if command_mapped == false {
     return "", NewErrorSignal(signal.Id, "unknown command %s", signal.Command)

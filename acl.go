@@ -48,7 +48,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
   response, is_response := signal.(ResponseSignal)
   if is_response == true {
     var messages Messages = nil
-    var changes Changes = nil
+    var changes = Changes{}
     info, waiting := ext.Pending[response.ResponseID()]
     if waiting == true {
       changes.Add(ACLExtType, "pending")
@@ -106,7 +106,7 @@ func (ext *ACLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
   }
 
   var messages Messages = nil
-  var changes Changes = nil
+  var changes = Changes{}
 
   switch sig := signal.(type) {
   case *ACLSignal:

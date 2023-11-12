@@ -435,6 +435,16 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = ctx.RegisterType(reflect.TypeOf(EventCommand("")), EventCommandType, nil, nil, nil, DeserializeString[EventState])
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(EventState("")), EventStateType, nil, nil, nil, DeserializeString[EventState])
+  if err != nil {
+    return nil, err
+  }
+
   wait_info_type := reflect.TypeOf(WaitInfo{})
   wait_info_info, err := GetStructInfo(ctx, wait_info_type)
   if err != nil {
