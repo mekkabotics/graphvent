@@ -1183,6 +1183,14 @@ func NewGQLExtContext() *GQLExtContext {
     },
   }
   type_map := map[reflect.Type]GQLTypeInfo{
+    reflect.TypeOf(EventCommand("")): {
+      func (ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
+        return graphql.String, nil
+      },
+      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
+        return reflect.ValueOf(EventCommand(value.(string))), nil
+      },
+    },
     reflect.TypeOf([2]NodeID{}): {
       func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
         return graphql.NewList(graphql.String), nil

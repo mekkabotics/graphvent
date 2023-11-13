@@ -435,7 +435,12 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(EventCommand("")), EventCommandType, nil, nil, nil, DeserializeString[EventState])
+  err = ctx.RegisterType(reflect.TypeOf(WaitReason("")), WaitReasonType, nil, nil, nil, DeserializeString[WaitReason])
+  if err != nil {
+    return nil, err
+  }
+
+  err = ctx.RegisterType(reflect.TypeOf(EventCommand("")), EventCommandType, nil, nil, nil, DeserializeString[EventCommand])
   if err != nil {
     return nil, err
   }

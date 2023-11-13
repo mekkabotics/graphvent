@@ -5,6 +5,12 @@ import (
   "time"
 )
 
+var AllowParentUnlockPolicy = NewOwnerOfPolicy(Tree{
+  SerializedType(LockSignalType): {
+    Hash(LockStateBase, "unlock"): nil,
+  },
+})
+
 var AllowAnyLockPolicy = NewAllNodesPolicy(Tree{
   SerializedType(LockSignalType): {
     Hash(LockStateBase, "lock"): nil,
@@ -111,6 +117,17 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
           }
         }
       case Unlocking:
+        ext.Requirements[info.Destination] = Locked
+        all_returned := true
+        for _, state := range(ext.Requirements) {
+          if state == Unlocking {
+            all_returned = false
+            break
+          }
+        }
+        if all_returned == true {
+          ext.State = Locked
+        }
       }
     } else {
       ctx.Log.Logf("lockable", "Got mapped error %s, but %s isn't a requirement", signal, info.Destination)
@@ -352,6 +369,17 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
           }
         }
       case Unlocking:
+        ext.Requirements[wait_info.Destination] = Locked
+        all_returned := true
+        for _, state := range(ext.Requirements) {
+          if state == Unlocking {
+            all_returned = false
+            break
+          }
+        }
+        if all_returned == true {
+          ext.State = Locked
+        }
       }
     } else {
       ctx.Log.Logf("lockable", "%s timed out", wait_info.Destination)

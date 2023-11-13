@@ -268,6 +268,7 @@ var (
   MapType       = NewSerializedType("MAP")
 
   EventStateType       = NewSerializedType("EVENT_STATE")
+  WaitReasonType       = NewSerializedType("WAIT_REASON")
   EventCommandType     = NewSerializedType("EVENT_COMMAND")
   ReqStateType         = NewSerializedType("REQ_STATE")
   WaitInfoType         = NewSerializedType("WAIT_INFO")

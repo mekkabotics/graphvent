@@ -37,6 +37,7 @@ type StructFieldInfo struct {
 }
 
 func SignalFromArgs(ctx *GQLExtContext, signal_type reflect.Type, fields []StructFieldInfo, args map[string]interface{}, id_index, direction_index []int) (Signal, error) {
+  fmt.Printf("FIELD: %+v\n", fields)
   signal_value := reflect.New(signal_type)
 
   id_field := signal_value.Elem().FieldByIndex(id_index)
@@ -58,6 +59,7 @@ func SignalFromArgs(ctx *GQLExtContext, signal_type reflect.Type, fields []Struc
     if err != nil {
       return nil, err
     }
+    fmt.Printf("Setting %s to %+v of type %+v\n", field.Name, value, value.Type())
     field_value.Set(value)
   }
   return signal_value.Interface().(Signal), nil
