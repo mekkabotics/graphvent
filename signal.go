@@ -218,7 +218,7 @@ func (signal SuccessSignal) Permission() Tree {
     },
   }
 }
-func NewSuccessSignal(req_id uuid.UUID) Signal {
+func NewSuccessSignal(req_id uuid.UUID) *SuccessSignal {
   return &SuccessSignal{
     NewResponseHeader(req_id, Direct),
   }
