@@ -87,7 +87,7 @@ func Test100Lock(t *testing.T) {
     return l
   }
 
-  reqs := make([]NodeID, 1000)
+  reqs := make([]NodeID, 100)
   for i := range(reqs) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
