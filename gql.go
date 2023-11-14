@@ -1300,12 +1300,17 @@ func NewGQLExtContext() *GQLExtContext {
     return name, nil
   })
 
+  err = context.RegisterField(graphql.String, "EventStateStart", EventExtType, "state_start", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
+    state_start := val.Interface().(time.Time)
+    return state_start, nil
+  })
+
   err = context.RegisterField(graphql.String, "EventState", EventExtType, "state", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
     state := val.String()
     return state, nil
   })
 
-  err = context.RegisterInterface("Event", "EventNode", []string{"Node"}, []string{"EventName", "EventState"}, map[string]SelfField{}, map[string]ListField{})
+  err = context.RegisterInterface("Event", "EventNode", []string{"Node"}, []string{"EventName", "EventStateStart", "EventState"}, map[string]SelfField{}, map[string]ListField{})
   if err != nil {
     panic(err)
   }

@@ -45,6 +45,7 @@ var DefaultEventPolicy = NewParentOfPolicy(Tree{
 type EventExt struct {
   Name string `gv:"name"`
   State EventState `gv:"state"`
+  StateStart time.Time `gv:"state_start"`
   Parent NodeID `gv:"parent"`
 }
 
@@ -106,8 +107,9 @@ func (signal EventControlSignal) Permission() Tree {
   }
 }
 
-func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState) {
+func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState, state_start time.Time) {
   if ext.State != state {
+    ext.StateStart = state_start
     changes.Add(EventExtType, "state")
     ext.State = state
     node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
@@ -168,7 +170,7 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
         case "start":
           node.QueueSignal(time.Now().Add(ext.Length), NewEventControlSignal("finish"))
         }
-        event_ext.UpdateState(node, changes, new_state)
+        event_ext.UpdateState(node, changes, new_state, time.Now())
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
       }
     }
