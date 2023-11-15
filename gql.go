@@ -1616,7 +1616,7 @@ func (ext *GQLExt) AddSubscription(id uuid.UUID) (chan interface{}, error) {
     }
   }
 
-  c := make(chan interface{}, 1)
+  c := make(chan interface{}, 100)
 
   ext.subscriptions = append(ext.subscriptions, SubscriptionInfo{
     id,
