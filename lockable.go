@@ -105,17 +105,30 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
         }
       case Locking:
         changes.Add(LockableExtType, "state")
-        ext.State = AbortingLock
         ext.Requirements[info.Destination] = Unlocked
-        for id, state := range(ext.Requirements) {
-          if state == Locked {
-            ext.Requirements[id] = Unlocking
-            lock_signal := NewLockSignal("unlock")
-            ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("unlock", id, lock_signal, 100*time.Millisecond)
-            messages = messages.Add(ctx, id, node, nil, lock_signal)
-            ctx.Log.Logf("lockable", "sent abort unlock to %s from %s", id, node.ID)
+        unlocked := 0
+        for _, state := range(ext.Requirements) {
+          if state == Unlocked {
+            unlocked += 1
           }
         }
+
+        if unlocked == len(ext.Requirements) {
+          ctx.Log.Logf("lockable", "%s unlocked from error %s from %s", node.ID, signal.Error, source)
+          ext.State = Unlocked
+        } else {
+          ext.State = AbortingLock
+          for id, state := range(ext.Requirements) {
+            if state == Locked {
+              ext.Requirements[id] = Unlocking
+              lock_signal := NewLockSignal("unlock")
+              ext.WaitInfos[lock_signal.Id] = node.QueueTimeout("unlock", id, lock_signal, 100*time.Millisecond)
+              messages = messages.Add(ctx, id, node, nil, lock_signal)
+              ctx.Log.Logf("lockable", "sent abort unlock to %s from %s", id, node.ID)
+            }
+          }
+        }
+
       case Unlocking:
         ext.Requirements[info.Destination] = Locked
         all_returned := true
