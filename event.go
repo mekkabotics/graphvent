@@ -49,6 +49,13 @@ type EventExt struct {
   Parent NodeID `gv:"parent"`
 }
 
+func (ext *EventExt) Load(ctx *Context, node *Node) error {
+  return nil
+}
+
+func (ext *EventExt) Unload(ctx *Context, node *Node) {
+}
+
 func NewEventExt(parent NodeID, name string) *EventExt {
   return &EventExt{
     Name: name,
@@ -110,7 +117,7 @@ func (signal EventControlSignal) Permission() Tree {
 func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState, state_start time.Time) {
   if ext.State != state {
     ext.StateStart = state_start
-    AddChange[EventExt](changes, "state")
+    changes.Add("state")
     ext.State = state
     node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
   }
@@ -129,6 +136,13 @@ func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
 
 type TestEventExt struct {
   Length time.Duration
+}
+
+func (ext *TestEventExt) Load(ctx *Context, node *Node) error {
+  return nil
+}
+
+func (ext *TestEventExt) Unload(ctx *Context, node *Node) {
 }
 
 type EventCommandMap map[EventCommand]map[EventState]EventState

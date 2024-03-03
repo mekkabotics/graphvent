@@ -223,6 +223,14 @@ func NewGroupExt(sub_groups map[string][]NodeID) *GroupExt {
   }
 }
 
+func (ext *GroupExt) Load(ctx *Context, node *Node) error {
+  return nil
+}
+
+func (ext *GroupExt) Unload(ctx *Context, node *Node) {
+
+}
+
 func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
   var messages Messages = nil
   var changes = Changes{}
@@ -240,7 +248,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
         ext.SubGroups[sig.SubGroup] = sub_group
 
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-        AddChange[GroupExt](changes, "sub_groups")
+        changes.Add("sub_groups")
       }
     }
 
@@ -257,7 +265,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
         ext.SubGroups[sig.SubGroup] = sub_group
 
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-        AddChange[GroupExt](changes, "sub_groups")
+        changes.Add("sub_groups")
       }
     }
 
@@ -268,7 +276,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
     } else {
       ext.SubGroups[sig.Name] = []NodeID{}
 
-      AddChange[GroupExt](changes, "sub_groups")
+      changes.Add("sub_groups")
       messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
     }
   case *RemoveSubGroupSignal:
@@ -278,7 +286,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
     } else {
       delete(ext.SubGroups, sig.Name)
 
-      AddChange[GroupExt](changes, "sub_groups")
+      changes.Add("sub_groups")
       messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
     }
   }

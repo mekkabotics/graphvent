@@ -9,7 +9,7 @@ import (
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"signal", "serialize", "node", "db", "listener"})
+  ctx := logTestContext(t, []string{"node", "db"})
 
   node_listener := NewListenerExt(10)
   node, err := NewNode(ctx, nil, "Base", 10, nil, NewGroupExt(nil), NewLockableExt(nil), node_listener)
@@ -23,14 +23,7 @@ func TestNodeDB(t *testing.T) {
     return false
   })
 
-  msgs := Messages{}
-  msgs = msgs.Add(ctx, node.ID, node, nil, NewStopSignal())
-  err = ctx.Send(msgs)
-  fatalErr(t, err)
-
-  _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StoppedSignal) bool {
-    return sig.Source == node.ID
-  })
+  err = ctx.Unload(node.ID)
   fatalErr(t, err)
 
   ctx.nodeMap = map[NodeID]*Node{}

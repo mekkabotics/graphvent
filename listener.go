@@ -10,6 +10,13 @@ type ListenerExt struct {
   Chan chan Signal
 }
 
+func (ext *ListenerExt) Load(ctx *Context, node *Node) error {
+  return nil
+}
+
+func (ext *ListenerExt) Unload(ctx *Context, node *Node) {
+}
+
 func (ext *ListenerExt) PostDeserialize(ctx *Context) error {
   ext.Chan = make(chan Signal, ext.Buffer)
   return nil

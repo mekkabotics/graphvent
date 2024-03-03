@@ -143,66 +143,6 @@ func NewResponseHeader(req_id uuid.UUID, direction SignalDirection) ResponseHead
   }
 }
 
-type CreateSignal struct {
-  SignalHeader
-}
-
-func (signal CreateSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[CreateSignal]()): nil,
-  }
-}
-
-func NewCreateSignal() *CreateSignal {
-  return &CreateSignal{
-    NewSignalHeader(Direct),
-  }
-}
-
-type StartSignal struct {
-  SignalHeader
-}
-func (signal StartSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[StartSignal]()): nil,
-  }
-}
-func NewStartSignal() *StartSignal {
-  return &StartSignal{
-    NewSignalHeader(Direct),
-  }
-}
-
-type StoppedSignal struct {
-  ResponseHeader
-  Source NodeID
-}
-func (signal StoppedSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[ResponseSignal]()): nil,
-  }
-}
-func NewStoppedSignal(sig *StopSignal, source NodeID) *StoppedSignal {
-  return &StoppedSignal{
-    NewResponseHeader(sig.ID(), Up),
-    source,
-  }
-}
-
-type StopSignal struct {
-  SignalHeader
-}
-func (signal StopSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[StopSignal]()): nil,
-  }
-}
-func NewStopSignal() *StopSignal {
-  return &StopSignal{
-    NewSignalHeader(Direct),
-  }
-}
-
 type SuccessSignal struct {
   ResponseHeader
 }
@@ -263,7 +203,7 @@ func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
 type StatusSignal struct {
   SignalHeader
   Source NodeID `gv:"source"`
-  Changes Changes `gv:"changes"`
+  Changes map[ExtType]Changes `gv:"changes"`
 }
 func (signal StatusSignal) Permission() Tree {
   return Tree{
@@ -273,7 +213,7 @@ func (signal StatusSignal) Permission() Tree {
 func (signal StatusSignal) String() string {
   return fmt.Sprintf("StatusSignal(%s, %+v)", signal.SignalHeader, signal.Changes)
 }
-func NewStatusSignal(source NodeID, changes Changes) *StatusSignal {
+func NewStatusSignal(source NodeID, changes map[ExtType]Changes) *StatusSignal {
   return &StatusSignal{
     NewSignalHeader(Up),
     source,

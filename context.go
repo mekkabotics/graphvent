@@ -318,7 +318,16 @@ func (ctx *Context) Node(id NodeID) (*Node, bool) {
   return node, exists
 }
 
-func (ctx *Context) Stop(id NodeID) error {
+func (ctx *Context) Delete(id NodeID) error {
+  err := ctx.Unload(id)
+  if err != nil {
+    return err
+  }
+  // TODO: also delete any associated data
+  return nil
+}
+
+func (ctx *Context) Unload(id NodeID) error {
   ctx.nodeMapLock.Lock()
   defer ctx.nodeMapLock.Unlock()
   node, exists := ctx.nodeMap[id]
@@ -326,15 +335,15 @@ func (ctx *Context) Stop(id NodeID) error {
     return fmt.Errorf("%s is not a node in ctx", id)
   }
 
-  err := node.Stop(ctx)
+  err := node.Unload(ctx)
   delete(ctx.nodeMap, id)
   return err
 }
 
-func (ctx *Context) StopAll() {
+func (ctx *Context) Stop() {
   ctx.nodeMapLock.Lock()
   for id, node := range(ctx.nodeMap) {
-    node.Stop(ctx)
+    node.Unload(ctx)
     delete(ctx.nodeMap, id)
   }
   ctx.nodeMapLock.Unlock()
@@ -675,11 +684,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterSignal[StoppedSignal](ctx)
-  if err != nil {
-    return nil, err
-  }
-
   err = RegisterSignal[AddSubGroupSignal](ctx)
   if err != nil {
     return nil, err
@@ -706,21 +710,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterSignal[AddMemberSignal](ctx)
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterSignal[StopSignal](ctx)
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterSignal[CreateSignal](ctx)
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterSignal[StartSignal](ctx)
   if err != nil {
     return nil, err
   }

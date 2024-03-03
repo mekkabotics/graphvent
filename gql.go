@@ -1212,6 +1212,21 @@ type GQLExt struct {
   Listen string `gv:"listen"`
 }
 
+func (ext *GQLExt) Load(ctx *Context, node *Node) error {
+  ctx.Log.Logf("gql", "Loading GQL server extension on %s", node.ID)
+  return ext.StartGQLServer(ctx, node)
+}
+
+func (ext *GQLExt) Unload(ctx *Context, node *Node) {
+  ctx.Log.Logf("gql", "Unloading GQL server extension on %s", node.ID)
+  err := ext.StopGQLServer()
+  if err != nil {
+    ctx.Log.Logf("gql", "Error unloading GQL server extension on %s: %s", node.ID, err)
+  } else {
+    ctx.Log.Logf("gql", "Unloaded GQL server extension on %s", node.ID)
+  }
+}
+
 func (ext *GQLExt) PostDeserialize(*Context) error {
   ext.resolver_response = map[uuid.UUID]chan Signal{}
   ext.subscriptions = []SubscriptionInfo{}
@@ -1324,23 +1339,6 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
       }
     } else {
       ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
-    }
-
-  case *StopSignal:
-    ctx.Log.Logf("gql", "stopping gql server %s", node.ID)
-    err := ext.StopGQLServer()
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_STOP_ERROR: %s", err)
-    }
-
-  case *StartSignal:
-    ctx.Log.Logf("gql", "starting gql server %s", node.ID)
-    err := ext.StartGQLServer(ctx, node)
-    if err == nil {
-      ctx.Log.Logf("gql", "started gql server on %s", ext.Listen)
-      AddChange[GQLExt](changes, "state")
-    } else {
-      ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }
 
   case *StatusSignal:
