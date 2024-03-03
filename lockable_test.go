@@ -67,7 +67,7 @@ func TestLink(t *testing.T) {
   fatalErr(t, err)
 }
 
-func Test100Lock(t *testing.T) {
+func Test1000Lock(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test", "lockable"})
 
   l_pub, listener_key, err := ed25519.GenerateKey(rand.Reader)
@@ -86,12 +86,12 @@ func Test100Lock(t *testing.T) {
     return l
   }
 
-  reqs := make([]NodeID, 100)
+  reqs := make([]NodeID, 1000)
   for i := range(reqs) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
   }
-  ctx.Log.Logf("test", "CREATED_100")
+  ctx.Log.Logf("test", "CREATED_1000")
 
   l_policy := NewAllNodesPolicy(Tree{
     SerializedType(SignalTypeFor[LockSignal]()): nil,
@@ -117,7 +117,7 @@ func Test100Lock(t *testing.T) {
     t.Fatalf("Unexpected response to lock - %s", resp)
   }
 
-  ctx.Log.Logf("test", "LOCKED_100")
+  ctx.Log.Logf("test", "LOCKED_1000")
 }
 
 func TestLock(t *testing.T) {
@@ -126,7 +126,7 @@ func TestLock(t *testing.T) {
   policy := NewAllNodesPolicy(nil)
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
-    listener := NewListenerExt(100)
+    listener := NewListenerExt(1000)
     l, err := NewNode(ctx, nil, "Lockable", 10, []Policy{policy},
                   listener,
                   NewLockableExt(reqs),
