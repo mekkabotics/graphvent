@@ -49,6 +49,11 @@ func RandID() NodeID {
 
 type Changes map[ExtType][]string
 
+func AddChange[E any, T interface { *E; Extension}](changes Changes, fields ...string) {
+  ext_type := ExtType(SerializedTypeFor[E]())
+  changes.Add(ext_type, fields...)
+}
+
 func (changes Changes) Add(ext ExtType, fields ...string) {
   current, exists := changes[ext]
   if exists == false {
@@ -265,6 +270,7 @@ func (err StringError) Error() string {
 func (err StringError) MarshalBinary() ([]byte, error) {
   return []byte(string(err)), nil
 }
+
 func NewErrorField(fstring string, args ...interface{}) SerializedValue {
   str := StringError(fmt.Sprintf(fstring, args...))
   str_ser, err := str.MarshalBinary()
@@ -272,12 +278,13 @@ func NewErrorField(fstring string, args ...interface{}) SerializedValue {
     panic(err)
   }
   return SerializedValue{
-    TypeStack: []SerializedType{ErrorType},
+    TypeStack: []SerializedType{SerializedTypeFor[error]()},
     Data: str_ser,
   }
 }
 
 func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType]map[string]SerializedValue {
+  ctx.Log.Logf("read_field", "Reading %+v on %+v", reqs, node.ID)
   exts := map[ExtType]map[string]SerializedValue{}
   for ext_type, field_reqs := range(reqs) {
     fields := map[string]SerializedValue{}
@@ -585,8 +592,9 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   return nil
 }
 
-func GetCtx[C any](ctx *Context, ext_type ExtType) (C, error) {
+func GetCtx[C any, E any, T interface { *E; Extension}](ctx *Context) (C, error) {
   var zero_ctx C
+  ext_type := ExtType(SerializedTypeFor[E]())
   ext_info, ok := ctx.Extensions[ext_type]
   if ok == false {
     return zero_ctx, fmt.Errorf("%+v is not an extension in ctx", ext_type)
@@ -600,8 +608,9 @@ func GetCtx[C any](ctx *Context, ext_type ExtType) (C, error) {
   return ext_ctx, nil
 }
 
-func GetExt[T Extension](node *Node, ext_type ExtType) (T, error) {
+func GetExt[E any, T interface { *E; Extension}](node *Node) (T, error) {
   var zero T
+  ext_type := ExtType(SerializedTypeFor[E]())
   ext, exists := node.Extensions[ext_type]
   if exists == false {
     return zero, fmt.Errorf("%+v does not have %+v extension - %+v", node.ID, ext_type, node.Extensions)
@@ -621,7 +630,12 @@ func KeyID(pub ed25519.PublicKey) NodeID {
 }
 
 // Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, key ed25519.PrivateKey, node_type NodeType, buffer_size uint32, policies []Policy, extensions ...Extension) (*Node, error) {
+func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size uint32, policies []Policy, extensions ...Extension) (*Node, error) {
+  node_type, known_type := ctx.NodeTypes[type_name]
+  if known_type == false {
+    return nil, fmt.Errorf("%s is not a known node type", type_name)
+  }
+
   var err error
   var public ed25519.PublicKey
   if key == nil {
@@ -894,7 +908,7 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
       return nil, fmt.Errorf("0x%0x is not a known extension type", ext_type)
     }
 
-    ext_value, remaining, err := DeserializeValue(ctx, ext_info.Type, data)
+    ext_value, remaining, err := DeserializeValue(ctx, ext_info.Reflect, data)
     if err != nil {
       return nil, err
     } else if len(remaining) > 0 {

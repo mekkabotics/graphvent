@@ -2,7 +2,6 @@ package graphvent
 
 import (
   "crypto/ed25519"
-  "reflect"
   "testing"
   "time"
   "crypto/rand"
@@ -10,13 +9,13 @@ import (
 
 func TestEvent(t *testing.T) {
   ctx := logTestContext(t, []string{"event", "listener", "listener_debug"})
-  err := ctx.RegisterExtension(reflect.TypeOf(&TestEventExt{}), NewExtType("TEST_EVENT"), nil)
+  err := RegisterExtension[TestEventExt](ctx, nil)
   fatalErr(t, err)
 
 
   event_public, event_private, err := ed25519.GenerateKey(rand.Reader)
   event_listener := NewListenerExt(100)
-  event, err := NewNode(ctx, event_private, BaseNodeType, 100, nil, NewEventExt(KeyID(event_public), "Test Event"), &TestEventExt{time.Second}, event_listener)
+  event, err := NewNode(ctx, event_private, "Base", 100, nil, NewEventExt(KeyID(event_public), "Test Event"), &TestEventExt{time.Second}, event_listener)
   fatalErr(t, err)
 
   response, signals := testSend(t, ctx, NewEventControlSignal("ready?"), event, event)

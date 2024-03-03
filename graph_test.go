@@ -6,13 +6,11 @@ import (
   badger "github.com/dgraph-io/badger/v3"
 )
 
-var SimpleListenerNodeType = NewNodeType("SIMPLE_LISTENER")
-
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt, error) {
   listener_extension := NewListenerExt(buffer)
   listener, err := NewNode(ctx,
                       nil,
-                      SimpleListenerNodeType,
+                      "LockableListener",
                       10,
                       nil,
                       listener_extension,
@@ -30,7 +28,7 @@ func logTestContext(t * testing.T, components []string) *Context {
   ctx, err := NewContext(db, NewConsoleLogger(components))
   fatalErr(t, err)
 
-  err = ctx.RegisterNodeType(SimpleListenerNodeType, []ExtType{ListenerExtType, LockableExtType})
+  err = RegisterNodeType(ctx, "LockableListener", []ExtType{ExtTypeFor[ListenerExt](), ExtTypeFor[LockableExt]()}, map[string]FieldIndex{})
   fatalErr(t, err)
 
   return ctx

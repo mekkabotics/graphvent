@@ -1,6 +1,6 @@
 module github.com/mekkanized/graphvent
 
-go 1.21.0
+go 1.22.0
 
 require (
 	github.com/dgraph-io/badger/v3 v3.2103.5

@@ -22,7 +22,7 @@ func checkSignal[S Signal](t *testing.T, signal Signal, check func(S)){
 }
 
 func testSendACL[S Signal](t *testing.T, ctx *Context, listener *Node, action Tree, policies []Policy, check func(S)){
-  acl_node, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt(policies))
+  acl_node, err := NewNode(ctx, nil, "Base", 100, []Policy{DefaultACLPolicy}, NewACLExt(policies))
   fatalErr(t, err)
 
   acl_signal := NewACLSignal(listener.ID, action)
@@ -42,7 +42,7 @@ func testErrorSignal(t *testing.T, error_string string) func(*ErrorSignal){
 func testSuccess(*SuccessSignal){}
 
 func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *Node) (ResponseSignal, []Signal) {
-  source_listener, err := GetExt[*ListenerExt](source, ListenerExtType)
+  source_listener, err := GetExt[ListenerExt](source)
   fatalErr(t, err)
 
   messages := Messages{}
@@ -56,26 +56,29 @@ func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *No
 }
 
 func TestACLBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"serialize_types", "deserialize_types", "test", "listener_debug", "group", "acl", "policy"})
+  ctx := logTestContext(t, []string{"test", "acl", "group", "read_field"})
 
-  listener, err := NewNode(ctx, nil, BaseNodeType, 100, nil, NewListenerExt(100))
+  listener, err := NewNode(ctx, nil, "Base", 100, nil, NewListenerExt(100))
   fatalErr(t, err)
 
+  ctx.Log.Logf("test", "testing fail")
   testSendACL(t, ctx, listener, nil, nil, testErrorSignal(t, "acl_denied"))
 
+  ctx.Log.Logf("test", "testing allow all")
   testSendACL(t, ctx, listener, nil, []Policy{NewAllNodesPolicy(nil)}, testSuccess)
 
-  group, err := NewNode(ctx, nil, GroupNodeType, 100, []Policy{
+  group, err := NewNode(ctx, nil, "Base", 100, []Policy{
     DefaultGroupPolicy,
     NewPerNodePolicy(map[NodeID]Tree{
       listener.ID: {
-        SerializedType(AddMemberSignalType): nil,
-        SerializedType(AddSubGroupSignalType): nil,
+        SerializedType(SignalTypeFor[AddSubGroupSignal]()): nil,
+        SerializedType(SignalTypeFor[AddMemberSignal]()): nil,
       },
     }),
   }, NewGroupExt(nil))
   fatalErr(t, err)
 
+  ctx.Log.Logf("test", "testing empty groups")
   testSendACL(t, ctx, listener, nil, []Policy{
     NewMemberOfPolicy(map[NodeID]map[string]Tree{
       group.ID: {
@@ -84,14 +87,17 @@ func TestACLBasic(t *testing.T) {
     }),
   }, testErrorSignal(t, "acl_denied"))
 
+  ctx.Log.Logf("test", "testing adding group")
   add_subgroup_signal := NewAddSubGroupSignal("test_group")
   add_subgroup_response, _ := testSend(t, ctx, add_subgroup_signal, listener, group)
   checkSignal(t, add_subgroup_response, testSuccess)
 
+  ctx.Log.Logf("test", "testing adding member")
   add_member_signal := NewAddMemberSignal("test_group", listener.ID)
   add_member_response, _ := testSend(t, ctx, add_member_signal, listener, group)
   checkSignal(t, add_member_response, testSuccess)
 
+  ctx.Log.Logf("test", "testing group membership")
   testSendACL(t, ctx, listener, nil, []Policy{
     NewMemberOfPolicy(map[NodeID]map[string]Tree{
       group.ID: {
@@ -104,21 +110,21 @@ func TestACLBasic(t *testing.T) {
     NewACLProxyPolicy(nil),
   }, testErrorSignal(t, "acl_denied"))
 
-  acl_proxy_1, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt(nil))
+  acl_proxy_1, err := NewNode(ctx, nil, "Base", 100, []Policy{DefaultACLPolicy}, NewACLExt(nil))
   fatalErr(t, err)
 
   testSendACL(t, ctx, listener, nil, []Policy{
     NewACLProxyPolicy([]NodeID{acl_proxy_1.ID}),
   }, testErrorSignal(t, "acl_denied"))
 
-  acl_proxy_2, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy}, NewACLExt([]Policy{NewAllNodesPolicy(nil)}))
+  acl_proxy_2, err := NewNode(ctx, nil, "Base", 100, []Policy{DefaultACLPolicy}, NewACLExt([]Policy{NewAllNodesPolicy(nil)}))
   fatalErr(t, err)
 
   testSendACL(t, ctx, listener, nil, []Policy{
     NewACLProxyPolicy([]NodeID{acl_proxy_2.ID}),
   }, testSuccess)
 
-  acl_proxy_3, err := NewNode(ctx, nil, BaseNodeType, 100, []Policy{DefaultACLPolicy},
+  acl_proxy_3, err := NewNode(ctx, nil, "Base", 100, []Policy{DefaultACLPolicy},
     NewACLExt([]Policy{
       NewMemberOfPolicy(map[NodeID]map[string]Tree{
         group.ID: {

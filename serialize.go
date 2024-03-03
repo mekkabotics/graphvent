@@ -1,33 +1,17 @@
 package graphvent
 
 import (
-  "crypto/sha512"
-  "encoding"
-  "encoding/binary"
-  "encoding/gob"
-  "fmt"
-  "math"
-  "reflect"
-  "sort"
-  "bytes"
+	"bytes"
+	"crypto/sha512"
+	"encoding"
+	"encoding/binary"
+	"encoding/gob"
+	"fmt"
+	"math"
+	"reflect"
+	"slices"
+	"sort"
 )
-
-const (
-  TagBase            = "GraphventTag"
-  ExtTypeBase        = "ExtType"
-  NodeTypeBase       = "NodeType"
-  SignalTypeBase     = "SignalType"
-  PolicyTypeBase     = "PolicyType"
-  SerializedTypeBase = "SerializedType"
-  FieldNameBase      = "FieldName"
-)
-
-func Hash(base string, name string) SerializedType {
-  digest := append([]byte(base), 0x00)
-  digest = append(digest, []byte(name)...)
-  hash := sha512.Sum512(digest)
-  return SerializedType(binary.BigEndian.Uint64(hash[0:8]))
-}
 
 type SerializedType uint64
 
@@ -180,119 +164,69 @@ type SerializeFn func(*Context, reflect.Value) (Chunks, error)
 type TypeDeserializeFn func(*Context, []SerializedType) (reflect.Type, []SerializedType, error)
 type DeserializeFn func(*Context, reflect.Type, []byte) (reflect.Value, []byte, error)
 
-func NewExtType(name string) ExtType {
-  return ExtType(Hash(ExtTypeBase, name))
+
+func NodeTypeFor(name string, extensions []ExtType, mappings map[string]FieldIndex) NodeType {
+  digest := []byte("GRAPHVENT_NODE[" + name + "] - ")
+  for _, ext := range(extensions) {
+    digest = binary.BigEndian.AppendUint64(digest, uint64(ext))
+  }
+
+  digest = binary.BigEndian.AppendUint64(digest, 0)
+
+  sorted_keys := make([]string, len(mappings))
+  i := 0
+  for key := range(mappings) {
+    sorted_keys[i] = key
+    i += 1
+  }
+  slices.Sort(sorted_keys)
+
+
+
+  for _, key := range(sorted_keys) {
+    digest = append(digest, []byte(key + ":")...)
+    digest = binary.BigEndian.AppendUint64(digest, uint64(mappings[key].Extension))
+    digest = append(digest, []byte(mappings[key].Field + "|")...)
+  }
+
+  hash := sha512.Sum512(digest)
+  return NodeType(binary.BigEndian.Uint64(hash[0:8]))
 }
 
-func NewNodeType(name string) NodeType {
-  return NodeType(Hash(NodeTypeBase, name))
+func SerializedKindFor(kind reflect.Kind) SerializedType {
+  digest := []byte("GRAPHVENT_KIND - " + kind.String())
+  hash := sha512.Sum512(digest)
+  return SerializedType(binary.BigEndian.Uint64(hash[0:8]))
 }
 
-func NewSignalType(name string) SignalType {
-  return SignalType(Hash(SignalTypeBase, name))
+func SerializedTypeFor[T any]() SerializedType {
+  t := reflect.TypeFor[T]()
+  digest := []byte(t.PkgPath() + ":" + t.Name())
+  hash := sha512.Sum512(digest)
+  return SerializedType(binary.BigEndian.Uint64(hash[0:8]))
 }
 
-func NewPolicyType(name string) PolicyType {
-  return PolicyType(Hash(PolicyTypeBase, name))
+func ExtTypeFor[E any, T interface { *E; Extension}]() ExtType {
+  return ExtType(SerializedTypeFor[E]())
 }
 
-func NewFieldTag(tag_string string) FieldTag {
-  return FieldTag(Hash(FieldNameBase, tag_string))
+func SignalTypeFor[S Signal]() SignalType {
+  return SignalType(SerializedTypeFor[S]())
 }
 
-func NewSerializedType(name string) SerializedType {
-  return Hash(SerializedTypeBase, name)
+func PolicyTypeFor[P Policy]() PolicyType {
+  return PolicyType(SerializedTypeFor[P]())
 }
 
-var (
-  ListenerExtType = NewExtType("LISTENER")
-  LockableExtType = NewExtType("LOCKABLE")
-  GQLExtType      = NewExtType("GQL")
-  GroupExtType    = NewExtType("GROUP")
-  ACLExtType      = NewExtType("ACL")
-  EventExtType    = NewExtType("EVENT")
+func Hash(base, data string) SerializedType { 
+  digest := []byte(base + ":" + data)
+  hash := sha512.Sum512(digest)
+  return SerializedType(binary.BigEndian.Uint64(hash[0:8]))
+}
 
-  GQLNodeType   = NewNodeType("GQL")
-  BaseNodeType  = NewNodeType("BASE")
-  GroupNodeType = NewNodeType("GROUP")
-
-  StopSignalType           = NewSignalType("STOP")
-  CreateSignalType         = NewSignalType("CREATE")
-  StartSignalType          = NewSignalType("START")
-  StatusSignalType         = NewSignalType("STATUS")
-  LinkSignalType           = NewSignalType("LINK")
-  LockSignalType           = NewSignalType("LOCK")
-  TimeoutSignalType        = NewSignalType("TIMEOUT")
-  ReadSignalType           = NewSignalType("READ")
-  ACLTimeoutSignalType     = NewSignalType("ACL_TIMEOUT")
-  ErrorSignalType          = NewSignalType("ERROR")
-  SuccessSignalType        = NewSignalType("SUCCESS")
-  ReadResultSignalType     = NewSignalType("READ_RESULT")
-  RemoveMemberSignalType   = NewSignalType("REMOVE_MEMBER")
-  AddMemberSignalType      = NewSignalType("ADD_MEMBER")
-  ACLSignalType            = NewSignalType("ACL")
-  AddSubGroupSignalType    = NewSignalType("ADD_SUBGROUP")
-  RemoveSubGroupSignalType = NewSignalType("REMOVE_SUBGROUP")
-  StoppedSignalType        = NewSignalType("STOPPED")
-  EventControlSignalType   = NewSignalType("EVENT_CONTORL")
-  EventStateSignalType     = NewSignalType("VEX_MATCH_STATUS")
-
-  MemberOfPolicyType      = NewPolicyType("MEMBER_OF")
-  OwnerOfPolicyType       = NewPolicyType("OWNER_OF")
-  ParentOfPolicyType      = NewPolicyType("PARENT_OF")
-  RequirementOfPolicyType = NewPolicyType("REQUIEMENT_OF")
-  PerNodePolicyType       = NewPolicyType("PER_NODE")
-  AllNodesPolicyType      = NewPolicyType("ALL_NODES")
-  ACLProxyPolicyType      = NewPolicyType("ACL_PROXY")
-
-  ErrorType     = NewSerializedType("ERROR")
-  PointerType   = NewSerializedType("POINTER")
-  SliceType     = NewSerializedType("SLICE")
-  StructType    = NewSerializedType("STRUCT")
-  IntType       = NewSerializedType("INT")
-  UIntType      = NewSerializedType("UINT")
-  BoolType      = NewSerializedType("BOOL")
-  Float64Type   = NewSerializedType("FLOAT64")
-  Float32Type   = NewSerializedType("FLOAT32")
-  UInt8Type     = NewSerializedType("UINT8")
-  UInt16Type    = NewSerializedType("UINT16")
-  UInt32Type    = NewSerializedType("UINT32")
-  UInt64Type    = NewSerializedType("UINT64")
-  Int8Type      = NewSerializedType("INT8")
-  Int16Type     = NewSerializedType("INT16")
-  Int32Type     = NewSerializedType("INT32")
-  Int64Type     = NewSerializedType("INT64")
-  StringType    = NewSerializedType("STRING")
-  ArrayType     = NewSerializedType("ARRAY")
-  InterfaceType = NewSerializedType("INTERFACE")
-  MapType       = NewSerializedType("MAP")
-
-  EventStateType       = NewSerializedType("EVENT_STATE")
-  WaitReasonType       = NewSerializedType("WAIT_REASON")
-  EventCommandType     = NewSerializedType("EVENT_COMMAND")
-  ReqStateType         = NewSerializedType("REQ_STATE")
-  WaitInfoType         = NewSerializedType("WAIT_INFO")
-  SignalDirectionType  = NewSerializedType("SIGNAL_DIRECTION")
-  NodeStructType       = NewSerializedType("NODE_STRUCT")
-  QueuedSignalType     = NewSerializedType("QUEUED_SIGNAL")
-  NodeTypeSerialized   = NewSerializedType("NODE_TYPE")
-  ChangesSerialized    = NewSerializedType("CHANGES")
-  ExtTypeSerialized    = NewSerializedType("EXT_TYPE")
-  PolicyTypeSerialized = NewSerializedType("POLICY_TYPE")
-  ExtSerialized        = NewSerializedType("EXTENSION")
-  PolicySerialized     = NewSerializedType("POLICY")
-  SignalSerialized     = NewSerializedType("SIGNAL")
-  NodeIDType           = NewSerializedType("NODE_ID")
-  UUIDType             = NewSerializedType("UUID")
-  PendingACLType       = NewSerializedType("PENDING_ACL")
-  PendingACLSignalType = NewSerializedType("PENDING_ACL_SIGNAL")
-  TimeType             = NewSerializedType("TIME")
-  DurationType         = NewSerializedType("DURATION")
-  ResponseType         = NewSerializedType("RESPONSE")
-  StatusType           = NewSerializedType("STATUS")
-  TreeType             = NewSerializedType("TREE")
-  SerializedTypeSerialized   = NewSerializedType("SERIALIZED_TYPE")
-)
+func GetFieldTag(tag string) FieldTag {
+  return FieldTag(Hash("GRAPHVENT_FIELD_TAG", tag))
+}
 
 type FieldInfo struct {
   Index     []int
@@ -302,8 +236,8 @@ type FieldInfo struct {
 
 type StructInfo struct {
   Type               reflect.Type
-  FieldOrder         []SerializedType
-  FieldMap           map[SerializedType]FieldInfo
+  FieldOrder         []FieldTag
+  FieldMap           map[FieldTag]FieldInfo
   PostDeserialize    bool
   PostDeserializeIdx int
 }
@@ -316,15 +250,15 @@ var deserializable_zero Deserializable = nil
 var DeserializableType = reflect.TypeOf(&deserializable_zero).Elem()
 
 func GetStructInfo(ctx *Context, struct_type reflect.Type) (StructInfo, error) {
-  field_order := []SerializedType{}
-  field_map := map[SerializedType]FieldInfo{}
+  field_order := []FieldTag{}
+  field_map := map[FieldTag]FieldInfo{}
   for _, field := range reflect.VisibleFields(struct_type) {
     gv_tag, tagged_gv := field.Tag.Lookup("gv")
     if tagged_gv == false {
       continue
     } else {
-      field_hash := Hash(FieldNameBase, gv_tag)
-      _, exists := field_map[field_hash]
+      field_tag := GetFieldTag(gv_tag)
+      _, exists := field_map[field_tag]
       if exists == true {
         return StructInfo{}, fmt.Errorf("gv tag %s is repeated", gv_tag)
       } else {
@@ -332,12 +266,12 @@ func GetStructInfo(ctx *Context, struct_type reflect.Type) (StructInfo, error) {
         if err != nil {
           return StructInfo{}, err
         }
-        field_map[field_hash] = FieldInfo{
+        field_map[field_tag] = FieldInfo{
           field.Index,
           field_type_stack,
           field.Type,
         }
-        field_order = append(field_order, field_hash)
+        field_order = append(field_order, field_tag)
       }
     }
   }
@@ -408,10 +342,10 @@ func DeserializeStruct(info StructInfo)func(*Context, reflect.Type, []byte)(refl
     for i := uint64(0); i < num_fields; i ++ {
       field_hash_bytes := data[:8]
       data = data[8:]
-      field_hash := SerializedType(binary.BigEndian.Uint64(field_hash_bytes))
-      field_info, exists := info.FieldMap[field_hash]
+      field_tag := FieldTag(binary.BigEndian.Uint64(field_hash_bytes))
+      field_info, exists := info.FieldMap[field_tag]
       if exists == false {
-        return reflect.Value{}, nil, fmt.Errorf("%+v is not a field in %+v", field_hash, info.Type)
+        return reflect.Value{}, nil, fmt.Errorf("%+v is not a field in %+v", field_tag, info.Type)
       }
 
       var field_value reflect.Value

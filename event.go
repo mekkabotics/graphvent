@@ -21,7 +21,7 @@ func NewParentOfPolicy(policy Tree) *ParentOfPolicy {
 }
 
 func (policy ParentOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
-  event_ext, err := GetExt[*EventExt](node, EventExtType)
+  event_ext, err := GetExt[EventExt](node)
   if err != nil {
     ctx.Log.Logf("event", "ParentOfPolicy, node not event %s", node.ID)
     return nil, Deny
@@ -39,7 +39,7 @@ func (policy ParentOfPolicy) ContinueAllows(ctx *Context, current PendingACL, si
 }
 
 var DefaultEventPolicy = NewParentOfPolicy(Tree{
-  SerializedType(EventControlSignalType): nil,
+  SerializedType(SignalTypeFor[EventControlSignal]()): nil,
 })
 
 type EventExt struct {
@@ -66,7 +66,7 @@ type EventStateSignal struct {
 
 func (signal EventStateSignal) Permission() Tree {
   return Tree{
-    SerializedType(StatusType): nil,
+    SerializedType(SignalTypeFor[StatusSignal]()): nil,
   }
 }
 
@@ -101,7 +101,7 @@ func NewEventControlSignal(command EventCommand) *EventControlSignal {
 
 func (signal EventControlSignal) Permission() Tree {
   return Tree{
-    SerializedType(EventControlSignalType): {
+    SerializedType(SignalTypeFor[EventControlSignal]()): {
       Hash("command", string(signal.Command)): nil,
     },
   }
@@ -110,7 +110,7 @@ func (signal EventControlSignal) Permission() Tree {
 func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState, state_start time.Time) {
   if ext.State != state {
     ext.StateStart = state_start
-    changes.Add(EventExtType, "state")
+    AddChange[EventExt](changes, "state")
     ext.State = state
     node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
   }
@@ -157,7 +157,7 @@ func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal
 
   switch sig := signal.(type) {
   case *EventControlSignal:
-    event_ext, err := GetExt[*EventExt](node, EventExtType)
+    event_ext, err := GetExt[EventExt](node)
     if err != nil {
       messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "not_event"))
     } else {

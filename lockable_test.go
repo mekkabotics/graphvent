@@ -7,11 +7,10 @@ import (
   "crypto/rand"
 )
 
-var TestLockableType = NewNodeType("TEST_LOCKABLE")
 func lockableTestContext(t *testing.T, logs []string) *Context {
   ctx := logTestContext(t, logs)
 
-  err := ctx.RegisterNodeType(TestLockableType, []ExtType{LockableExtType})
+  err := RegisterNodeType(ctx, "Lockable", []ExtType{ExtTypeFor[LockableExt]()}, map[string]FieldIndex{})
   fatalErr(t, err)
 
   return ctx
@@ -28,7 +27,7 @@ func TestLink(t *testing.T) {
   })
 
   l2_listener := NewListenerExt(10)
-  l2, err := NewNode(ctx, nil, TestLockableType, 10, []Policy{policy},
+  l2, err := NewNode(ctx, nil, "Lockable", 10, []Policy{policy},
                   l2_listener,
                   NewLockableExt(nil),
                 )
@@ -36,7 +35,7 @@ func TestLink(t *testing.T) {
 
   l1_lockable := NewLockableExt(nil)
   l1_listener := NewListenerExt(10)
-  l1, err := NewNode(ctx, l1_key, TestLockableType, 10, nil,
+  l1, err := NewNode(ctx, l1_key, "Lockable", 10, nil,
                  l1_listener,
                  l1_lockable,
                )
@@ -76,11 +75,11 @@ func Test100Lock(t *testing.T) {
   listener_id := KeyID(l_pub)
   child_policy := NewPerNodePolicy(map[NodeID]Tree{
     listener_id: {
-      SerializedType(LockSignalType): nil,
+      SerializedType(SignalTypeFor[LockSignal]()): nil,
     },
   })
   NewLockable := func()(*Node) {
-    l, err := NewNode(ctx, nil, TestLockableType, 10, []Policy{child_policy},
+    l, err := NewNode(ctx, nil, "Lockable", 10, []Policy{child_policy},
                   NewLockableExt(nil),
                 )
     fatalErr(t, err)
@@ -95,11 +94,11 @@ func Test100Lock(t *testing.T) {
   ctx.Log.Logf("test", "CREATED_100")
 
   l_policy := NewAllNodesPolicy(Tree{
-    SerializedType(LockSignalType): nil,
+    SerializedType(SignalTypeFor[LockSignal]()): nil,
   })
 
   listener := NewListenerExt(5000)
-  node, err := NewNode(ctx, listener_key, TestLockableType, 5000, []Policy{l_policy},
+  node, err := NewNode(ctx, listener_key, "Lockable", 5000, []Policy{l_policy},
                 listener,
                 NewLockableExt(reqs),
               )
@@ -128,7 +127,7 @@ func TestLock(t *testing.T) {
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(100)
-    l, err := NewNode(ctx, nil, TestLockableType, 10, []Policy{policy},
+    l, err := NewNode(ctx, nil, "Lockable", 10, []Policy{policy},
                   listener,
                   NewLockableExt(reqs),
                 )

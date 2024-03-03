@@ -134,6 +134,6 @@ type AllNodesPolicy struct {
 }
 
 var DefaultPolicy = NewAllNodesPolicy(Tree{
-  ResponseType: nil,
-  StatusType: nil,
+  SerializedType(SignalTypeFor[ResponseSignal]()): nil,
+  SerializedType(SignalTypeFor[StatusSignal]()): nil,
 })

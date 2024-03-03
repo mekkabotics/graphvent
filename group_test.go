@@ -9,7 +9,7 @@ func TestGroupAdd(t *testing.T) {
   ctx := logTestContext(t, []string{"listener", "test"})
 
   group_listener := NewListenerExt(10)
-  group, err := NewNode(ctx, nil, GroupNodeType, 10, nil, group_listener, NewGroupExt(nil))
+  group, err := NewNode(ctx, nil, "Base", 10, nil, group_listener, NewGroupExt(nil))
   fatalErr(t, err)
 
   add_subgroup_signal := NewAddSubGroupSignal("test_group")
@@ -41,7 +41,7 @@ func TestGroupAdd(t *testing.T) {
   }
 
   read_signal := NewReadSignal(map[ExtType][]string{
-    GroupExtType: {"sub_groups"},
+    ExtTypeFor[GroupExt](): {"sub_groups"},
   })
 
   messages = Messages{}
@@ -53,7 +53,7 @@ func TestGroupAdd(t *testing.T) {
 
   read_response := response.(*ReadResultSignal)
 
-  sub_groups_serialized := read_response.Extensions[GroupExtType]["sub_groups"]
+  sub_groups_serialized := read_response.Extensions[ExtTypeFor[GroupExt]()]["sub_groups"]
 
   sub_groups_type, remaining_types, err := DeserializeType(ctx, sub_groups_serialized.TypeStack)
   fatalErr(t, err)

@@ -1,10 +1,10 @@
 package graphvent
 
 import (
-  "testing"
-  "reflect"
-  "fmt"
-  "time"
+	"fmt"
+	"reflect"
+	"testing"
+	"time"
 )
 
 func TestSerializeTest(t *testing.T) {
@@ -17,11 +17,11 @@ func TestSerializeTest(t *testing.T) {
 }
 
 func TestSerializeBasic(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "serialize"})
+  ctx := logTestContext(t, []string{"test", "serialize", "deserialize_types"})
   testSerializeComparable[bool](t, ctx, true)
 
   type bool_wrapped bool
-  err := ctx.RegisterType(reflect.TypeOf(bool_wrapped(true)), NewSerializedType("BOOL_WRAPPED"), nil, nil, nil, DeserializeBool[bool_wrapped])
+  err := RegisterType[bool_wrapped](ctx, nil, nil, nil, DeserializeBool[bool_wrapped])
   fatalErr(t, err)
   testSerializeComparable[bool_wrapped](t, ctx, true)
 
@@ -55,9 +55,9 @@ func TestSerializeBasic(t *testing.T) {
   })
 
   testSerialize(t, ctx, Tree{
-    NodeTypeSerialized: nil,
-    SerializedTypeSerialized: Tree{
-      NodeTypeSerialized: Tree{},
+    SerializedTypeFor[NodeType](): nil,
+    SerializedTypeFor[SerializedType](): {
+      SerializedTypeFor[NodeType](): Tree{},
     },
   })
 
@@ -83,11 +83,7 @@ func TestSerializeBasic(t *testing.T) {
     String string `gv:"string"`
   }
 
-  test_struct_type := reflect.TypeOf(test_struct{})
-  test_struct_info, err := GetStructInfo(ctx, test_struct_type)
-  fatalErr(t, err)
-
-  err = ctx.RegisterType(test_struct_type, NewSerializedType("TEST_STRUCT"), nil, SerializeStruct(test_struct_info), nil, DeserializeStruct(test_struct_info))
+  err = RegisterStruct[test_struct](ctx)
   fatalErr(t, err)
 
   testSerialize(t, ctx, test_struct{
@@ -96,25 +92,24 @@ func TestSerializeBasic(t *testing.T) {
   })
 
   testSerialize(t, ctx, Tree{
-    MapType: nil,
-    StringType: nil,
+    SerializedKindFor(reflect.Map): nil,
+    SerializedKindFor(reflect.String): nil,
   })
 
   testSerialize(t, ctx, Tree{
-    TreeType: nil,
+    SerializedTypeFor[Tree](): nil,
   })
 
   testSerialize(t, ctx, Tree{
-    TreeType: {
-      ErrorType: Tree{},
-      MapType: nil,
+    SerializedTypeFor[Tree](): {
+      SerializedTypeFor[error](): Tree{},
+      SerializedKindFor(reflect.Map): nil,
     },
-    StringType: nil,
+    SerializedKindFor(reflect.String): nil,
   })
 
   type test_slice []string
-  test_slice_type := reflect.TypeOf(test_slice{})
-  err = ctx.RegisterType(test_slice_type, NewSerializedType("TEST_SLICE"), SerializeTypeStub, SerializeSlice, DeserializeTypeStub[test_slice], DeserializeSlice)
+  err = RegisterType[test_slice](ctx, SerializeTypeStub, SerializeSlice, DeserializeTypeStub[test_slice], DeserializeSlice)
   fatalErr(t, err)
 
   testSerialize[[]string](t, ctx, []string{"test_1", "test_2", "test_3"})
@@ -133,12 +128,8 @@ func (s test) String() string {
 func TestSerializeStructTags(t *testing.T) {
   ctx := logTestContext(t, []string{"test"})
 
-  test_type := NewSerializedType("TEST_STRUCT")
-  test_struct_type := reflect.TypeOf(test{})
-  ctx.Log.Logf("test", "TEST_TYPE: %+v", test_type)
-  test_struct_info, err := GetStructInfo(ctx, test_struct_type)
+  err := RegisterStruct[test](ctx)
   fatalErr(t, err)
-  ctx.RegisterType(test_struct_type, test_type, nil, SerializeStruct(test_struct_info), nil, DeserializeStruct(test_struct_info))
 
   test_int := 10
   test_string := "test"

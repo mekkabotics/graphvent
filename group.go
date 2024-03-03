@@ -18,7 +18,7 @@ func NewAddSubGroupSignal(name string) *AddSubGroupSignal {
 
 func (signal AddSubGroupSignal) Permission() Tree {
   return Tree{
-    SerializedType(AddSubGroupSignalType): {
+    SerializedType(SignalTypeFor[AddSubGroupSignal]()): {
       Hash("name", signal.Name): nil,
     },
   }
@@ -38,7 +38,7 @@ func NewRemoveSubGroupSignal(name string) *RemoveSubGroupSignal {
 
 func (signal RemoveSubGroupSignal) Permission() Tree {
   return Tree{
-    SerializedType(RemoveSubGroupSignalType): {
+    SerializedType(SignalTypeFor[RemoveSubGroupSignal]()): {
       Hash("command", signal.Name): nil,
     },
   }
@@ -57,7 +57,7 @@ type SubGroupGQL struct {
 
 func (signal AddMemberSignal) Permission() Tree {
   return Tree{
-    SerializedType(AddMemberSignalType): {
+    SerializedType(SignalTypeFor[AddMemberSignal]()): {
       Hash("sub_group", signal.SubGroup): nil,
     },
   }
@@ -79,7 +79,7 @@ type RemoveMemberSignal struct {
 
 func (signal RemoveMemberSignal) Permission() Tree {
   return Tree{
-    SerializedType(RemoveMemberSignalType): {
+    SerializedType(SignalTypeFor[RemoveMemberSignal]()): {
       Hash("sub_group", signal.SubGroup): nil,
     },
   }
@@ -94,9 +94,9 @@ func NewRemoveMemberSignal(sub_group string, member_id NodeID) *RemoveMemberSign
 }
 
 var DefaultGroupPolicy = NewAllNodesPolicy(Tree{
-  SerializedType(ReadSignalType): {
-    SerializedType(GroupExtType): {
-      Hash(FieldNameBase, "sub_groups"): nil,
+  SerializedType(SignalTypeFor[ReadSignal]()): {
+    SerializedType(ExtTypeFor[GroupExt]()): {
+      SerializedType(GetFieldTag("sub_groups")): nil,
     },
   },
 })
@@ -125,7 +125,7 @@ func (policy MemberOfPolicy) ContinueAllows(ctx *Context, current PendingACL, si
   }
   ctx.Log.Logf("group", "member_of_read_result: %+v", sig.Extensions)
 
-  group_ext_data, ok := sig.Extensions[GroupExtType]
+  group_ext_data, ok := sig.Extensions[ExtTypeFor[GroupExt]()]
   if ok == false {
     return Deny
   }
@@ -178,7 +178,7 @@ func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
   var messages Messages = nil
   for group_id, sub_groups := range(policy.Groups) {
     if group_id == node.ID {
-      ext, err := GetExt[*GroupExt](node, GroupExtType)
+      ext, err := GetExt[GroupExt](node)
       if err != nil {
         ctx.Log.Logf("group", "MemberOfPolicy with self ID error: %s", err)
       } else {
@@ -199,7 +199,7 @@ func (policy MemberOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tr
     } else {
       // Send the read request to the group so that ContinueAllows can parse the response to check membership
       messages = messages.Add(ctx, group_id, node, nil, NewReadSignal(map[ExtType][]string{
-        GroupExtType: {"sub_groups"},
+        ExtTypeFor[GroupExt](): {"sub_groups"},
       }))
     }
   }
@@ -240,7 +240,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
         ext.SubGroups[sig.SubGroup] = sub_group
 
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-        changes.Add(GroupExtType, "sub_groups")
+        AddChange[GroupExt](changes, "sub_groups")
       }
     }
 
@@ -257,7 +257,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
         ext.SubGroups[sig.SubGroup] = sub_group
 
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
-        changes.Add(GroupExtType, "sub_groups")
+        AddChange[GroupExt](changes, "sub_groups")
       }
     }
 
@@ -268,7 +268,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
     } else {
       ext.SubGroups[sig.Name] = []NodeID{}
 
-      changes.Add(GroupExtType, "sub_groups")
+      AddChange[GroupExt](changes, "sub_groups")
       messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
     }
   case *RemoveSubGroupSignal:
@@ -278,7 +278,7 @@ func (ext *GroupExt) Process(ctx *Context, node *Node, source NodeID, signal Sig
     } else {
       delete(ext.SubGroups, sig.Name)
 
-      changes.Add(GroupExtType, "sub_groups")
+      AddChange[GroupExt](changes, "sub_groups")
       messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
     }
   }

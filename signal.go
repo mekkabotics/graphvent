@@ -149,7 +149,7 @@ type CreateSignal struct {
 
 func (signal CreateSignal) Permission() Tree {
   return Tree{
-    SerializedType(CreateSignalType): nil,
+    SerializedType(SignalTypeFor[CreateSignal]()): nil,
   }
 }
 
@@ -164,7 +164,7 @@ type StartSignal struct {
 }
 func (signal StartSignal) Permission() Tree {
   return Tree{
-    SerializedType(StartSignalType): nil,
+    SerializedType(SignalTypeFor[StartSignal]()): nil,
   }
 }
 func NewStartSignal() *StartSignal {
@@ -179,7 +179,7 @@ type StoppedSignal struct {
 }
 func (signal StoppedSignal) Permission() Tree {
   return Tree{
-    ResponseType: nil,
+    SerializedType(SignalTypeFor[ResponseSignal]()): nil,
   }
 }
 func NewStoppedSignal(sig *StopSignal, source NodeID) *StoppedSignal {
@@ -194,7 +194,7 @@ type StopSignal struct {
 }
 func (signal StopSignal) Permission() Tree {
   return Tree{
-    SerializedType(StopSignalType): nil,
+    SerializedType(SignalTypeFor[StopSignal]()): nil,
   }
 }
 func NewStopSignal() *StopSignal {
@@ -213,8 +213,8 @@ func (signal SuccessSignal) String() string {
 
 func (signal SuccessSignal) Permission() Tree {
   return Tree{
-    ResponseType: {
-      SerializedType(SuccessSignalType): nil,
+    SerializedType(SignalTypeFor[ResponseSignal]()): {
+      SerializedType(SignalTypeFor[SuccessSignal]()): nil,
     },
   }
 }
@@ -233,8 +233,8 @@ func (signal ErrorSignal) String() string {
 }
 func (signal ErrorSignal) Permission() Tree {
   return Tree{
-    ResponseType: {
-      SerializedType(ErrorSignalType): nil,
+    SerializedType(SignalTypeFor[ResponseSignal]()): {
+      SerializedType(SignalTypeFor[ErrorSignal]()): nil,
     },
   }
 }
@@ -250,7 +250,7 @@ type ACLTimeoutSignal struct {
 }
 func (signal ACLTimeoutSignal) Permission() Tree {
   return Tree{
-    SerializedType(ACLTimeoutSignalType): nil,
+    SerializedType(SignalTypeFor[ACLTimeoutSignal]()): nil,
   }
 }
 func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
@@ -267,7 +267,7 @@ type StatusSignal struct {
 }
 func (signal StatusSignal) Permission() Tree {
   return Tree{
-    StatusType: nil,
+    SerializedType(SignalTypeFor[StatusSignal]()): nil,
   }
 }
 func (signal StatusSignal) String() string {
@@ -294,7 +294,7 @@ const (
 
 func (signal LinkSignal) Permission() Tree {
   return Tree{
-    SerializedType(LinkSignalType): Tree{
+    SerializedType(SignalTypeFor[LinkSignal]()): Tree{
       Hash(LinkActionBase, signal.Action): nil,
     },
   }
@@ -322,7 +322,7 @@ const (
 
 func (signal LockSignal) Permission() Tree {
   return Tree{
-    SerializedType(LockSignalType): Tree{
+    SerializedType(SignalTypeFor[LockSignal]()): Tree{
       Hash(LockStateBase, signal.State): nil,
     },
   }
@@ -349,11 +349,11 @@ func (signal ReadSignal) Permission() Tree {
   for ext, fields := range(signal.Extensions) {
     field_tree := Tree{}
     for _, field := range(fields) {
-      field_tree[Hash(FieldNameBase, field)]  = nil
+      field_tree[SerializedType(GetFieldTag(field))] = nil
     }
     ret[SerializedType(ext)] = field_tree
   }
-  return Tree{SerializedType(ReadSignalType): ret}
+  return Tree{SerializedType(SignalTypeFor[ReadSignal]()): ret}
 }
 
 func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
@@ -376,8 +376,8 @@ func (signal ReadResultSignal) String() string {
 
 func (signal ReadResultSignal) Permission() Tree {
   return Tree{
-    ResponseType: {
-      SerializedType(ReadResultSignalType): nil,
+    SerializedType(SignalTypeFor[ResponseSignal]()): {
+      SerializedType(SignalTypeFor[ReadResultSignal]()): nil,
     },
   }
 }

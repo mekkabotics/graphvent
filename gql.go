@@ -540,7 +540,7 @@ func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveCon
     Ext: gql_ext,
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
-    GQLContext: ctx.Extensions[GQLExtType].Data.(*GQLExtContext),
+    GQLContext: ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(*GQLExtContext),
     NodeCache: map[NodeID]NodeResult{},
     Server: server,
     Authorization: nil,
@@ -585,7 +585,7 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     query := GQLPayload{}
     json.Unmarshal(str, &query)
 
-    gql_context := ctx.Extensions[GQLExtType].Data.(*GQLExtContext)
+    gql_context := ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(*GQLExtContext)
 
     params := graphql.Params{
       Schema: gql_context.Schema,
@@ -739,7 +739,7 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
           }
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
-          gql_context := ctx.Extensions[GQLExtType].Data.(*GQLExtContext)
+          gql_context := ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(*GQLExtContext)
           params := graphql.Params{
             Schema: gql_context.Schema,
             Context: req_ctx,
@@ -843,10 +843,6 @@ type GQLExtContext struct {
   Types []graphql.Type
   Query *graphql.Object
   Mutation *graphql.Object
-  Subscription *graphql.Object
-
-  TypeMap map[reflect.Type]GQLTypeInfo
-  KindMap map[reflect.Kind]GQLTypeInfo
 }
 
 func (ctx *GQLExtContext) GetACLFields(obj_name string, names []string) (map[ExtType][]string, error) {
@@ -878,7 +874,6 @@ func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
     Types: ctx.Types,
     Query: ctx.Query,
     Mutation: ctx.Mutation,
-    Subscription: ctx.Subscription,
   }
 
   return graphql.NewSchema(schemaConfig)
@@ -920,7 +915,7 @@ func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, 
       return nil, fmt.Errorf("%s is not in the fields of %+v in the result for %s - %+v", gv_tag, ext_type, gql_name, node)
     }
 
-    if val_ser.TypeStack[0] == ErrorType {
+    if val_ser.TypeStack[0] == SerializedTypeFor[error]() {
       return nil, fmt.Errorf(string(val_ser.Data))
     }
 
@@ -1151,420 +1146,38 @@ func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, name string, inte
 func NewGQLExtContext() *GQLExtContext {
   query := graphql.NewObject(graphql.ObjectConfig{
     Name: "Query",
-    Fields: graphql.Fields{},
+    Fields: graphql.Fields{
+      "Test": &graphql.Field{
+        Type: graphql.String,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+				  return "Test Data", nil
+			  },
+      },
+    },
   })
 
   mutation := graphql.NewObject(graphql.ObjectConfig{
     Name: "Mutation",
-    Fields: graphql.Fields{},
+    Fields: graphql.Fields{
+      "Test": &graphql.Field{
+        Type: graphql.String,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          return "Test Mutation Data", nil
+        },
+      },
+    },
   })
 
-  subscription := graphql.NewObject(graphql.ObjectConfig{
-    Name: "Subscription",
-    Fields: graphql.Fields{},
-  })
-
-  kind_map := map[reflect.Kind]GQLTypeInfo{
-    reflect.String: {
-      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
-        return graphql.String, nil
-      },
-      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
-        return reflect.ValueOf(value), nil
-      },
-    },
-    reflect.Bool: {
-      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
-        return graphql.Boolean, nil
-      },
-      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
-        return reflect.ValueOf(value), nil
-      },
-    },
-  }
-  type_map := map[reflect.Type]GQLTypeInfo{
-    reflect.TypeOf(EventCommand("")): {
-      func (ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
-        return graphql.String, nil
-      },
-      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
-        return reflect.ValueOf(EventCommand(value.(string))), nil
-      },
-    },
-    reflect.TypeOf([2]NodeID{}): {
-      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
-        return graphql.NewList(graphql.String), nil
-      },
-      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
-        l, ok := value.([]interface{})
-        if ok == false {
-          return reflect.Value{}, fmt.Errorf("not list: %s", reflect.TypeOf(value))
-        } else if len(l) != 2 {
-          return reflect.Value{}, fmt.Errorf("wrong length: %d/2", len(l))
-        }
-
-        id1_str, ok := l[0].(string)
-        if ok == false {
-          return reflect.Value{}, fmt.Errorf("not strg: %s", reflect.TypeOf(l[0]))
-        }
-        id1, err := ParseID(id1_str)
-        if err != nil {
-          return reflect.Value{}, err
-        }
-        id2_str, ok := l[1].(string)
-        if ok == false {
-          return reflect.Value{}, fmt.Errorf("not strg: %s", reflect.TypeOf(l[1]))
-        }
-        id2, err := ParseID(id2_str)
-        if err != nil {
-          return reflect.Value{}, err
-        }
-        return_value := reflect.New(reflect.TypeOf([2]NodeID{})).Elem()
-        return_value.Index(0).Set(reflect.ValueOf(id1))
-        return_value.Index(1).Set(reflect.ValueOf(id2))
-
-        return return_value, nil
-      },
-    },
-    reflect.TypeOf(time.Time{}): {
-      func(ctx *GQLExtContext, reflect_type reflect.Type) (graphql.Type, error) {
-        return graphql.DateTime, nil
-      },
-      func(ctx *GQLExtContext, value interface{}) (reflect.Value, error) {
-        return reflect.ValueOf(value), nil
-      },
-    },
-    reflect.TypeOf(&NodeID{}): {
-      func(ctx *GQLExtContext, reflect_type reflect.Type) (graphql.Type, error) {
-        return graphql.String, nil
-      },
-      func(ctx *GQLExtContext, value interface{}) (reflect.Value, error) {
-        str, ok := value.(string)
-        if ok == false {
-          return reflect.Value{}, fmt.Errorf("value is not string")
-        }
-  
-        if str == "" {
-          return reflect.New(reflect.TypeOf(&NodeID{})).Elem(), nil
-        }
-  
-        id_parsed, err := ParseID(str)
-        if err != nil {
-          return reflect.Value{}, err
-        }
-  
-        return reflect.ValueOf(&id_parsed), nil
-      },
-    },
-    reflect.TypeOf(NodeID{}): {
-      func(ctx *GQLExtContext, reflect_type reflect.Type)(graphql.Type, error) {
-        return graphql.String, nil
-      },
-      func(ctx *GQLExtContext, value interface{})(reflect.Value, error) {
-        str, ok := value.(string)
-        if ok == false {
-          return reflect.Value{}, fmt.Errorf("value is not string")
-        }
-  
-        id_parsed, err := ParseID(str)
-        if err != nil {
-          return reflect.Value{}, err
-        }
-  
-        return reflect.ValueOf(id_parsed), nil
-      },
-    },
-  }
 
   context := GQLExtContext{
     Schema: graphql.Schema{},
     Types: []graphql.Type{},
     Query: query,
     Mutation: mutation,
-    Subscription: subscription,
     NodeTypes: map[NodeType]*graphql.Object{},
     Interfaces: map[string]*Interface{},
     Fields: map[string]Field{},
-    KindMap: kind_map,
-    TypeMap: type_map,
   }
-
-  var err error
-  err = context.RegisterInterface("Node", "DefaultNode", []string{}, []string{}, map[string]SelfField{}, map[string]ListField{})
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.RegisterField(graphql.String, "EventName", EventExtType, "name", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
-    name := val.String()
-    return name, nil
-  })
-
-  err = context.RegisterField(graphql.String, "EventStateStart", EventExtType, "state_start", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
-    state_start := val.Interface().(time.Time)
-    return state_start, nil
-  })
-
-  err = context.RegisterField(graphql.String, "EventState", EventExtType, "state", func(p graphql.ResolveParams, ctx *ResolveContext, val reflect.Value)(interface{}, error) {
-    state := val.String()
-    return state, nil
-  })
-
-  err = context.RegisterInterface("Event", "EventNode", []string{"Node"}, []string{"EventName", "EventStateStart", "EventState"}, map[string]SelfField{}, map[string]ListField{})
-  if err != nil {
-    panic(err)
-  }
-
-  sub_group_type := graphql.NewObject(graphql.ObjectConfig{
-    Name: "SubGroup",
-    Interfaces: nil,
-    Fields: graphql.Fields{
-      "Name": &graphql.Field{
-        Type: graphql.String,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          val, ok := p.Source.(SubGroupGQL)
-          if ok == false {
-            return nil, fmt.Errorf("WRONG_TYPE_RETURNED")
-          }
-          return val.Name, nil
-        },
-      },
-      "Members": &graphql.Field{
-        Type: context.Interfaces["Node"].List,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          ctx, err := PrepResolve(p)
-          if err != nil {
-            return nil, err
-          }
-
-          val, ok := p.Source.(SubGroupGQL)
-          if ok == false {
-            return nil, fmt.Errorf("WRONG_TYPE_RETURNED")
-          }
-
-          nodes, err := ResolveNodes(ctx, p, val.Members)
-          if err != nil {
-            return nil, err
-          }
-
-          return nodes, nil
-        },
-      },
-    },
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      return reflect.TypeOf(p.Value) == reflect.TypeOf(SubGroupGQL{})
-    },
-    Description: "SubGroup within Group",
-  })
-  context.Types = append(context.Types, sub_group_type)
-
-  err = context.RegisterField(sub_group_type, "SubGroups", GroupExtType, "sub_groups",
-  func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-    node_map, ok := value.Interface().(map[string]SubGroup)
-    if ok == false {
-      return nil, fmt.Errorf("value is %+v, not map[string]SubGroup", value.Type())
-    }
-
-    sub_groups := []SubGroupGQL{}
-    for name, sub_group := range(node_map) {
-      sub_groups = append(sub_groups, SubGroupGQL{
-        name,
-        sub_group.Members,
-      })
-    }
-
-    return sub_groups, nil
-  })
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.RegisterInterface("Group", "DefaultGroup", []string{"Node"}, []string{"SubGroups"}, map[string]SelfField{}, map[string]ListField{})
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.RegisterField(graphql.String, "LockableState", LockableExtType, "state",
-  func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-    state, ok := value.Interface().(ReqState)
-    if ok == false {
-      return nil, fmt.Errorf("value is %+v, not ReqState", value.Type())
-    }
-
-    return ReqStateStrings[state], nil
-  })
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.RegisterInterface("Lockable", "DefaultLockable", []string{"Node"}, []string{"LockableState"}, map[string]SelfField{
-    "Owner": {
-      "owner",
-      LockableExtType,
-      func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value) (*NodeID, error) {
-        id, ok := value.Interface().(*NodeID)
-        if ok == false {
-          return nil, fmt.Errorf("can't parse %+v as *NodeID", value.Type())
-        }
-
-        return id, nil
-      },
-    },
-  }, map[string]ListField{
-    "Requirements": {
-      "requirements",
-      LockableExtType,
-      func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value) ([]NodeID, error) {
-        id_strs, ok := value.Interface().(map[NodeID]ReqState)
-        if ok == false {
-          return nil, fmt.Errorf("can't parse requirements %+v as map[NodeID]ReqState", value.Type())
-        }
-
-        ids := []NodeID{}
-        for id := range(id_strs) {
-          ids = append(ids, id)
-        }
-        return ids, nil
-      },
-    },
-  })
-
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.RegisterField(graphql.String, "Listen", GQLExtType, "listen", func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value) (interface{}, error) {
-    return value.String(), nil
-  })
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.RegisterNodeType(GQLNodeType, "GQLServer", []string{"Node", "Lockable", "Group"}, []string{"LockableState", "Listen", "Owner", "Requirements", "SubGroups"})
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.AddSignalMutation("stop", "node_id", reflect.TypeOf(StopSignal{}))
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.AddSignalMutation("addMember", "group_id", reflect.TypeOf(AddMemberSignal{}))
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.AddSignalMutation("removeMember", "group_id", reflect.TypeOf(RemoveMemberSignal{}))
-  if err != nil {
-    panic(err)
-  }
-
-  err = context.AddSignalMutation("eventControl", "event_id", reflect.TypeOf(EventControlSignal{}))
-  if err != nil {
-    panic(err)
-  }
-
-  context.Subscription.AddFieldConfig("Self", &graphql.Field{
-    Type: context.Interfaces["Node"].Interface,
-    Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
-      if err != nil {
-        return nil, err
-      }
-
-      c, err := ctx.Ext.AddSubscription(ctx.ID)
-      if err != nil {
-        return nil, err
-      }
-
-      nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
-      if err != nil {
-        return nil, err
-      } else if len(nodes) != 1 {
-        return nil, fmt.Errorf("wrong length of nodes returned")
-      }
-
-      c <- nodes[0]
-
-      return c, nil
-    },
-    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
-      if err != nil {
-        return nil, err
-      }
-      ctx.Context.Log.Logf("gql_subscribe", "SUBSCRIBE_RESOLVE: %+v", p.Source)
-
-      switch source := p.Source.(type) {
-      case NodeResult:
-      case *StatusSignal:
-        delete(ctx.NodeCache, source.Source)
-        ctx.Context.Log.Logf("gql_subscribe", "Deleting %+v from NodeCache", source.Source)
-        if source.Source == ctx.Server.ID {
-          nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
-          if err != nil {
-            return nil, err
-          } else if len(nodes) != 1 {
-            return nil, fmt.Errorf("wrong length of nodes returned")
-          }
-          ctx.NodeCache[ctx.Server.ID] = nodes[0]
-        }
-      default:
-        return nil, fmt.Errorf("Don't know how to handle %+v", source)
-      }
-
-      return ctx.NodeCache[ctx.Server.ID], nil
-    },
-  })
-
-  context.Query.AddFieldConfig("Self", &graphql.Field{
-    Type: context.Interfaces["Node"].Interface,
-    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
-      if err != nil {
-        return nil, err
-      }
-
-      nodes, err := ResolveNodes(ctx, p, []NodeID{ctx.Server.ID})
-      if err != nil {
-        return nil, err
-      } else if len(nodes) != 1 {
-        return nil, fmt.Errorf("wrong length of resolved nodes returned")
-      }
-
-      return nodes[0], nil
-    },
-  })
-
-  context.Query.AddFieldConfig("Node", &graphql.Field{
-    Type: context.Interfaces["Node"].Interface,
-    Args: graphql.FieldConfigArgument{
-      "id": &graphql.ArgumentConfig{
-        Type: graphql.String,
-      },
-    },
-    Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-      ctx, err := PrepResolve(p)
-      if err != nil {
-        return nil, err
-      }
-
-      id, err := ExtractID(p, "id")
-      if err != nil {
-        return nil, err
-      }
-
-      nodes, err := ResolveNodes(ctx, p, []NodeID{id})
-      if err != nil {
-        return nil, err
-      } else if len(nodes) != 1 {
-        return nil, fmt.Errorf("wrong length of resolved nodes returned")
-      }
-
-      return nodes[0], nil
-    },
-  })
 
   schema, err := BuildSchema(&context)
   if err != nil {
@@ -1725,7 +1338,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     err := ext.StartGQLServer(ctx, node)
     if err == nil {
       ctx.Log.Logf("gql", "started gql server on %s", ext.Listen)
-      changes.Add(GQLExtType, "state")
+      AddChange[GQLExt](changes, "state")
     } else {
       ctx.Log.Logf("gql", "GQL_RESTART_ERROR: %s", err)
     }

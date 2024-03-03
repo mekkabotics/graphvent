@@ -6,13 +6,13 @@ import (
 )
 
 var AllowParentUnlockPolicy = NewOwnerOfPolicy(Tree{
-  SerializedType(LockSignalType): {
+  SerializedType(SignalTypeFor[LockSignal]()): {
     Hash(LockStateBase, "unlock"): nil,
   },
 })
 
 var AllowAnyLockPolicy = NewAllNodesPolicy(Tree{
-  SerializedType(LockSignalType): {
+  SerializedType(SignalTypeFor[LockSignal]()): {
     Hash(LockStateBase, "lock"): nil,
   },
 })
@@ -42,10 +42,6 @@ type LockableExt struct{
   PendingID uuid.UUID `gv:"pending_id"`
   Requirements map[NodeID]ReqState `gv:"requirements"`
   WaitInfos WaitMap `gv:"wait_infos"`
-}
-
-func (ext *LockableExt) Type() ExtType {
-  return LockableExtType
 }
 
 func NewLockableExt(requirements []NodeID) *LockableExt {
@@ -87,7 +83,7 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
   if info_found {
     state, found := ext.Requirements[info.Destination]
     if found == true {
-      changes.Add(LockableExtType, "wait_infos")
+      AddChange[LockableExt](changes, "wait_infos")
       ctx.Log.Logf("lockable", "got mapped response %+v for %+v in state %s while in %s", signal, info, ReqStateStrings[state], ReqStateStrings[ext.State])
       switch ext.State {
       case AbortingLock:
@@ -100,11 +96,11 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
           }
         }
         if all_unlocked == true {
-          changes.Add(LockableExtType, "state")
+          AddChange[LockableExt](changes, "state")
           ext.State = Unlocked
         }
       case Locking:
-        changes.Add(LockableExtType, "state")
+        AddChange[LockableExt](changes, "state")
         ext.Requirements[info.Destination] = Unlocked
         unlocked := 0
         for _, state := range(ext.Requirements) {
@@ -164,7 +160,7 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID
           ext.Requirements = map[NodeID]ReqState{}
         }
         ext.Requirements[signal.NodeID] = Unlocked
-        changes.Add(LockableExtType, "requirements")
+        AddChange[LockableExt](changes, "requirements")
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(signal.ID()))
       }
     case "remove":
@@ -173,7 +169,7 @@ func (ext *LockableExt) HandleLinkSignal(ctx *Context, node *Node, source NodeID
         messages = messages.Add(ctx, source, node, nil, NewErrorSignal(signal.ID(), "can't link: not_requirement"))
       } else {
         delete(ext.Requirements, signal.NodeID)
-        changes.Add(LockableExtType, "requirements")
+        AddChange[LockableExt](changes, "requirements")
         messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(signal.ID()))
       }
     default:
@@ -214,10 +210,10 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
             ctx.Log.Logf("lockable", "WHOLE LOCK: %s - %s - %+v", node.ID, ext.PendingID, ext.PendingOwner)
             ext.State = Locked
             ext.Owner = ext.PendingOwner
-            changes.Add(LockableExtType, "state", "owner", "requirements")
+            AddChange[LockableExt](changes, "state", "owner", "requirements")
             messages = messages.Add(ctx, *ext.Owner, node, nil, NewSuccessSignal(ext.PendingID))
           } else {
-            changes.Add(LockableExtType, "requirements")
+            AddChange[LockableExt](changes, "requirements")
             ctx.Log.Logf("lockable", "PARTIAL LOCK: %s - %d/%d", node.ID, locked, len(ext.Requirements))
           }
         case AbortingLock:
@@ -250,15 +246,15 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
             previous_owner := *ext.Owner
             ext.Owner = ext.PendingOwner
             ext.ReqID = nil
-            changes.Add(LockableExtType, "state", "owner", "req_id")
+            AddChange[LockableExt](changes, "state", "owner", "req_id")
             messages = messages.Add(ctx, previous_owner, node, nil, NewSuccessSignal(ext.PendingID))
           } else if old_state == AbortingLock {
-            changes.Add(LockableExtType, "state", "pending_owner")
+            AddChange[LockableExt](changes, "state", "pending_owner")
             messages = messages.Add(ctx, *ext.PendingOwner, node, nil, NewErrorSignal(*ext.ReqID, "not_unlocked"))
             ext.PendingOwner = ext.Owner
           }
         } else {
-          changes.Add(LockableExtType, "state")
+          AddChange[LockableExt](changes, "state")
           ctx.Log.Logf("lockable", "PARTIAL UNLOCK: %s - %d/%d", node.ID, unlocked, len(ext.Requirements))
         }
       }
@@ -282,7 +278,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         new_owner := source
         ext.PendingOwner = &new_owner
         ext.Owner = &new_owner
-        changes.Add(LockableExtType, "state", "pending_owner", "owner")
+        AddChange[LockableExt](changes, "state", "pending_owner", "owner")
         messages = messages.Add(ctx, new_owner, node, nil, NewSuccessSignal(signal.ID()))
       } else {
         ext.State = Locking
@@ -291,7 +287,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         new_owner := source
         ext.PendingOwner = &new_owner
         ext.PendingID = signal.ID()
-        changes.Add(LockableExtType, "state", "req_id", "pending_owner", "pending_id")
+        AddChange[LockableExt](changes, "state", "req_id", "pending_owner", "pending_id")
         for id, state := range(ext.Requirements) {
           if state != Unlocked {
             ctx.Log.Logf("lockable", "REQ_NOT_UNLOCKED_WHEN_LOCKING")
@@ -315,7 +311,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         new_owner := source
         ext.PendingOwner = nil
         ext.Owner = nil
-        changes.Add(LockableExtType, "state", "pending_owner", "owner")
+        AddChange[LockableExt](changes, "state", "pending_owner", "owner")
         messages = messages.Add(ctx, new_owner, node, nil, NewSuccessSignal(signal.ID()))
       } else if source == *ext.Owner {
         ext.State = Unlocking
@@ -323,7 +319,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
         ext.ReqID = &id
         ext.PendingOwner = nil
         ext.PendingID = signal.ID()
-        changes.Add(LockableExtType, "state", "pending_owner", "pending_id", "req_id")
+        AddChange[LockableExt](changes, "state", "pending_owner", "pending_id", "req_id")
         for id, state := range(ext.Requirements) {
           if state != Locked {
             ctx.Log.Logf("lockable", "REQ_NOT_LOCKED_WHEN_UNLOCKING")
@@ -351,7 +347,7 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
 
   wait_info, found := node.ProcessResponse(ext.WaitInfos, signal)
   if found == true {
-    changes.Add(LockableExtType, "wait_infos")
+    AddChange[LockableExt](changes, "wait_infos")
     state, found := ext.Requirements[wait_info.Destination]
     if found == true {
       ctx.Log.Logf("lockable", "%s timed out %s while %s was %s", wait_info.Destination, ReqStateStrings[state], node.ID, ReqStateStrings[state])
@@ -366,7 +362,7 @@ func (ext *LockableExt) HandleTimeoutSignal(ctx *Context, node *Node, source Nod
           }
         }
         if all_unlocked == true {
-          changes.Add(LockableExtType, "state")
+          AddChange[LockableExt](changes, "state")
           ext.State = Unlocked
         }
       case Locking:
@@ -457,7 +453,7 @@ func (policy OwnerOfPolicy) ContinueAllows(ctx *Context, current PendingACL, sig
 }
 
 func (policy OwnerOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
-  l_ext, err := GetExt[*LockableExt](node, LockableExtType)
+  l_ext, err := GetExt[LockableExt](node)
   if err != nil {
     ctx.Log.Logf("lockable", "OwnerOfPolicy.Allows called on node without LockableExt")
     return nil, Deny
@@ -490,7 +486,7 @@ func (policy RequirementOfPolicy) ContinueAllows(ctx *Context, current PendingAC
     return Deny
   }
 
-  ext, ok := sig.Extensions[LockableExtType]
+  ext, ok := sig.Extensions[ExtTypeFor[LockableExt]()]
   if ok == false {
     return Deny
   }

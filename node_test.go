@@ -10,16 +10,13 @@ import (
 
 func TestNodeDB(t *testing.T) {
   ctx := logTestContext(t, []string{"signal", "serialize", "node", "db", "listener"})
-  node_type := NewNodeType("test")
-  err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
-  fatalErr(t, err)
 
   node_listener := NewListenerExt(10)
-  node, err := NewNode(ctx, nil, node_type, 10, nil, NewGroupExt(nil), NewLockableExt(nil), node_listener)
+  node, err := NewNode(ctx, nil, "Base", 10, nil, NewGroupExt(nil), NewLockableExt(nil), node_listener)
   fatalErr(t, err)
 
   _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
-    gql_changes, has_gql := sig.Changes[GQLExtType]
+    gql_changes, has_gql := sig.Changes[ExtTypeFor[GQLExt]()]
     if has_gql == true {
       return slices.Contains(gql_changes, "state") && sig.Source == node.ID
     }
@@ -43,9 +40,6 @@ func TestNodeDB(t *testing.T) {
 
 func TestNodeRead(t *testing.T) {
   ctx := logTestContext(t, []string{"test"})
-  node_type := NewNodeType("TEST")
-  err := ctx.RegisterNodeType(node_type, []ExtType{GroupExtType})
-  fatalErr(t, err)
 
   n1_pub, n1_key, err := ed25519.GenerateKey(rand.Reader)
   fatalErr(t, err)
@@ -60,19 +54,19 @@ func TestNodeRead(t *testing.T) {
 
   n1_policy := NewPerNodePolicy(map[NodeID]Tree{
     n2_id: {
-      SerializedType(ReadSignalType): nil,
+      SerializedType(SignalTypeFor[ReadSignal]()): nil,
     },
   })
 
   n2_listener := NewListenerExt(10)
-  n2, err := NewNode(ctx, n2_key, node_type, 10, nil, NewGroupExt(nil), n2_listener)
+  n2, err := NewNode(ctx, n2_key, "Base", 10, nil, NewGroupExt(nil), n2_listener)
   fatalErr(t, err)
 
-  n1, err := NewNode(ctx, n1_key, node_type, 10, []Policy{n1_policy}, NewGroupExt(nil))
+  n1, err := NewNode(ctx, n1_key, "Base", 10, []Policy{n1_policy}, NewGroupExt(nil))
   fatalErr(t, err)
 
   read_sig := NewReadSignal(map[ExtType][]string{
-    GroupExtType: {"members"},
+    ExtTypeFor[GroupExt](): {"members"},
   })
   msgs := Messages{}
   msgs = msgs.Add(ctx, n1.ID, n2, nil, read_sig)

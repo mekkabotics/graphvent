@@ -9,6 +9,7 @@ import (
   "sync"
   "time"
   "github.com/google/uuid"
+  "github.com/graphql-go/graphql"
 
   badger "github.com/dgraph-io/badger/v3"
 )
@@ -19,21 +20,36 @@ var (
 )
 
 type ExtensionInfo struct {
-  Type reflect.Type
+  Reflect reflect.Type
+  Interface graphql.Interface
+
   Data interface{}
+}
+
+type FieldIndex struct {
+  Extension ExtType
+  Field string
 }
 
 type NodeInfo struct {
   Extensions []ExtType
+  Policies []Policy
+  Fields map[string]FieldIndex
 }
+
+type GQLValueConverter func(*Context, interface{})(reflect.Value, error)
 
 type TypeInfo struct {
   Reflect reflect.Type
+  GQL graphql.Type
+
   Type SerializedType
   TypeSerialize TypeSerializeFn
   Serialize SerializeFn
   TypeDeserialize TypeDeserializeFn
   Deserialize DeserializeFn
+
+  GQLValue GQLValueConverter
 }
 
 type KindInfo struct {
@@ -63,6 +79,8 @@ type Context struct {
   SignalTypes map[reflect.Type]SignalType
   // Map between database type hashes and the registered info
   Nodes map[NodeType]NodeInfo
+  NodeTypes map[string]NodeType
+
   // Map between go types and registered info
   Types map[SerializedType]*TypeInfo
   TypeReflects map[reflect.Type]*TypeInfo
@@ -76,7 +94,8 @@ type Context struct {
 }
 
 // Register a NodeType to the context, with the list of extensions it requires
-func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) error {
+func RegisterNodeType(ctx *Context, name string, extensions []ExtType, mappings map[string]FieldIndex) error {
+  node_type := NodeTypeFor(name, extensions, mappings)
   _, exists := ctx.Nodes[node_type]
   if exists == true {
     return fmt.Errorf("Cannot register node type %+v, type already exists in context", node_type)
@@ -99,11 +118,17 @@ func (ctx *Context) RegisterNodeType(node_type NodeType, extensions []ExtType) e
 
   ctx.Nodes[node_type] = NodeInfo{
     Extensions: extensions,
+    Fields: mappings,
   }
+  ctx.NodeTypes[name] = node_type
+
   return nil
 }
 
-func (ctx *Context) RegisterPolicy(reflect_type reflect.Type, policy_type PolicyType) error {
+func RegisterPolicy[P Policy](ctx *Context) error {
+  reflect_type := reflect.TypeFor[P]()
+  policy_type := PolicyTypeFor[P]()
+
   _, exists := ctx.Policies[policy_type]
   if exists == true {
     return fmt.Errorf("Cannot register policy of type %+v, type already exists in context", policy_type)
@@ -114,7 +139,7 @@ func (ctx *Context) RegisterPolicy(reflect_type reflect.Type, policy_type Policy
     return err
   }
 
-  err = ctx.RegisterType(reflect_type, SerializedType(policy_type), nil, SerializeStruct(policy_info), nil, DeserializeStruct(policy_info))
+  err = RegisterType[P](ctx, nil, SerializeStruct(policy_info), nil, DeserializeStruct(policy_info))
   if err != nil {
     return err
   }
@@ -126,7 +151,10 @@ func (ctx *Context) RegisterPolicy(reflect_type reflect.Type, policy_type Policy
   return nil
 }
 
-func (ctx *Context)RegisterSignal(reflect_type reflect.Type, signal_type SignalType) error {
+func RegisterSignal[S Signal](ctx *Context) error {
+  reflect_type := reflect.TypeFor[S]()
+  signal_type := SignalTypeFor[S]()
+
   _, exists := ctx.Signals[signal_type]
   if exists == true {
     return fmt.Errorf("Cannot register signal of type %+v, type already exists in context", signal_type)
@@ -137,7 +165,7 @@ func (ctx *Context)RegisterSignal(reflect_type reflect.Type, signal_type SignalT
     return err
   }
 
-  err = ctx.RegisterType(reflect_type, SerializedType(signal_type), nil, SerializeStruct(signal_info), nil, DeserializeStruct(signal_info))
+  err = RegisterType[S](ctx, nil, SerializeStruct(signal_info), nil, DeserializeStruct(signal_info))
   if err != nil {
     return err
   }
@@ -149,10 +177,12 @@ func (ctx *Context)RegisterSignal(reflect_type reflect.Type, signal_type SignalT
   return nil
 }
 
-func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType, data interface{}) error {
+func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data interface{}) error {
+  reflect_type := reflect.TypeFor[T]()
+  ext_type := ExtType(SerializedTypeFor[E]())
   _, exists := ctx.Extensions[ext_type]
   if exists == true {
-    return fmt.Errorf("Cannot register extension of type %+v, type already exists in context", ext_type)
+    return fmt.Errorf("Cannot register extension %+v of type %+v, type already exists in context", reflect_type, ext_type)
   }
 
   elem_type := reflect_type.Elem()
@@ -161,7 +191,7 @@ func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType
     return err
   }
 
-  err = ctx.RegisterType(elem_type, SerializedType(ext_type), nil, SerializeStruct(elem_info), nil, DeserializeStruct(elem_info))
+  err = RegisterType[E](ctx, nil, SerializeStruct(elem_info), nil, DeserializeStruct(elem_info))
   if err != nil {
     return err
   }
@@ -169,7 +199,7 @@ func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType
   ctx.Log.Logf("serialize_types", "Registered ExtType: %+v - %+v", reflect_type, ext_type)
 
   ctx.Extensions[ext_type] = ExtensionInfo{
-    Type: reflect_type,
+    Reflect: reflect_type,
     Data: data,
   }
   ctx.ExtensionTypes[reflect_type] = ext_type
@@ -177,7 +207,8 @@ func (ctx *Context)RegisterExtension(reflect_type reflect.Type, ext_type ExtType
   return nil
 }
 
-func (ctx *Context)RegisterKind(kind reflect.Kind, base reflect.Type, ctx_type SerializedType, type_serialize TypeSerializeFn, serialize SerializeFn, type_deserialize TypeDeserializeFn, deserialize DeserializeFn) error {
+func RegisterKind(ctx *Context, kind reflect.Kind, base reflect.Type, type_serialize TypeSerializeFn, serialize SerializeFn, type_deserialize TypeDeserializeFn, deserialize DeserializeFn) error {
+  ctx_type := SerializedKindFor(kind)
   _, exists := ctx.Kinds[kind]
   if exists == true {
     return fmt.Errorf("Cannot register kind %+v, kind already exists in context", kind)
@@ -195,8 +226,8 @@ func (ctx *Context)RegisterKind(kind reflect.Kind, base reflect.Type, ctx_type S
 
   info := KindInfo{
     Reflect: kind,
-    Base: base,
     Type: ctx_type,
+    Base: base,
     TypeSerialize: type_serialize,
     Serialize: serialize,
     TypeDeserialize: type_deserialize,
@@ -210,7 +241,10 @@ func (ctx *Context)RegisterKind(kind reflect.Kind, base reflect.Type, ctx_type S
   return nil
 }
 
-func (ctx *Context)RegisterType(reflect_type reflect.Type, ctx_type SerializedType, type_serialize TypeSerializeFn, serialize SerializeFn, type_deserialize TypeDeserializeFn, deserialize DeserializeFn) error {
+func RegisterType[T any](ctx *Context, type_serialize TypeSerializeFn, serialize SerializeFn, type_deserialize TypeDeserializeFn, deserialize DeserializeFn) error {
+  reflect_type := reflect.TypeFor[T]()
+  ctx_type := SerializedTypeFor[T]()
+
   _, exists := ctx.Types[ctx_type]
   if exists == true {
     return fmt.Errorf("Cannot register field of type %+v, type already exists in context", ctx_type)
@@ -261,6 +295,14 @@ func (ctx *Context)RegisterType(reflect_type reflect.Type, ctx_type SerializedTy
   ctx.Log.Logf("serialize_types", "Registered Type: %+v - %+v", reflect_type, ctx_type)
 
   return nil
+}
+
+func RegisterStruct[T any](ctx *Context) error {
+  struct_info, err := GetStructInfo(ctx, reflect.TypeFor[T]())
+  if err != nil {
+    return err
+  }
+  return RegisterType[T](ctx, nil, SerializeStruct(struct_info), nil, DeserializeStruct(struct_info))
 }
 
 func (ctx *Context) AddNode(id NodeID, node *Node) {
@@ -352,424 +394,388 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Signals: map[SignalType]reflect.Type{},
     SignalTypes: map[reflect.Type]SignalType{},
     Nodes: map[NodeType]NodeInfo{},
-    nodeMap: map[NodeID]*Node{},
+    NodeTypes: map[string]NodeType{},
     Types: map[SerializedType]*TypeInfo{},
     TypeReflects: map[reflect.Type]*TypeInfo{},
     Kinds: map[reflect.Kind]*KindInfo{},
     KindTypes: map[SerializedType]*KindInfo{},
+
+    nodeMap: map[NodeID]*Node{},
   }
 
   var err error
-  err = ctx.RegisterKind(reflect.Pointer, nil, PointerType, SerializeTypeElem, SerializePointer, DeserializeTypePointer, DeserializePointer)
+  err = RegisterKind(ctx, reflect.Pointer, nil, SerializeTypeElem, SerializePointer, DeserializeTypePointer, DeserializePointer)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Bool, reflect.TypeOf(true), BoolType, nil, SerializeBool, nil, DeserializeBool[bool])
+  err = RegisterKind(ctx, reflect.Bool, reflect.TypeFor[bool](), nil, SerializeBool, nil, DeserializeBool[bool])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.String, reflect.TypeOf(""), StringType, nil, SerializeString, nil, DeserializeString[string])
+  err = RegisterKind(ctx, reflect.String, reflect.TypeFor[string](), nil, SerializeString, nil, DeserializeString[string])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Float32, reflect.TypeOf(float32(0)), Float32Type, nil, SerializeFloat32, nil, DeserializeFloat32[float32])
+  err = RegisterKind(ctx, reflect.Float32, reflect.TypeFor[float32](), nil, SerializeFloat32, nil, DeserializeFloat32[float32])
   if err != nil  {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Float64, reflect.TypeOf(float64(0)), Float64Type, nil, SerializeFloat64, nil, DeserializeFloat64[float64])
+  err = RegisterKind(ctx, reflect.Float64, reflect.TypeFor[float64](), nil, SerializeFloat64, nil, DeserializeFloat64[float64])
   if err != nil  {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint, reflect.TypeOf(uint(0)), UIntType, nil, SerializeUint32, nil, DeserializeUint32[uint])
+  err = RegisterKind(ctx, reflect.Uint, reflect.TypeFor[uint](), nil, SerializeUint32, nil, DeserializeUint32[uint])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint8, reflect.TypeOf(uint8(0)), UInt8Type, nil, SerializeUint8, nil, DeserializeUint8[uint8])
+  err = RegisterKind(ctx, reflect.Uint8, reflect.TypeFor[uint8](), nil, SerializeUint8, nil, DeserializeUint8[uint8])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint16, reflect.TypeOf(uint16(0)), UInt16Type, nil, SerializeUint16, nil, DeserializeUint16[uint16])
+  err = RegisterKind(ctx, reflect.Uint16, reflect.TypeFor[uint16](), nil, SerializeUint16, nil, DeserializeUint16[uint16])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint32, reflect.TypeOf(uint32(0)), UInt32Type, nil, SerializeUint32, nil, DeserializeUint32[uint32])
+  err = RegisterKind(ctx, reflect.Uint32, reflect.TypeFor[uint32](), nil, SerializeUint32, nil, DeserializeUint32[uint32])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Uint64, reflect.TypeOf(uint64(0)), UInt64Type, nil, SerializeUint64, nil, DeserializeUint64[uint64])
+  err = RegisterKind(ctx, reflect.Uint64, reflect.TypeFor[uint64](), nil, SerializeUint64, nil, DeserializeUint64[uint64])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int, reflect.TypeOf(int(0)), IntType, nil, SerializeInt32, nil, DeserializeUint32[int])
+  err = RegisterKind(ctx, reflect.Int, reflect.TypeFor[int](), nil, SerializeInt32, nil, DeserializeUint32[int])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int8, reflect.TypeOf(int8(0)), Int8Type, nil, SerializeInt8, nil, DeserializeUint8[int8])
+  err = RegisterKind(ctx, reflect.Int8, reflect.TypeFor[int8](), nil, SerializeInt8, nil, DeserializeUint8[int8])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int16, reflect.TypeOf(int16(0)), Int16Type, nil, SerializeInt16, nil, DeserializeUint16[int16])
+  err = RegisterKind(ctx, reflect.Int16, reflect.TypeFor[int16](), nil, SerializeInt16, nil, DeserializeUint16[int16])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int32, reflect.TypeOf(int32(0)), Int32Type, nil, SerializeInt32, nil, DeserializeUint32[int32])
+  err = RegisterKind(ctx, reflect.Int32, reflect.TypeFor[int32](), nil, SerializeInt32, nil, DeserializeUint32[int32])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Int64, reflect.TypeOf(int64(0)), Int64Type, nil, SerializeInt64, nil, DeserializeUint64[int64])
+  err = RegisterKind(ctx, reflect.Int64, reflect.TypeFor[int64](), nil, SerializeInt64, nil, DeserializeUint64[int64])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(WaitReason("")), WaitReasonType, nil, nil, nil, DeserializeString[WaitReason])
+  err = RegisterType[WaitReason](ctx, nil, nil, nil, DeserializeString[WaitReason])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(EventCommand("")), EventCommandType, nil, nil, nil, DeserializeString[EventCommand])
+  err = RegisterType[EventCommand](ctx, nil, nil, nil, DeserializeString[EventCommand])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(EventState("")), EventStateType, nil, nil, nil, DeserializeString[EventState])
+  err = RegisterType[EventState](ctx, nil, nil, nil, DeserializeString[EventState])
   if err != nil {
     return nil, err
   }
 
-  wait_info_type := reflect.TypeOf(WaitInfo{})
-  wait_info_info, err := GetStructInfo(ctx, wait_info_type)
-  if err != nil {
-    return nil, err
-  }
-  err = ctx.RegisterType(wait_info_type, WaitInfoType, nil, SerializeStruct(wait_info_info), nil, DeserializeStruct(wait_info_info))
+  err = RegisterStruct[WaitInfo](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(time.Duration(0)), DurationType, nil, nil, nil, DeserializeUint64[time.Duration])
+  err = RegisterType[time.Duration](ctx, nil, nil, nil, DeserializeUint64[time.Duration])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(time.Time{}), TimeType, nil, SerializeGob, nil, DeserializeGob[time.Time])
+  err = RegisterType[time.Time](ctx, nil, SerializeGob, nil, DeserializeGob[time.Time])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Map, nil, MapType, SerializeTypeMap, SerializeMap, DeserializeTypeMap, DeserializeMap)
+  err = RegisterKind(ctx, reflect.Map, nil, SerializeTypeMap, SerializeMap, DeserializeTypeMap, DeserializeMap)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Array, nil, ArrayType, SerializeTypeArray, SerializeArray, DeserializeTypeArray, DeserializeArray)
+  err = RegisterKind(ctx, reflect.Array, nil, SerializeTypeArray, SerializeArray, DeserializeTypeArray, DeserializeArray)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterKind(reflect.Slice, nil, SliceType, SerializeTypeElem, SerializeSlice, DeserializeTypeSlice, DeserializeSlice)
+  err = RegisterKind(ctx, reflect.Slice, nil, SerializeTypeElem, SerializeSlice, DeserializeTypeSlice, DeserializeSlice)
   if err != nil {
     return nil, err
   }
 
-  var ptr interface{} = nil
-  err = ctx.RegisterKind(reflect.Interface, reflect.TypeOf(&ptr).Elem(), InterfaceType, nil, SerializeInterface, nil, DeserializeInterface)
+  err = RegisterKind(ctx, reflect.Interface, reflect.TypeFor[interface{}](), nil, SerializeInterface, nil, DeserializeInterface)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(SerializedType(0)), SerializedTypeSerialized, nil, SerializeUint64, nil, DeserializeUint64[SerializedType])
+  err = RegisterType[SerializedType](ctx, nil, SerializeUint64, nil, DeserializeUint64[SerializedType])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(Changes{}), ChangesSerialized, SerializeTypeStub, SerializeMap, DeserializeTypeStub[Changes], DeserializeMap)
+  err = RegisterType[Changes](ctx, SerializeTypeStub, SerializeMap, DeserializeTypeStub[Changes], DeserializeMap)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(ExtType(0)), ExtTypeSerialized, nil, SerializeUint64, nil, DeserializeUint64[ExtType])
+  err = RegisterType[ExtType](ctx, nil, SerializeUint64, nil, DeserializeUint64[ExtType])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(NodeType(0)), NodeTypeSerialized, nil, SerializeUint64, nil, DeserializeUint64[NodeType])
+  err = RegisterType[NodeType](ctx, nil, SerializeUint64, nil, DeserializeUint64[NodeType])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(PolicyType(0)), PolicyTypeSerialized, nil, SerializeUint64, nil, DeserializeUint64[PolicyType])
+  err = RegisterType[PolicyType](ctx, nil, SerializeUint64, nil, DeserializeUint64[PolicyType])
   if err != nil {
     return nil, err
   }
 
-  node_id_type := reflect.TypeOf(RandID())
-  err = ctx.RegisterType(node_id_type, NodeIDType, SerializeTypeStub, SerializeUUID, DeserializeTypeStub[NodeID], DeserializeUUID[NodeID])
+  err = RegisterType[NodeID](ctx, SerializeTypeStub, SerializeUUID, DeserializeTypeStub[NodeID], DeserializeUUID[NodeID])
   if err != nil {
     return nil, err
   }
 
-  uuid_type := reflect.TypeOf(uuid.UUID{})
-  err = ctx.RegisterType(uuid_type, UUIDType, SerializeTypeStub, SerializeUUID, DeserializeTypeStub[uuid.UUID], DeserializeUUID[uuid.UUID])
+  err = RegisterType[uuid.UUID](ctx, SerializeTypeStub, SerializeUUID, DeserializeTypeStub[uuid.UUID], DeserializeUUID[uuid.UUID])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(Up), SignalDirectionType, nil, SerializeUint8, nil, DeserializeUint8[SignalDirection])
+  err = RegisterType[SignalDirection](ctx, nil, SerializeUint8, nil, DeserializeUint8[SignalDirection])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(ReqState(0)), ReqStateType, nil, SerializeUint8, nil, DeserializeUint8[ReqState])
+  err = RegisterType[ReqState](ctx, nil, SerializeUint8, nil, DeserializeUint8[ReqState])
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterType(reflect.TypeOf(Tree{}), TreeType, SerializeTypeStub, nil, DeserializeTypeStub[Tree], nil)
-
-  var extension Extension = nil
-  err = ctx.RegisterType(reflect.ValueOf(&extension).Type().Elem(), ExtSerialized, nil, SerializeInterface, nil, DeserializeInterface)
+  err = RegisterType[Tree](ctx, SerializeTypeStub, nil, DeserializeTypeStub[Tree], nil)
   if err != nil {
     return nil, err
   }
 
-  var policy Policy = nil
-  err = ctx.RegisterType(reflect.ValueOf(&policy).Type().Elem(), PolicySerialized, nil, SerializeInterface, nil, DeserializeInterface)
+  err = RegisterType[Extension](ctx, nil, SerializeInterface, nil, DeserializeInterface)
   if err != nil {
     return nil, err
   }
 
-  var signal Signal = nil
-  err = ctx.RegisterType(reflect.ValueOf(&signal).Type().Elem(), SignalSerialized, nil, SerializeInterface, nil, DeserializeInterface)
+  err = RegisterType[Policy](ctx, nil, SerializeInterface, nil, DeserializeInterface)
   if err != nil {
     return nil, err
   }
 
-  pending_acl_type := reflect.TypeOf(PendingACL{})
-  pending_acl_info, err := GetStructInfo(ctx, pending_acl_type)
-  if err != nil {
-    return nil, err
-  }
-  err = ctx.RegisterType(pending_acl_type, PendingACLType, nil, SerializeStruct(pending_acl_info), nil, DeserializeStruct(pending_acl_info))
+  err = RegisterType[Signal](ctx, nil, SerializeInterface, nil, DeserializeInterface)
   if err != nil {
     return nil, err
   }
 
-  pending_signal_type := reflect.TypeOf(PendingACLSignal{})
-  pending_signal_info, err := GetStructInfo(ctx, pending_signal_type)
-  if err != nil {
-    return nil, err
-  }
-  err = ctx.RegisterType(pending_signal_type, PendingACLSignalType, nil, SerializeStruct(pending_signal_info), nil, DeserializeStruct(pending_signal_info))
+  err = RegisterStruct[PendingACL](ctx)
   if err != nil {
     return nil, err
   }
 
-  queued_signal_type := reflect.TypeOf(QueuedSignal{})
-  queued_signal_info, err := GetStructInfo(ctx, queued_signal_type)
-  if err != nil {
-    return nil, err
-  }
-  err = ctx.RegisterType(queued_signal_type, QueuedSignalType, nil, SerializeStruct(queued_signal_info), nil, DeserializeStruct(queued_signal_info))
+  err = RegisterStruct[PendingACLSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  node_type := reflect.TypeOf(Node{})
-  node_info, err := GetStructInfo(ctx, node_type)
-  if err != nil {
-    return nil, err
-  }
-  err = ctx.RegisterType(node_type, NodeStructType, nil, SerializeStruct(node_info), nil, DeserializeStruct(node_info))
+  err = RegisterStruct[QueuedSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(reflect.TypeOf((*LockableExt)(nil)), LockableExtType, nil)
+  err = RegisterStruct[Node](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(reflect.TypeOf((*ListenerExt)(nil)), ListenerExtType, nil)
+  err = RegisterExtension[LockableExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(reflect.TypeOf((*GroupExt)(nil)), GroupExtType, nil)
+  err = RegisterExtension[ListenerExt](ctx, nil)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterExtension[GroupExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
   gql_ctx := NewGQLExtContext()
-  err = ctx.RegisterExtension(reflect.TypeOf((*GQLExt)(nil)), GQLExtType, gql_ctx)
+  err = RegisterExtension[GQLExt](ctx, gql_ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(reflect.TypeOf((*ACLExt)(nil)), ACLExtType, nil)
+  err = RegisterExtension[ACLExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterExtension(reflect.TypeOf((*EventExt)(nil)), EventExtType, nil)
+  err = RegisterExtension[EventExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterPolicy(reflect.TypeOf(OwnerOfPolicy{}), OwnerOfPolicyType)
+  err = RegisterPolicy[OwnerOfPolicy](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterPolicy(reflect.TypeOf(ParentOfPolicy{}), ParentOfPolicyType)
+  err = RegisterPolicy[ParentOfPolicy](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterPolicy(reflect.TypeOf(MemberOfPolicy{}), MemberOfPolicyType)
+  err = RegisterPolicy[MemberOfPolicy](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterPolicy(reflect.TypeOf(AllNodesPolicy{}), AllNodesPolicyType)
+  err = RegisterPolicy[AllNodesPolicy](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterPolicy(reflect.TypeOf(PerNodePolicy{}), PerNodePolicyType)
+  err = RegisterPolicy[PerNodePolicy](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterPolicy(reflect.TypeOf(ACLProxyPolicy{}), ACLProxyPolicyType)
+  err = RegisterPolicy[ACLProxyPolicy](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(StoppedSignal{}), StoppedSignalType)
+  err = RegisterSignal[StoppedSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(AddSubGroupSignal{}), AddSubGroupSignalType)
+  err = RegisterSignal[AddSubGroupSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(RemoveSubGroupSignal{}), RemoveSubGroupSignalType)
+  err = RegisterSignal[RemoveSubGroupSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(ACLTimeoutSignal{}), ACLTimeoutSignalType)
+  err = RegisterSignal[ACLTimeoutSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(ACLSignal{}), ACLSignalType)
+  err = RegisterSignal[ACLSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(RemoveMemberSignal{}), RemoveMemberSignalType)
+  err = RegisterSignal[RemoveMemberSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(AddMemberSignal{}), AddMemberSignalType)
+  err = RegisterSignal[AddMemberSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(StopSignal{}), StopSignalType)
+  err = RegisterSignal[StopSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(CreateSignal{}), CreateSignalType)
+  err = RegisterSignal[CreateSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(StartSignal{}), StartSignalType)
+  err = RegisterSignal[StartSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(StatusSignal{}), StatusSignalType)
+  err = RegisterSignal[StatusSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(ReadSignal{}), ReadSignalType)
+  err = RegisterSignal[ReadSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(LockSignal{}), LockSignalType)
+  err = RegisterSignal[LockSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(TimeoutSignal{}), TimeoutSignalType)
+  err = RegisterSignal[TimeoutSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(LinkSignal{}), LinkSignalType)
+  err = RegisterSignal[LinkSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(ErrorSignal{}), ErrorSignalType)
+  err = RegisterSignal[ErrorSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(SuccessSignal{}), SuccessSignalType)
+  err = RegisterSignal[SuccessSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(ReadResultSignal{}), ReadResultSignalType)
+  err = RegisterSignal[ReadResultSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(EventControlSignal{}), EventControlSignalType)
+  err = RegisterSignal[EventControlSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterSignal(reflect.TypeOf(EventStateSignal{}), EventStateSignalType)
+  err = RegisterSignal[EventStateSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = ctx.RegisterNodeType(BaseNodeType, []ExtType{})
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterNodeType(GroupNodeType, []ExtType{GroupExtType})
-  if err != nil {
-    return nil, err
-  }
-
-  err = ctx.RegisterNodeType(GQLNodeType, []ExtType{GQLExtType})
+  err = RegisterNodeType(ctx, "Base", []ExtType{}, map[string]FieldIndex{})
   if err != nil {
     return nil, err
   }
