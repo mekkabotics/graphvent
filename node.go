@@ -242,14 +242,6 @@ func nodeLoop(ctx *Context, node *Node) error {
     return fmt.Errorf("%s is already started, will not start again", node.ID)
   }
 
-  // Load each extension before starting the main loop
-  for _, extension := range(node.Extensions) {
-    err := extension.Load(ctx, node)
-    if err != nil {
-      return err
-    }
-  }
-
   run := true
   for run == true {
     var signal Signal
@@ -435,7 +427,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
 
   ext_map := map[ExtType]Extension{}
   for _, ext := range(extensions) {
-    ext_type, exists := ctx.ExtensionTypes[reflect.TypeOf(ext)]
+    ext_type, exists := ctx.ExtensionTypes[reflect.TypeOf(ext).Elem()]
     if exists == false {
       return nil, fmt.Errorf(fmt.Sprintf("%+v is not a known Extension", reflect.TypeOf(ext)))
     }
@@ -472,6 +464,14 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
   err = WriteNodeInit(ctx, node)
   if err != nil {
     return nil, err
+  }
+
+  // Load each extension before starting the main loop
+  for _, extension := range(node.Extensions) {
+    err := extension.Load(ctx, node)
+    if err != nil {
+      return nil, err
+    }
   }
 
   ctx.AddNode(id, node)

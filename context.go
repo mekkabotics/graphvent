@@ -2,14 +2,15 @@ package graphvent
 
 import (
 	"crypto/ecdh"
+	"encoding"
 	"errors"
 	"fmt"
 	"reflect"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
-  "time"
-  "encoding"
+	"time"
 
 	"golang.org/x/exp/constraints"
 
@@ -112,19 +113,19 @@ func (ctx *Context) GQLType(t reflect.Type) graphql.Type {
   }
 }
 
-func RegisterMap(ctx *Context, t reflect.Type) error {
-  key_type := ctx.GQLType(t.Key())
+func RegisterMap(ctx *Context, reflect_type reflect.Type) error {
+  key_type := ctx.GQLType(reflect_type.Key())
   if key_type == nil {
     return nil
   }
 
-  val_type := ctx.GQLType(t.Elem())
+  val_type := ctx.GQLType(reflect_type.Elem())
   if val_type == nil {
     return nil
   }
 
   gql_pair := graphql.NewObject(graphql.ObjectConfig{
-    Name: t.String(),
+    Name: strings.ReplaceAll(reflect_type.String(), ".", "_"),
     Fields: graphql.Fields{
       "Key": &graphql.Field{
         Type: key_type,
@@ -143,8 +144,8 @@ func RegisterMap(ctx *Context, t reflect.Type) error {
 
   gql_map := graphql.NewList(gql_pair)
 
-  ctx.TypeTypes[t] = SerializeType(t)
-  ctx.TypeMap[SerializeType(t)] = TypeInfo{
+  ctx.TypeTypes[reflect_type] = SerializeType(reflect_type)
+  ctx.TypeMap[SerializeType(reflect_type)] = TypeInfo{
     Type: gql_map,
   }
  
@@ -154,8 +155,28 @@ func RegisterMap(ctx *Context, t reflect.Type) error {
 func BuildSchema(ctx *Context, query, mutation *graphql.Object) (graphql.Schema, error) {
   types := []graphql.Type{}
 
-  subscription := graphql.NewObject(graphql.ObjectConfig{
+  for _, info := range(ctx.TypeMap) {
+    types = append(types, info.Type)
+  }
 
+  for _, info := range(ctx.Extensions) {
+    types = append(types, info.Interface) 
+  }
+
+  for _, info := range(ctx.Nodes) {
+    types = append(types, info.GQL)
+  }
+
+  subscription := graphql.NewObject(graphql.ObjectConfig{
+    Name: "Subscription",
+    Fields: graphql.Fields{
+      "Test": &graphql.Field{
+        Type: graphql.String,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          return "TEST", nil
+        },
+      },
+    },
   })
 
   return graphql.NewSchema(graphql.SchemaConfig{
@@ -180,7 +201,7 @@ func RegisterSignal[S Signal](ctx *Context) error {
 }
 
 func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data interface{}) error {
-  reflect_type := reflect.TypeFor[T]()
+  reflect_type := reflect.TypeFor[E]()
   ext_type := ExtType(SerializedTypeFor[E]())
   _, exists := ctx.Extensions[ext_type]
   if exists == true {
@@ -188,7 +209,7 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
   }
 
   gql_interface := graphql.NewInterface(graphql.InterfaceConfig{
-    Name: reflect_type.String(),
+    Name: "interface_" + strings.ReplaceAll(reflect_type.String(), ".", "_"),
     ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
       ctx, ok := p.Context.Value("resolve").(*ResolveContext)
       if ok == false {
@@ -281,6 +302,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType, mappings 
 
 func RegisterObject[T any](ctx *Context) error {
   reflect_type := reflect.TypeFor[T]()
+  ctx.Log.Logf("test", "registering %+v", reflect_type)
   serialized_type := SerializedTypeFor[T]()
 
   _, exists := ctx.TypeTypes[reflect_type]
@@ -289,7 +311,7 @@ func RegisterObject[T any](ctx *Context) error {
   }
 
   gql := graphql.NewObject(graphql.ObjectConfig{
-    Name: reflect_type.String(),
+    Name: strings.ReplaceAll(reflect_type.String(), ".", "_"),
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
       return reflect_type == reflect.TypeOf(p.Value)
     },
@@ -431,7 +453,7 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
   }
 
   gql := graphql.NewScalar(graphql.ScalarConfig{
-    Name: reflect_type.String(),
+    Name: strings.ReplaceAll(reflect_type.String(), ".", "_"),
     Serialize: to_json,
     ParseValue: from_json,
     ParseLiteral: from_ast,
@@ -623,6 +645,31 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterExtension[GQLExt](ctx, nil)
+  if err != nil {
+    return nil, err
+  }
+
+  _, err = BuildSchema(ctx, graphql.NewObject(graphql.ObjectConfig{
+    Name: "Query",
+    Fields: graphql.Fields{
+      "Test": &graphql.Field{
+        Type: graphql.String,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          return "TEST", nil
+        },
+      },
+    },
+  }), graphql.NewObject(graphql.ObjectConfig{
+    Name: "Mutation",
+    Fields: graphql.Fields{
+      "Test": &graphql.Field{
+        Type: graphql.String,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          return "TEST", nil
+        },
+      },
+    },
+  }))
   if err != nil {
     return nil, err
   }

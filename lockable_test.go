@@ -52,7 +52,7 @@ func TestLink(t *testing.T) {
 }
 
 func Test1000Lock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"test", "lockable"})
+  ctx := lockableTestContext(t, []string{"test"})
 
   NewLockable := func()(*Node) {
     l, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
