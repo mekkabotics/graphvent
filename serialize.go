@@ -66,11 +66,14 @@ func NodeTypeFor(name string, extensions []ExtType, mappings map[string]FieldInd
   return NodeType(binary.BigEndian.Uint64(hash[0:8]))
 }
 
-func SerializedTypeFor[T any]() SerializedType {
-  t := reflect.TypeFor[T]()
+func SerializeType(t reflect.Type) SerializedType {
   digest := []byte(t.String())
   hash := sha512.Sum512(digest)
   return SerializedType(binary.BigEndian.Uint64(hash[0:8]))
+}
+
+func SerializedTypeFor[T any]() SerializedType {
+  return SerializeType(reflect.TypeFor[T]())
 }
 
 func ExtTypeFor[E any, T interface { *E; Extension}]() ExtType {

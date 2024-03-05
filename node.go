@@ -33,6 +33,16 @@ func IDFromBytes(bytes []byte) (NodeID, error) {
   return NodeID(id), err
 }
 
+func (id NodeID) MarshalText() ([]byte, error) {
+  return []byte(id.String()), nil
+}
+
+func (id *NodeID) UnmarshalText(text []byte) error {
+  parsed, err := ParseID(string(text))
+  *id = parsed
+  return err
+}
+
 // Parse an ID from a string
 func ParseID(str string) (NodeID, error) {
   id_uuid, err := uuid.Parse(str)
@@ -480,15 +490,18 @@ func ExtTypeSuffix(ext_type ExtType) []byte {
 }
 
 func WriteNodeExtList(ctx *Context, node *Node) error {
-  return fmt.Errorf("TODO: write node list")
+  ctx.Log.Logf("todo", "write node list")
+  return nil
 }
 
 func WriteNodeInit(ctx *Context, node *Node) error {
-  return fmt.Errorf("TODO: write initial node entry")
+  ctx.Log.Logf("todo", "write initial node entry")
+  return nil
 }
 
 func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) error {
-  return fmt.Errorf("TODO: write changes to node(and any signal queue changes)")
+  ctx.Log.Logf("todo", "write node changes")
+  return nil
 }
 
 func LoadNode(ctx *Context, id NodeID) (*Node, error) {
