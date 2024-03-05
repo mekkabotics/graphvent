@@ -3,8 +3,6 @@ package graphvent
 import (
   "testing"
   "time"
-  "crypto/ed25519"
-  "crypto/rand"
 )
 
 func lockableTestContext(t *testing.T, logs []string) *Context {
@@ -19,32 +17,19 @@ func lockableTestContext(t *testing.T, logs []string) *Context {
 func TestLink(t *testing.T) {
   ctx := lockableTestContext(t, []string{"lockable", "listener"})
 
-  l1_pub, l1_key, err := ed25519.GenerateKey(rand.Reader)
-  fatalErr(t, err)
-  l1_id := KeyID(l1_pub)
-  policy := NewPerNodePolicy(map[NodeID]Tree{
-    l1_id: nil,
-  })
 
   l2_listener := NewListenerExt(10)
-  l2, err := NewNode(ctx, nil, "Lockable", 10, []Policy{policy},
-                  l2_listener,
-                  NewLockableExt(nil),
-                )
+  l2, err := NewNode(ctx, nil, "Lockable", 10, l2_listener, NewLockableExt(nil))
   fatalErr(t, err)
 
   l1_lockable := NewLockableExt(nil)
   l1_listener := NewListenerExt(10)
-  l1, err := NewNode(ctx, l1_key, "Lockable", 10, nil,
-                 l1_listener,
-                 l1_lockable,
-               )
+  l1, err := NewNode(ctx, nil, "Lockable", 10, l1_listener, l1_lockable)
   fatalErr(t, err)
 
-  msgs := Messages{}
   link_signal := NewLinkSignal("add", l2.ID)
-  msgs = msgs.Add(ctx, l1.ID, l1, nil, link_signal)
-  err = ctx.Send(msgs)
+  msgs := []SendMsg{{l1.ID, link_signal}}
+  err = ctx.Send(l1, msgs)
   fatalErr(t, err)
 
   _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, link_signal.ID())
@@ -57,10 +42,9 @@ func TestLink(t *testing.T) {
     t.Fatalf("l2 in bad requirement state in l1: %+v", state)
   }
 
-  msgs = Messages{}
   unlink_signal := NewLinkSignal("remove", l2.ID)
-  msgs = msgs.Add(ctx, l1.ID, l1, nil, unlink_signal)
-  err = ctx.Send(msgs)
+  msgs = []SendMsg{{l1.ID, unlink_signal}}
+  err = ctx.Send(l1, msgs)
   fatalErr(t, err)
 
   _, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, unlink_signal.ID())
@@ -70,18 +54,8 @@ func TestLink(t *testing.T) {
 func Test1000Lock(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test", "lockable"})
 
-  l_pub, listener_key, err := ed25519.GenerateKey(rand.Reader)
-  fatalErr(t, err)
-  listener_id := KeyID(l_pub)
-  child_policy := NewPerNodePolicy(map[NodeID]Tree{
-    listener_id: {
-      SerializedType(SignalTypeFor[LockSignal]()): nil,
-    },
-  })
   NewLockable := func()(*Node) {
-    l, err := NewNode(ctx, nil, "Lockable", 10, []Policy{child_policy},
-                  NewLockableExt(nil),
-                )
+    l, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
     fatalErr(t, err)
     return l
   }
@@ -93,15 +67,8 @@ func Test1000Lock(t *testing.T) {
   }
   ctx.Log.Logf("test", "CREATED_1000")
 
-  l_policy := NewAllNodesPolicy(Tree{
-    SerializedType(SignalTypeFor[LockSignal]()): nil,
-  })
-
   listener := NewListenerExt(5000)
-  node, err := NewNode(ctx, listener_key, "Lockable", 5000, []Policy{l_policy},
-                listener,
-                NewLockableExt(reqs),
-              )
+  node, err := NewNode(ctx, nil, "Lockable", 5000, listener, NewLockableExt(reqs))
   fatalErr(t, err)
   ctx.Log.Logf("test", "CREATED_LISTENER")
 
@@ -123,14 +90,9 @@ func Test1000Lock(t *testing.T) {
 func TestLock(t *testing.T) {
   ctx := lockableTestContext(t, []string{"test", "lockable"})
 
-  policy := NewAllNodesPolicy(nil)
-
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(1000)
-    l, err := NewNode(ctx, nil, "Lockable", 10, []Policy{policy},
-                  listener,
-                  NewLockableExt(reqs),
-                )
+    l, err := NewNode(ctx, nil, "Lockable", 10, listener, NewLockableExt(reqs))
     fatalErr(t, err)
     return l, listener
   }

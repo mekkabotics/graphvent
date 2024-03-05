@@ -11,15 +11,11 @@ type ListenerExt struct {
 }
 
 func (ext *ListenerExt) Load(ctx *Context, node *Node) error {
+  ext.Chan = make(chan Signal, ext.Buffer)
   return nil
 }
 
 func (ext *ListenerExt) Unload(ctx *Context, node *Node) {
-}
-
-func (ext *ListenerExt) PostDeserialize(ctx *Context) error {
-  ext.Chan = make(chan Signal, ext.Buffer)
-  return nil
 }
 
 // Create a new listener extension with a given buffer size
@@ -31,7 +27,7 @@ func NewListenerExt(buffer int) *ListenerExt {
 }
 
 // Send the signal to the channel, logging an overflow if it occurs
-func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
+func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) ([]SendMsg, Changes) {
   ctx.Log.Logf("listener", "%s - %+v", node.ID, reflect.TypeOf(signal))
   ctx.Log.Logf("listener_debug", "%s->%s - %+v", source, node.ID, signal)
   select {

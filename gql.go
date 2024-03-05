@@ -73,45 +73,6 @@ func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTy
   }
 }
 
-func NodeInterfaceResolveType(required_extensions []ExtType, default_type **graphql.Object)func(graphql.ResolveTypeParams) *graphql.Object {
-  return func(p graphql.ResolveTypeParams) *graphql.Object {
-    ctx, ok := p.Context.Value("resolve").(*ResolveContext)
-    if ok == false {
-      return nil
-    }
-
-    node, ok := p.Value.(NodeResult)
-    if ok == false {
-      return nil
-    }
-
-    gql_type, exists := ctx.GQLContext.NodeTypes[node.NodeType]
-    ctx.Context.Log.Logf("gql", "GQL_INTERFACE_RESOLVE_TYPE(%+v): %+v - %t - %+v - %+v", node, gql_type, exists, required_extensions, *default_type)
-    if exists == false {
-      node_type_def, exists := ctx.Context.Nodes[node.NodeType]
-      if exists == false {
-        return nil
-      } else {
-        for _, ext := range(required_extensions) {
-          found := false
-          for _, e := range(node_type_def.Extensions) {
-            if e == ext {
-              found = true
-              break
-            }
-          }
-          if found == false {
-            return nil
-          }
-        }
-      }
-      return *default_type
-    }
-
-    return gql_type
-  }
-}
-
 func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
   resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
   if ok == false {
@@ -315,9 +276,6 @@ type ResolveContext struct {
   // Graph Context this resolver is running under
   Context *Context
 
-  // GQL Extension context this resolver is running under
-  GQLContext *GQLExtContext
-
   // Pointer to the node that's currently processing this request
   Server *Node
 
@@ -326,9 +284,6 @@ type ResolveContext struct {
 
   // Cache of resolved nodes
   NodeCache map[NodeID]NodeResult
-
-  // Authorization from the user that started this request
-  Authorization *ClientAuthorization
 }
 
 func AuthB64(client_key ed25519.PrivateKey, server_pubkey ed25519.PublicKey) (string, error) {
@@ -409,141 +364,14 @@ func AuthB64(client_key ed25519.PrivateKey, server_pubkey ed25519.PublicKey) (st
   return base64.StdEncoding.EncodeToString([]byte(strings.Join([]string{id_b64, iv_b64, key_b64, encrypted_b64, start_b64, sig_b64}, ":"))), nil
 }
 
-func ParseAuthB64(auth_base64 string, server_id ed25519.PrivateKey) (*ClientAuthorization, error) {
-  joined_b64, err := base64.StdEncoding.DecodeString(auth_base64)
-  if err != nil {
-    return nil, err
-  }
-
-  auth_parts := strings.Split(string(joined_b64), ":")
-  if len(auth_parts) != 6 {
-    return nil, fmt.Errorf("Wrong number of delimited elements %d", len(auth_parts))
-  }
-
-  id_bytes, err := base64.StdEncoding.DecodeString(auth_parts[0])
-  if err != nil {
-    return nil, err
-  }
-
-  iv, err := base64.StdEncoding.DecodeString(auth_parts[1])
-  if err != nil {
-    return nil, err
-  }
-
-  public_key, err := base64.StdEncoding.DecodeString(auth_parts[2])
-  if err != nil {
-    return nil, err
-  }
-
-  key_encrypted, err := base64.StdEncoding.DecodeString(auth_parts[3])
-  if err != nil {
-    return nil, err
-  }
-
-  start_bytes, err := base64.StdEncoding.DecodeString(auth_parts[4])
-  if err != nil {
-    return nil, err
-  }
-
-  signature, err := base64.StdEncoding.DecodeString(auth_parts[5])
-  if err != nil {
-    return nil, err
-  }
-
-  var start time.Time
-  err = start.UnmarshalBinary(start_bytes)
-  if err != nil {
-    return nil, err
-  }
-
-  client_id := ed25519.PublicKey(id_bytes)
-  if err != nil {
-    return nil, err
-  }
-
-  client_point, err := (&edwards25519.Point{}).SetBytes(public_key)
-  if err != nil {
-    return nil, err
-  }
-
-  ecdh_client, err := ECDH.NewPublicKey(client_point.BytesMontgomery())
-  if err != nil {
-    return nil, err
-  }
-
-  h := sha512.Sum512(server_id.Seed())
-  ecdh_server, err := ECDH.NewPrivateKey(h[:32])
-  if err != nil {
-    return nil, err
-  }
-
-  secret, err := ecdh_server.ECDH(ecdh_client)
-  if err != nil {
-    return nil, err
-  } else if len(secret) != 32 {
-    return nil, fmt.Errorf("Secret wrong length: %d/32", len(secret))
-  }
-
-  block, err := aes.NewCipher(secret)
-  if err != nil {
-    return nil, err
-  }
-
-  encrypted_reader := bytes.NewReader(key_encrypted)
-  stream := cipher.NewOFB(block, iv)
-  reader := cipher.StreamReader{S: stream, R: encrypted_reader}
-  var decrypted_key bytes.Buffer
-  _, err = io.Copy(&decrypted_key, reader)
-  if err != nil {
-    return nil, err
-  }
-
-  session_key := ed25519.NewKeyFromSeed(decrypted_key.Bytes())
-  digest := append(session_key.Public().(ed25519.PublicKey), start_bytes...)
-  if ed25519.Verify(client_id, digest, signature) == false {
-    return nil, fmt.Errorf("Failed to verify digest/signature against client_id")
-  }
-
-  return &ClientAuthorization{
-    AuthInfo: AuthInfo{
-      Identity: client_id,
-      Start: start,
-      Signature: signature,
-    },
-    Key: session_key,
-  }, nil
-}
-
-func ValidateAuthorization(auth Authorization, valid time.Duration) error {
-  // Check that the time + valid < now
-  // Check that Signature is public_key + start signed with client_id
-  if auth.Start.Add(valid).Compare(time.Now()) != 1 {
-    return fmt.Errorf("authorization expired")
-  }
-
-  time_bytes, err := auth.Start.MarshalBinary()
-  if err != nil {
-    return err
-  }
-
-  digest := append(auth.Key, time_bytes...)
-  if ed25519.Verify(auth.Identity, digest, auth.Signature) != true {
-    return fmt.Errorf("verification failed")
-  }
-
-  return nil
-}
-
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveContext, error) {
   return &ResolveContext{
     ID: uuid.New(),
     Ext: gql_ext,
     Chans: map[uuid.UUID]chan Signal{},
     Context: ctx,
-    GQLContext: ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(*GQLExtContext),
     NodeCache: map[NodeID]NodeResult{},
     Server: server,
-    Authorization: nil,
   }, nil
 }
 
@@ -557,21 +385,12 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     }
     ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
-    auth, err := ParseAuthB64(r.Header.Get("Authorization"), server.Key)
-    if err != nil {
-      ctx.Log.Logf("gql", "GQL_AUTH_ID_PARSE_ERROR: %s", err)
-      json.NewEncoder(w).Encode(GQLUnauthorized(""))
-      return
-    }
-
     resolve_context, err := NewResolveContext(ctx, server, gql_ext)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       json.NewEncoder(w).Encode(GQLUnauthorized(""))
       return
     }
-
-    resolve_context.Authorization = auth
 
     req_ctx := context.Background()
     req_ctx = context.WithValue(req_ctx, "resolve", resolve_context)
@@ -585,10 +404,10 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     query := GQLPayload{}
     json.Unmarshal(str, &query)
 
-    gql_context := ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(*GQLExtContext)
+    schema := ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(graphql.Schema)
 
     params := graphql.Params{
-      Schema: gql_context.Schema,
+      Schema: schema,
       Context: req_ctx,
       RequestString: query.Query,
     }
@@ -716,14 +535,6 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
             break
           }
 
-          authorization, err := ParseAuthB64(connection_params.Payload.Token, server.Key)
-          if err != nil {
-            ctx.Log.Logf("gqlws", "WS_AUTH_PARSE_ERR: %s", err)
-            break
-          }
-
-          resolve_context.Authorization = authorization
-
           conn_state = "ready"
           err = wsutil.WriteServerMessage(conn, 1, []byte("{\"type\": \"connection_ack\"}"))
           if err != nil {
@@ -739,9 +550,9 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
           }
         } else if msg.Type == "subscribe" {
           ctx.Log.Logf("gqlws", "SUBSCRIBE: %+v", msg.Payload)
-          gql_context := ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(*GQLExtContext)
+          schema := ctx.Extensions[ExtTypeFor[GQLExt]()].Data.(graphql.Schema)
           params := graphql.Params{
-            Schema: gql_context.Schema,
+            Schema: schema,
             Context: req_ctx,
             RequestString: msg.Payload.Query,
           }
@@ -829,165 +640,10 @@ type Field struct {
   Field *graphql.Field
 }
 
-// GQL Specific Context information
-type GQLExtContext struct {
-  // Generated GQL schema
-  Schema graphql.Schema
-
-  // Custom graphql types, mapped to NodeTypes
-  NodeTypes map[NodeType]*graphql.Object
-  Interfaces map[string]*Interface
-  Fields map[string]Field
-
-  // Schema parameters
-  Types []graphql.Type
-  Query *graphql.Object
-  Mutation *graphql.Object
-}
-
-func (ctx *GQLExtContext) GetACLFields(obj_name string, names []string) (map[ExtType][]string, error) {
-  ext_fields := map[ExtType][]string{}
-  for _, name := range(names) {
-    switch name {
-    case "ID":
-    case "TypeHash":
-    default:
-      field, exists := ctx.Fields[name]
-      if exists == false {
-        continue
-      }
-
-      ext, exists := ext_fields[field.Ext]
-      if exists == false {
-        ext = []string{}
-      }
-      ext = append(ext, field.Name)
-      ext_fields[field.Ext] = ext
-    }
-  }
-
-  return ext_fields, nil
-}
-
-func BuildSchema(ctx *GQLExtContext) (graphql.Schema, error) {
-  schemaConfig := graphql.SchemaConfig{
-    Types: ctx.Types,
-    Query: ctx.Query,
-    Mutation: ctx.Mutation,
-  }
-
-  return graphql.NewSchema(schemaConfig)
-}
-
-func (ctx *GQLExtContext) RegisterField(gql_type graphql.Type, gql_name string, ext_type ExtType, gv_tag string, resolve_fn func(graphql.ResolveParams, *ResolveContext, reflect.Value)(interface{}, error)) error {
-  if ctx == nil {
-    return fmt.Errorf("ctx is nil")
-  }
-
-  if resolve_fn == nil {
-    return fmt.Errorf("resolve_fn cannot be nil")
-  }
-
-  _, exists := ctx.Fields[gql_name]
-  if exists == true {
-    return fmt.Errorf("%s is already a field in the context, cannot add again", gql_name)
-  }
-
-  // Resolver has p.Source.(NodeResult) = read result of current node
-  resolver := func(p graphql.ResolveParams)(interface{}, error) {
-    ctx, err := PrepResolve(p)
-    if err != nil {
-      return nil, err
-    }
-
-    node, ok := p.Source.(NodeResult)
-    if ok == false {
-      return nil, fmt.Errorf("p.Value is not NodeResult")
-    }
-
-    ext, ext_exists := node.Data[ext_type]
-    if ext_exists == false {
-      return nil, fmt.Errorf("%+v is not in the extensions of the result: %+v", ext_type, node.Data)
-    }
-
-    val_ser, field_exists := ext[gv_tag]
-    if field_exists == false {
-      return nil, fmt.Errorf("%s is not in the fields of %+v in the result for %s - %+v", gv_tag, ext_type, gql_name, node)
-    }
-
-    if val_ser.TypeStack[0] == SerializedTypeFor[error]() {
-      return nil, fmt.Errorf(string(val_ser.Data))
-    }
-
-    field_type, _, err := DeserializeType(ctx.Context, val_ser.TypeStack)
-    if err != nil {
-      return nil, err
-    }
-
-    field_value, _, err := DeserializeValue(ctx.Context, field_type, val_ser.Data)
-    if err != nil {
-      return nil, err
-    }
-
-    ctx.Context.Log.Logf("gql", "Resolving %+v", field_value)
-
-    return resolve_fn(p, ctx, field_value)
-  }
-
-  ctx.Fields[gql_name] = Field{ext_type, gv_tag, &graphql.Field{
-    Type: gql_type,
-    Resolve: resolver,
-  }}
-  return nil
-}
-
-func GQLInterfaces(ctx *GQLExtContext, interface_names []string) ([]*graphql.Interface, error) {
-  ret := make([]*graphql.Interface, len(interface_names))
-  for i, in := range(interface_names) {
-    ctx_interface, exists := ctx.Interfaces[in]
-    if exists == false {
-      return nil, fmt.Errorf("%s is not in GQLExtContext.Interfaces", in)
-    }
-    ret[i] = ctx_interface.Interface
-  }
-
-  return ret, nil
-}
-
-func GQLFields(ctx *GQLExtContext, field_names []string) (graphql.Fields, []ExtType, error) {
-  fields := graphql.Fields{
-    "ID": &graphql.Field{
-      Type: graphql.String,
-      Resolve: ResolveNodeID,
-    },
-    "TypeHash": &graphql.Field{
-      Type: graphql.String,
-      Resolve: ResolveNodeTypeHash,
-    },
-  }
-
-  exts := map[ExtType]ExtType{}
-  ext_list := []ExtType{}
-  for _, name := range(field_names) {
-    field, exists := ctx.Fields[name]
-    if exists == false {
-      return nil, nil, fmt.Errorf("%s is not in GQLExtContext.Fields", name)
-    }
-    fields[name] = field.Field
-    _, exists = exts[field.Ext]
-    if exists == false {
-      ext_list = append(ext_list, field.Ext)
-      exts[field.Ext] = field.Ext
-    }
-  }
-
-  return fields, ext_list, nil
-}
-
 type NodeResult struct {
   NodeID NodeID
   NodeType NodeType
-  Data map[ExtType]map[string]SerializedValue
+  Data map[ExtType]map[string]interface{}
 }
 
 type ListField struct {
@@ -1000,193 +656,6 @@ type SelfField struct {
   ACLName string
   Extension ExtType
   ResolveFn func(graphql.ResolveParams, *ResolveContext, reflect.Value) (*NodeID, error)
-}
-
-func (ctx *GQLExtContext) RegisterInterface(name string, default_name string, interfaces []string, fields []string, self_fields map[string]SelfField, list_fields map[string]ListField) error {
-  if interfaces == nil {
-    return fmt.Errorf("interfaces is nil")
-  }
-
-  if fields == nil {
-    return fmt.Errorf("fields is nil")
-  }
-
-  _, exists := ctx.Interfaces[name]
-  if exists == true {
-    return fmt.Errorf("%s is already an interface in ctx", name)
-  }
-
-  node_interfaces, err := GQLInterfaces(ctx, interfaces)
-  if err != nil {
-    return err
-  }
-
-  node_fields, node_exts, err := GQLFields(ctx, fields)
-  if err != nil {
-    return err
-  }
-
-  ctx_interface := Interface{}
-
-  ctx_interface.Interface = graphql.NewInterface(graphql.InterfaceConfig{
-    Name: name,
-    ResolveType: NodeInterfaceResolveType(node_exts, &ctx_interface.Default),
-    Fields: node_fields,
-  })
-  ctx_interface.List = graphql.NewList(ctx_interface.Interface)
-
-  for field_name, field := range(self_fields) {
-    self_field := field
-    err := ctx.RegisterField(ctx_interface.Interface, field_name, self_field.Extension, self_field.ACLName,
-    func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-      id, err := self_field.ResolveFn(p, ctx, value)
-      if err != nil {
-        return nil, err
-      }
-
-      if id != nil {
-        nodes, err := ResolveNodes(ctx, p, []NodeID{*id})
-        if err != nil {
-          return nil, err
-        } else if len(nodes) != 1 {
-          return nil, fmt.Errorf("wrong length of nodes returned")
-        }
-        return nodes[0], nil
-      } else {
-        return nil, nil
-      }
-    })
-    if err != nil {
-      return err
-    }
-
-    ctx_interface.Interface.AddFieldConfig(field_name, ctx.Fields[field_name].Field)
-    node_fields[field_name] = ctx.Fields[field_name].Field
-  }
-
-  for field_name, field := range(list_fields) {
-    list_field := field
-    resolve_fn := func(p graphql.ResolveParams, ctx *ResolveContext, value reflect.Value)(interface{}, error) {
-      var zero NodeID
-      ids, err := list_field.ResolveFn(p, ctx, value)
-      if err != nil {
-        return zero, err
-      }
-
-      nodes, err := ResolveNodes(ctx, p, ids)
-      if err != nil {
-        return nil, err
-      } else if len(nodes) != len(ids) {
-        return nil, fmt.Errorf("wrong length of nodes returned")
-      }
-      return nodes, nil
-    }
-
-    err := ctx.RegisterField(ctx_interface.List, field_name, list_field.Extension, list_field.ACLName, resolve_fn)
-    if err != nil {
-      return err
-    }
-    ctx_interface.Interface.AddFieldConfig(field_name, ctx.Fields[field_name].Field)
-    node_fields[field_name] = ctx.Fields[field_name].Field
-  }
-
-  ctx_interface.Default = graphql.NewObject(graphql.ObjectConfig{
-    Name: default_name,
-    Interfaces: append(node_interfaces, ctx_interface.Interface),
-    IsTypeOf: NodeInterfaceDefaultIsType(node_exts),
-    Fields: node_fields,
-  })
-
-  ctx.Interfaces[name] = &ctx_interface
-  ctx.Types = append(ctx.Types, ctx_interface.Default)
-
-  return nil
-}
-
-func (ctx *GQLExtContext) RegisterNodeType(node_type NodeType, name string, interface_names []string, field_names []string) error {
-  if field_names == nil {
-    return fmt.Errorf("fields is nil")
-  }
-
-  _, exists := ctx.NodeTypes[node_type]
-  if exists == true {
-    return fmt.Errorf("%+v already in GQLExtContext.NodeTypes", node_type)
-  }
-
-  node_interfaces, err := GQLInterfaces(ctx, interface_names)
-  if err != nil {
-    return err
-  }
-
-  gql_fields, _, err := GQLFields(ctx, field_names)
-  if err != nil {
-    return err
-  }
-
-  gql_type := graphql.NewObject(graphql.ObjectConfig{
-    Name: name,
-    Interfaces: node_interfaces,
-    IsTypeOf: func(p graphql.IsTypeOfParams) bool {
-      node, ok := p.Value.(NodeResult)
-      if ok == false {
-        return false
-      }
-
-      return node.NodeType == node_type
-    },
-    Fields: gql_fields,
-  })
-
-  ctx.NodeTypes[node_type] = gql_type
-  ctx.Types = append(ctx.Types, gql_type)
-
-  return nil
-}
-
-func NewGQLExtContext() *GQLExtContext {
-  query := graphql.NewObject(graphql.ObjectConfig{
-    Name: "Query",
-    Fields: graphql.Fields{
-      "Test": &graphql.Field{
-        Type: graphql.String,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				  return "Test Data", nil
-			  },
-      },
-    },
-  })
-
-  mutation := graphql.NewObject(graphql.ObjectConfig{
-    Name: "Mutation",
-    Fields: graphql.Fields{
-      "Test": &graphql.Field{
-        Type: graphql.String,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          return "Test Mutation Data", nil
-        },
-      },
-    },
-  })
-
-
-  context := GQLExtContext{
-    Schema: graphql.Schema{},
-    Types: []graphql.Type{},
-    Query: query,
-    Mutation: mutation,
-    NodeTypes: map[NodeType]*graphql.Object{},
-    Interfaces: map[string]*Interface{},
-    Fields: map[string]Field{},
-  }
-
-  schema, err := BuildSchema(&context)
-  if err != nil {
-    panic(err)
-  }
-
-  context.Schema = schema
-
-  return &context
 }
 
 type SubscriptionInfo struct {
@@ -1295,9 +764,10 @@ func (ext *GQLExt) FreeResponseChannel(req_id uuid.UUID) chan Signal {
   return response_chan
 }
 
-func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
+func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) ([]SendMsg, Changes) {
   // Process ReadResultSignalType by forwarding it to the waiting resolver
-  var changes = Changes{}
+  var changes Changes = nil
+  var messages []SendMsg = nil
 
   switch sig := signal.(type) {
   case *SuccessSignal:
@@ -1355,7 +825,7 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     ext.subscriptions_lock.RUnlock()
   }
 
-  return nil, changes
+  return messages, changes
 }
 
 var ecdsa_curves = map[uint8]elliptic.Curve{

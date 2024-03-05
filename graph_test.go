@@ -3,6 +3,7 @@ package graphvent
 import (
   "testing"
   "runtime/debug"
+  "time"
   badger "github.com/dgraph-io/badger/v3"
 )
 
@@ -43,4 +44,17 @@ func fatalErr(t * testing.T, err error) {
     debug.PrintStack()
     t.Fatal(err)
   }
+}
+
+func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *Node) (ResponseSignal, []Signal) {
+  source_listener, err := GetExt[ListenerExt](source)
+  fatalErr(t, err)
+
+  messages := []SendMsg{{destination.ID, signal}}
+  fatalErr(t, ctx.Send(source, messages))
+
+  response, signals, err := WaitForResponse(source_listener.Chan, time.Millisecond*10, signal.ID())
+  fatalErr(t, err)
+
+  return response, signals
 }

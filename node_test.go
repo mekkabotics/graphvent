@@ -12,7 +12,7 @@ func TestNodeDB(t *testing.T) {
   ctx := logTestContext(t, []string{"node", "db"})
 
   node_listener := NewListenerExt(10)
-  node, err := NewNode(ctx, nil, "Base", 10, nil, NewGroupExt(nil), NewLockableExt(nil), node_listener)
+  node, err := NewNode(ctx, nil, "Base", 10, nil, NewLockableExt(nil), node_listener)
   fatalErr(t, err)
 
   _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
@@ -45,25 +45,18 @@ func TestNodeRead(t *testing.T) {
   ctx.Log.Logf("test", "N1: %s", n1_id)
   ctx.Log.Logf("test", "N2: %s", n2_id)
 
-  n1_policy := NewPerNodePolicy(map[NodeID]Tree{
-    n2_id: {
-      SerializedType(SignalTypeFor[ReadSignal]()): nil,
-    },
-  })
-
   n2_listener := NewListenerExt(10)
-  n2, err := NewNode(ctx, n2_key, "Base", 10, nil, NewGroupExt(nil), n2_listener)
+  n2, err := NewNode(ctx, n2_key, "Base", 10, n2_listener)
   fatalErr(t, err)
 
-  n1, err := NewNode(ctx, n1_key, "Base", 10, []Policy{n1_policy}, NewGroupExt(nil))
+  n1, err := NewNode(ctx, n1_key, "Base", 10, NewListenerExt(10)) 
   fatalErr(t, err)
 
   read_sig := NewReadSignal(map[ExtType][]string{
-    ExtTypeFor[GroupExt](): {"members"},
+    ExtTypeFor[ListenerExt](): {"buffer"},
   })
-  msgs := Messages{}
-  msgs = msgs.Add(ctx, n1.ID, n2, nil, read_sig)
-  err = ctx.Send(msgs)
+  msgs := []SendMsg{{n1.ID, read_sig}}
+  err = ctx.Send(n2, msgs)
   fatalErr(t, err)
 
   res, err := WaitForSignal(n2_listener.Chan, 10*time.Millisecond, func(sig *ReadResultSignal) bool {

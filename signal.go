@@ -7,20 +7,13 @@ import (
  "github.com/google/uuid"
 )
 
-type SignalDirection uint8
-const (
-  Up SignalDirection = iota
-  Down
-  Direct
-)
-
 type TimeoutSignal struct {
   ResponseHeader
 }
 
 func NewTimeoutSignal(req_id uuid.UUID) *TimeoutSignal {
   return &TimeoutSignal{
-    NewResponseHeader(req_id, Direct),
+    NewResponseHeader(req_id),
   }
 }
 
@@ -28,26 +21,23 @@ func (signal TimeoutSignal) String() string {
   return fmt.Sprintf("TimeoutSignal(%s)", &signal.ResponseHeader)
 }
 
-// Timeouts are internal only, no permission allows sending them
-func (signal TimeoutSignal) Permission() Tree {
-  return nil
-}
+type SignalDirection int
+const (
+  Up SignalDirection = iota
+  Down
+  Direct
+)
 
 type SignalHeader struct {
   Id uuid.UUID `gv:"id"`
-  Dir SignalDirection `gv:"direction"`
 }
 
 func (signal SignalHeader) ID() uuid.UUID {
   return signal.Id
 }
 
-func (signal SignalHeader) Direction() SignalDirection {
-  return signal.Dir
-}
-
 func (header SignalHeader) String() string {
-   return fmt.Sprintf("SignalHeader(%d, %s)", header.Dir, header.Id)
+   return fmt.Sprintf("SignalHeader(%s)", header.Id)
 }
 
 type ResponseSignal interface {
@@ -65,14 +55,12 @@ func (header ResponseHeader) ResponseID() uuid.UUID {
 }
 
 func (header ResponseHeader) String() string {
-   return fmt.Sprintf("ResponseHeader(%d, %s->%s)", header.Dir, header.Id, header.ReqID)
+   return fmt.Sprintf("ResponseHeader(%s, %s)", header.Id, header.ReqID)
 }
 
 type Signal interface {
   fmt.Stringer
   ID() uuid.UUID
-  Direction() SignalDirection
-  Permission() Tree
 }
 
 func WaitForResponse(listener chan Signal, timeout time.Duration, req_id uuid.UUID) (ResponseSignal, []Signal, error) {
@@ -129,16 +117,15 @@ func WaitForSignal[S Signal](listener chan Signal, timeout time.Duration, check 
   return zero, fmt.Errorf("LOOP_ENDED")
 }
 
-func NewSignalHeader(direction SignalDirection) SignalHeader {
+func NewSignalHeader() SignalHeader {
   return SignalHeader{
     uuid.New(),
-    direction,
   }
 }
 
-func NewResponseHeader(req_id uuid.UUID, direction SignalDirection) ResponseHeader {
+func NewResponseHeader(req_id uuid.UUID) ResponseHeader {
   return ResponseHeader{
-    NewSignalHeader(direction),
+    NewSignalHeader(),
     req_id,
   }
 }
@@ -151,16 +138,9 @@ func (signal SuccessSignal) String() string {
   return fmt.Sprintf("SuccessSignal(%s)", signal.ResponseHeader)
 }
 
-func (signal SuccessSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[ResponseSignal]()): {
-      SerializedType(SignalTypeFor[SuccessSignal]()): nil,
-    },
-  }
-}
 func NewSuccessSignal(req_id uuid.UUID) *SuccessSignal {
   return &SuccessSignal{
-    NewResponseHeader(req_id, Direct),
+    NewResponseHeader(req_id),
   }
 }
 
@@ -171,16 +151,9 @@ type ErrorSignal struct {
 func (signal ErrorSignal) String() string {
   return fmt.Sprintf("ErrorSignal(%s, %s)", signal.ResponseHeader, signal.Error)
 }
-func (signal ErrorSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[ResponseSignal]()): {
-      SerializedType(SignalTypeFor[ErrorSignal]()): nil,
-    },
-  }
-}
 func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) *ErrorSignal {
   return &ErrorSignal{
-    NewResponseHeader(req_id, Direct),
+    NewResponseHeader(req_id),
     fmt.Sprintf(fmt_string, args...),
   }
 }
@@ -188,14 +161,9 @@ func NewErrorSignal(req_id uuid.UUID, fmt_string string, args ...interface{}) *E
 type ACLTimeoutSignal struct {
   ResponseHeader
 }
-func (signal ACLTimeoutSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[ACLTimeoutSignal]()): nil,
-  }
-}
 func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
   sig := &ACLTimeoutSignal{
-    NewResponseHeader(req_id, Direct),
+    NewResponseHeader(req_id),
   }
   return sig
 }
@@ -205,17 +173,12 @@ type StatusSignal struct {
   Source NodeID `gv:"source"`
   Changes map[ExtType]Changes `gv:"changes"`
 }
-func (signal StatusSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[StatusSignal]()): nil,
-  }
-}
 func (signal StatusSignal) String() string {
   return fmt.Sprintf("StatusSignal(%s, %+v)", signal.SignalHeader, signal.Changes)
 }
 func NewStatusSignal(source NodeID, changes map[ExtType]Changes) *StatusSignal {
   return &StatusSignal{
-    NewSignalHeader(Up),
+    NewSignalHeader(),
     source,
     changes,
   }
@@ -232,17 +195,9 @@ const (
   LinkActionAdd = "ADD"
 )
 
-func (signal LinkSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[LinkSignal]()): Tree{
-      Hash(LinkActionBase, signal.Action): nil,
-    },
-  }
-}
-
 func NewLinkSignal(action string, id NodeID) Signal {
   return &LinkSignal{
-    NewSignalHeader(Direct),
+    NewSignalHeader(),
     id,
     action,
   }
@@ -256,21 +211,9 @@ func (signal LockSignal) String() string {
   return fmt.Sprintf("LockSignal(%s, %s)", signal.SignalHeader, signal.State)
 }
 
-const (
-  LockStateBase = "LOCK_STATE"
-)
-
-func (signal LockSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[LockSignal]()): Tree{
-      Hash(LockStateBase, signal.State): nil,
-    },
-  }
-}
-
 func NewLockSignal(state string) *LockSignal {
   return &LockSignal{
-    NewSignalHeader(Direct),
+    NewSignalHeader(),
     state,
   }
 }
@@ -284,21 +227,9 @@ func (signal ReadSignal) String() string {
   return fmt.Sprintf("ReadSignal(%s, %+v)", signal.SignalHeader, signal.Extensions)
 }
 
-func (signal ReadSignal) Permission() Tree {
-  ret := Tree{}
-  for ext, fields := range(signal.Extensions) {
-    field_tree := Tree{}
-    for _, field := range(fields) {
-      field_tree[SerializedType(GetFieldTag(field))] = nil
-    }
-    ret[SerializedType(ext)] = field_tree
-  }
-  return Tree{SerializedType(SignalTypeFor[ReadSignal]()): ret}
-}
-
 func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
   return &ReadSignal{
-    NewSignalHeader(Direct),
+    NewSignalHeader(),
     exts,
   }
 }
@@ -307,23 +238,16 @@ type ReadResultSignal struct {
   ResponseHeader
   NodeID NodeID
   NodeType NodeType
-  Extensions map[ExtType]map[string]SerializedValue
+  Extensions map[ExtType]map[string]any
 }
 
 func (signal ReadResultSignal) String() string {
   return fmt.Sprintf("ReadResultSignal(%s, %s, %+v, %+v)", signal.ResponseHeader, signal.NodeID, signal.NodeType, signal.Extensions)
 }
 
-func (signal ReadResultSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[ResponseSignal]()): {
-      SerializedType(SignalTypeFor[ReadResultSignal]()): nil,
-    },
-  }
-}
-func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, exts map[ExtType]map[string]SerializedValue) *ReadResultSignal {
+func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, exts map[ExtType]map[string]any) *ReadResultSignal {
   return &ReadResultSignal{
-    NewResponseHeader(req_id, Direct),
+    NewResponseHeader(req_id),
     node_id,
     node_type,
     exts,

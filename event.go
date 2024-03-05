@@ -8,40 +8,6 @@ import (
 type EventCommand string
 type EventState string
 
-type ParentOfPolicy struct {
-  PolicyHeader
-  Policy Tree
-}
-
-func NewParentOfPolicy(policy Tree) *ParentOfPolicy {
-  return &ParentOfPolicy{
-    PolicyHeader: NewPolicyHeader(),
-    Policy: policy,
-  }
-}
-
-func (policy ParentOfPolicy) Allows(ctx *Context, principal_id NodeID, action Tree, node *Node)(Messages, RuleResult) {
-  event_ext, err := GetExt[EventExt](node)
-  if err != nil {
-    ctx.Log.Logf("event", "ParentOfPolicy, node not event %s", node.ID)
-    return nil, Deny
-  }
-
-  if event_ext.Parent == principal_id {
-    return nil, policy.Policy.Allows(action)
-  }
-
-  return nil, Deny
-}
-
-func (policy ParentOfPolicy) ContinueAllows(ctx *Context, current PendingACL, signal Signal) RuleResult {
-  return Deny
-}
-
-var DefaultEventPolicy = NewParentOfPolicy(Tree{
-  SerializedType(SignalTypeFor[EventControlSignal]()): nil,
-})
-
 type EventExt struct {
   Name string `gv:"name"`
   State EventState `gv:"state"`
@@ -71,19 +37,13 @@ type EventStateSignal struct {
   Time time.Time `gv:"time"`
 }
 
-func (signal EventStateSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[StatusSignal]()): nil,
-  }
-}
-
 func (signal EventStateSignal) String() string {
   return fmt.Sprintf("EventStateSignal(%s, %s, %s, %+v)", signal.SignalHeader, signal.Source, signal.State, signal.Time)
 }
 
 func NewEventStateSignal(source NodeID, state EventState, t time.Time) *EventStateSignal {
   return &EventStateSignal{
-    SignalHeader: NewSignalHeader(Up),
+    SignalHeader: NewSignalHeader(),
     Source: source,
     State: state,
     Time: t,
@@ -101,16 +61,8 @@ func (signal EventControlSignal) String() string {
 
 func NewEventControlSignal(command EventCommand) *EventControlSignal {
   return &EventControlSignal{
-    NewSignalHeader(Direct),
+    NewSignalHeader(),
     command,
-  }
-}
-
-func (signal EventControlSignal) Permission() Tree {
-  return Tree{
-    SerializedType(SignalTypeFor[EventControlSignal]()): {
-      Hash("command", string(signal.Command)): nil,
-    },
   }
 }
 
@@ -123,13 +75,9 @@ func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState, 
   }
 }
 
-func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
-  var messages Messages = nil
+func (ext *EventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) ([]SendMsg, Changes) {
+  var messages []SendMsg = nil
   var changes = Changes{}
-
-  if signal.Direction() == Up && ext.Parent != node.ID {
-    messages = messages.Add(ctx, ext.Parent, node, nil, signal)
-  }
 
   return messages, changes
 }
@@ -165,27 +113,27 @@ var test_event_commands = EventCommandMap{
 }
 
 
-func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) (Messages, Changes) {
-  var messages Messages = nil
+func (ext *TestEventExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) ([]SendMsg, Changes) {
+  var messages []SendMsg = nil
   var changes = Changes{}
 
   switch sig := signal.(type) {
   case *EventControlSignal:
     event_ext, err := GetExt[EventExt](node)
     if err != nil {
-      messages = messages.Add(ctx, source, node, nil, NewErrorSignal(sig.Id, "not_event"))
+      messages = append(messages, SendMsg{source, NewErrorSignal(sig.Id, "not_event")})
     } else {
       ctx.Log.Logf("event", "%s got %s EventControlSignal while in %s", node.ID, sig.Command, event_ext.State)
       new_state, error_signal := event_ext.ValidateEventCommand(sig, test_event_commands)
       if error_signal != nil {
-        messages = messages.Add(ctx, source, node, nil, error_signal)
+        messages = append(messages, SendMsg{source, error_signal})
       } else {
         switch sig.Command {
         case "start":
           node.QueueSignal(time.Now().Add(ext.Length), NewEventControlSignal("finish"))
         }
         event_ext.UpdateState(node, changes, new_state, time.Now())
-        messages = messages.Add(ctx, source, node, nil, NewSuccessSignal(sig.Id))
+        messages = append(messages, SendMsg{source, NewSuccessSignal(sig.Id)})
       }
     }
   }

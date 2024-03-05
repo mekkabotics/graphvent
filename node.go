@@ -10,7 +10,7 @@ import (
   "sync/atomic"
   "time"
 
-  badger "github.com/dgraph-io/badger/v3"
+  _ "github.com/dgraph-io/badger/v3"
   "github.com/google/uuid"
 )
 
@@ -57,24 +57,6 @@ func (q QueuedSignal) String() string {
   return fmt.Sprintf("%+v@%s", reflect.TypeOf(q.Signal), q.Time)
 }
 
-type PendingACL struct {
-  Counter int
-  Responses []ResponseSignal
-
-  TimeoutID uuid.UUID
-  Action Tree
-  Principal NodeID
-
-  Signal Signal
-  Source NodeID
-}
-
-type PendingACLSignal struct {
-  Policy uuid.UUID
-  Timeout uuid.UUID
-  ID uuid.UUID
-}
-
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
@@ -84,13 +66,8 @@ type Node struct {
   // TODO: move each extension to it's own db key, and extend changes to notify which extension was changed
   Extensions map[ExtType]Extension
 
-  Policies []Policy `gv:"policies"`
-
-  PendingACLs map[uuid.UUID]PendingACL `gv:"pending_acls"`
-  PendingACLSignals map[uuid.UUID]PendingACLSignal `gv:"pending_signal"`
-
   // Channel for this node to receive messages from the Context
-  MsgChan chan *Message
+  MsgChan chan RecvMsg
   // Size of MsgChan
   BufferSize uint32 `gv:"buffer_size"`
   // Channel for this node to process delayed signals
@@ -110,32 +87,9 @@ func (node *Node) PostDeserialize(ctx *Context) error {
   public := node.Key.Public().(ed25519.PublicKey)
   node.ID = KeyID(public)
 
-  node.MsgChan = make(chan *Message, node.BufferSize)
+  node.MsgChan = make(chan RecvMsg, node.BufferSize)
 
   return nil
-}
-
-type RuleResult int
-const (
-  Allow RuleResult = iota
-  Deny
-  Pending
-)
-
-func (node *Node) Allows(ctx *Context, principal_id NodeID, action Tree)(map[uuid.UUID]Messages, RuleResult) {
-  pends := map[uuid.UUID]Messages{}
-  for _, policy := range(node.Policies) {
-    msgs, resp := policy.Allows(ctx, principal_id, action, node)
-    if resp == Allow {
-      return nil, Allow
-    } else if resp == Pending {
-      pends[policy.ID()] = msgs
-    }
-  }
-  if len(pends) != 0 {
-    return pends, Pending
-  }
-  return nil, Deny
 }
 
 type WaitReason string
@@ -250,37 +204,23 @@ func (err StringError) MarshalBinary() ([]byte, error) {
   return []byte(string(err)), nil
 }
 
-func NewErrorField(fstring string, args ...interface{}) SerializedValue {
-  str := StringError(fmt.Sprintf(fstring, args...))
-  str_ser, err := str.MarshalBinary()
-  if err != nil {
-    panic(err)
-  }
-  return SerializedValue{
-    TypeStack: []SerializedType{SerializedTypeFor[error]()},
-    Data: str_ser,
-  }
-}
-
-func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType]map[string]SerializedValue {
+func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType]map[string]any {
   ctx.Log.Logf("read_field", "Reading %+v on %+v", reqs, node.ID)
-  exts := map[ExtType]map[string]SerializedValue{}
+  exts := map[ExtType]map[string]any{}
   for ext_type, field_reqs := range(reqs) {
-    fields := map[string]SerializedValue{}
-    for _, req := range(field_reqs) {
-      ext, exists := node.Extensions[ext_type]
-      if exists == false {
-        fields[req] = NewErrorField("%+v does not have %+v extension", node.ID, ext_type)
-      } else {
-        f, err := SerializeField(ctx, ext, req)
-        if err != nil {
-          fields[req] = NewErrorField(err.Error())
+    ext_info, ext_known := ctx.Extensions[ext_type]
+    if ext_known { 
+      fields := map[string]any{}
+      for _, req := range(field_reqs) {
+        ext, exists := node.Extensions[ext_type]
+        if exists == false {
+          fields[req] = fmt.Errorf("%+v does not have %+v extension", node.ID, ext_type)
         } else {
-          fields[req] = f
+          fields[req] = reflect.ValueOf(ext).FieldByIndex(ext_info.Fields[req]).Interface()
         }
       }
+      exts[ext_type] = fields
     }
-    exts[ext_type] = fields
   }
   return exts
 }
@@ -306,92 +246,8 @@ func nodeLoop(ctx *Context, node *Node) error {
     var source NodeID
     select {
     case msg := <- node.MsgChan:
-      ctx.Log.Logf("node_msg", "NODE_MSG: %s - %+v", node.ID, msg.Signal)
-      signal_ser, err := SerializeAny(ctx, msg.Signal)
-      if err != nil {
-        ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", err, msg.Signal)
-      }
-      chunks, err := signal_ser.Chunks()
-      if err != nil {
-        ctx.Log.Logf("signal", "SIGNAL_SERIALIZE_ERR: %s - %+v", err, signal_ser)
-        continue
-      }
-
-      dst_id_ser, err := msg.Dest.MarshalBinary()
-      if err != nil {
-        ctx.Log.Logf("signal", "SIGNAL_DEST_ID_SER_ERR: %e", err)
-        continue
-      }
-      src_id_ser, err := KeyID(msg.Source).MarshalBinary()
-      if err != nil {
-        ctx.Log.Logf("signal", "SIGNAL_SRC_ID_SER_ERR: %e", err)
-        continue
-      }
-      sig_data := append(dst_id_ser, src_id_ser...)
-      sig_data = append(sig_data, chunks.Slice()...)
-      if msg.Authorization != nil {
-        sig_data = append(sig_data, msg.Authorization.Signature...)
-      }
-      validated := ed25519.Verify(msg.Source, sig_data, msg.Signature)
-      if validated == false {
-        ctx.Log.Logf("signal_verify", "SIGNAL_VERIFY_ERR: %s - %s", node.ID, reflect.TypeOf(msg.Signal))
-        continue
-      }
-
-      var princ_id NodeID
-      if msg.Authorization == nil {
-        princ_id = KeyID(msg.Source)
-      } else {
-        err := ValidateAuthorization(*msg.Authorization, time.Hour)
-        if err != nil {
-          ctx.Log.Logf("node", "Authorization validation failed: %s", err)
-          continue
-        }
-        princ_id = KeyID(msg.Authorization.Identity)
-      }
-      if princ_id != node.ID {
-        pends, resp := node.Allows(ctx, princ_id, msg.Signal.Permission())
-        if resp == Deny {
-          ctx.Log.Logf("policy", "SIGNAL_POLICY_DENY: %s->%s - %+v(%+s)", princ_id, node.ID, reflect.TypeOf(msg.Signal), msg.Signal)
-          ctx.Log.Logf("policy", "SIGNAL_POLICY_SOURCE: %s", msg.Source)
-          msgs := Messages{}
-          msgs = msgs.Add(ctx, KeyID(msg.Source), node, nil, NewErrorSignal(msg.Signal.ID(), "acl denied"))
-          ctx.Send(msgs)
-          continue
-        } else if resp == Pending {
-          ctx.Log.Logf("policy", "SIGNAL_POLICY_PENDING: %s->%s - %s - %+v", princ_id, node.ID, msg.Signal.Permission(), pends)
-          timeout_signal := NewACLTimeoutSignal(msg.Signal.ID())
-          node.QueueSignal(time.Now().Add(100*time.Millisecond), timeout_signal)
-          msgs := Messages{}
-          for policy_type, sigs := range(pends) {
-            for _, m := range(sigs) {
-              msgs = append(msgs, m)
-              timeout_signal := NewTimeoutSignal(m.Signal.ID())
-              node.QueueSignal(time.Now().Add(time.Second), timeout_signal)
-              node.PendingACLSignals[m.Signal.ID()] = PendingACLSignal{policy_type, timeout_signal.Id, msg.Signal.ID()}
-            }
-          }
-          node.PendingACLs[msg.Signal.ID()] = PendingACL{
-            Counter: len(msgs),
-            TimeoutID: timeout_signal.ID(),
-            Action: msg.Signal.Permission(),
-            Principal: princ_id,
-            Responses: []ResponseSignal{},
-            Signal: msg.Signal,
-            Source: KeyID(msg.Source),
-          }
-          ctx.Log.Logf("policy", "Sending signals for pending ACL: %+v", msgs)
-          ctx.Send(msgs)
-          continue
-        } else if resp == Allow {
-          ctx.Log.Logf("policy", "SIGNAL_POLICY_ALLOW: %s->%s - %s", princ_id, node.ID, reflect.TypeOf(msg.Signal))
-        }
-      } else {
-        ctx.Log.Logf("policy", "SIGNAL_POLICY_SELF: %s - %s", node.ID, reflect.TypeOf(msg.Signal))
-      }
-
       signal = msg.Signal
-      source = KeyID(msg.Source)
+      source = msg.Source
 
     case <-node.TimeoutChan:
       signal = node.NextSignal.Signal
@@ -425,68 +281,12 @@ func nodeLoop(ctx *Context, node *Node) error {
 
     ctx.Log.Logf("node", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
 
-    response, ok := signal.(ResponseSignal)
-    if ok == true {
-      info, waiting := node.PendingACLSignals[response.ResponseID()]
-      if waiting == true {
-        delete(node.PendingACLSignals, response.ResponseID())
-        ctx.Log.Logf("pending", "FOUND_PENDING_SIGNAL: %s - %s", node.ID, signal)
-
-        req_info, exists := node.PendingACLs[info.ID]
-        if exists == true {
-          req_info.Counter -= 1
-          req_info.Responses = append(req_info.Responses, response)
-
-          idx := -1
-          for i, p := range(node.Policies) {
-            if p.ID() == info.Policy {
-              idx = i
-              break
-            }
-          }
-          if idx == -1 {
-            ctx.Log.Logf("policy", "PENDING_FOR_NONEXISTENT_POLICY: %s - %s", node.ID, info.Policy)
-            delete(node.PendingACLs, info.ID)
-          } else {
-            allowed := node.Policies[idx].ContinueAllows(ctx, req_info, signal)
-            if allowed == Allow {
-              ctx.Log.Logf("policy", "DELAYED_POLICY_ALLOW: %s - %s", node.ID, req_info.Signal)
-              signal = req_info.Signal
-              source = req_info.Source
-              err := node.DequeueSignal(req_info.TimeoutID)
-              if err != nil {
-                ctx.Log.Logf("node", "dequeue error: %s", err)
-              }
-              delete(node.PendingACLs, info.ID)
-            } else if req_info.Counter == 0 {
-              ctx.Log.Logf("policy", "DELAYED_POLICY_DENY: %s - %s", node.ID, req_info.Signal)
-              // Send the denied response
-              msgs := Messages{}
-              msgs = msgs.Add(ctx, req_info.Source, node, nil, NewErrorSignal(req_info.Signal.ID(), "acl_denied"))
-              err := ctx.Send(msgs)
-              if err != nil {
-                ctx.Log.Logf("signal", "SEND_ERR: %s", err)
-              }
-              err = node.DequeueSignal(req_info.TimeoutID)
-              if err != nil {
-                ctx.Log.Logf("node", "ACL_DEQUEUE_ERROR: timeout signal not in queue when trying to clear after counter hit 0 %s, %s - %s", err, signal.ID(), req_info.TimeoutID)
-              }
-              delete(node.PendingACLs, info.ID)
-            } else {
-              node.PendingACLs[info.ID] = req_info
-              continue
-            }
-          }
-        }
-      }
-    }
-
     switch sig := signal.(type) {
     case *ReadSignal:
       result := node.ReadFields(ctx, sig.Extensions)
-      msgs := Messages{}
-      msgs = msgs.Add(ctx, source, node, nil, NewReadResultSignal(sig.ID(), node.ID, node.Type, result))
-      ctx.Send(msgs)
+      msgs := []SendMsg{}
+      msgs = append(msgs, SendMsg{source, NewReadResultSignal(sig.ID(), node.ID, node.Type, result)})
+      ctx.Send(node, msgs)
 
     default:
       err := node.Process(ctx, source, signal)
@@ -522,7 +322,7 @@ func (node *Node) QueueChanges(ctx *Context, changes map[ExtType]Changes) error 
 
 func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   ctx.Log.Logf("node_process", "PROCESSING MESSAGE: %s - %+v", node.ID, signal)
-  messages := Messages{}
+  messages := []SendMsg{}
   changes := map[ExtType]Changes{}
   for ext_type, ext := range(node.Extensions) {
     ctx.Log.Logf("node_process", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
@@ -537,7 +337,7 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   ctx.Log.Logf("changes", "Changes for %s after %+v - %+v", node.ID, reflect.TypeOf(signal), changes)
 
   if len(messages) != 0 {
-    send_err := ctx.Send(messages)
+    send_err := ctx.Send(node, messages)
     if send_err != nil {
       return send_err
     }
@@ -596,7 +396,7 @@ func KeyID(pub ed25519.PublicKey) NodeID {
 }
 
 // Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size uint32, policies []Policy, extensions ...Extension) (*Node, error) {
+func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size uint32, extensions ...Extension) (*Node, error) {
   node_type, known_type := ctx.NodeTypes[type_name]
   if known_type == false {
     return nil, fmt.Errorf("%s is not a known node type", type_name)
@@ -643,17 +443,12 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     }
   }
 
-  policies = append(policies, DefaultPolicy)
-
   node := &Node{
     Key: key,
     ID: id,
     Type: node_type,
     Extensions: ext_map,
-    Policies: policies,
-    PendingACLs: map[uuid.UUID]PendingACL{},
-    PendingACLSignals: map[uuid.UUID]PendingACLSignal{},
-    MsgChan: make(chan *Message, buffer_size),
+    MsgChan: make(chan RecvMsg, buffer_size),
     BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},
   }
@@ -685,256 +480,17 @@ func ExtTypeSuffix(ext_type ExtType) []byte {
 }
 
 func WriteNodeExtList(ctx *Context, node *Node) error {
-  ext_list := make([]ExtType, len(node.Extensions))
-  i := 0
-  for ext_type := range(node.Extensions) {
-    ext_list[i] = ext_type
-    i += 1
-  }
-
-  ctx.Log.Logf("db", "Writing ext_list for %s - %+v", node.ID, ext_list)
-
-  id_bytes, err := node.ID.MarshalBinary()
-  if err != nil {
-    return err
-  }
-
-  ext_list_serialized, err := SerializeAny(ctx, ext_list)
-  if err != nil {
-    return err
-  }
-
-  return ctx.DB.Update(func(txn *badger.Txn) error {
-    return txn.Set(append(id_bytes, extension_suffix...), ext_list_serialized.Data)
-  })
+  return fmt.Errorf("TODO: write node list")
 }
 
 func WriteNodeInit(ctx *Context, node *Node) error {
-  ctx.Log.Logf("db", "Writing initial entry for %s - %+v", node.ID, node)
-
-  ext_serialized := map[ExtType]SerializedValue{}
-  for ext_type, ext := range(node.Extensions) {
-    serialized_ext, err := SerializeAny(ctx, ext)
-    if err != nil {
-      return err
-    }
-    ext_serialized[ext_type] = serialized_ext
-  }
-
-  sq_serialized, err := SerializeAny(ctx, node.SignalQueue)
-  if err != nil {
-    return err
-  }
-
-  node_serialized, err := SerializeAny(ctx, node)
-  if err != nil {
-    return err
-  }
-
-  id_bytes, err := node.ID.MarshalBinary()
-
-  return ctx.DB.Update(func(txn *badger.Txn) error {
-    err := txn.Set(id_bytes, node_serialized.Data)
-    if err != nil {
-      return nil
-    }
-
-    err = txn.Set(append(id_bytes, signal_queue_suffix...), sq_serialized.Data)
-    if err != nil {
-      return err
-    }
-
-    for ext_type, data := range(ext_serialized) {
-      err := txn.Set(append(id_bytes, ExtTypeSuffix(ext_type)...), data.Data)
-      if err != nil {
-        return err
-      }
-    }
-
-    return nil
-  })
-
+  return fmt.Errorf("TODO: write initial node entry")
 }
 
 func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) error {
-  ctx.Log.Logf("db", "Writing changes for %s - %+v", node.ID, changes)
-
-  ext_serialized := map[ExtType]SerializedValue{}
-  for ext_type := range(changes) {
-    ext, ext_exists := node.Extensions[ext_type]
-    if ext_exists == false {
-      ctx.Log.Logf("db", "extension 0x%x does not exist for %s", ext_type, node.ID)
-    } else {
-      serialized_ext, err := SerializeAny(ctx, ext)
-      if err != nil {
-        return err
-      }
-      ext_serialized[ext_type] = serialized_ext
-    }
-  }
-
-  var sq_serialized *SerializedValue = nil
-  if node.writeSignalQueue == true {
-    node.writeSignalQueue = false
-    ser, err := SerializeAny(ctx, node.SignalQueue)
-    if err != nil {
-      return err
-    }
-    sq_serialized = &ser
-  }
-
-  node_serialized, err := SerializeAny(ctx, node)
-  if err != nil {
-    return err
-  }
-
-  id_bytes, err := node.ID.MarshalBinary()
-  return ctx.DB.Update(func(txn *badger.Txn) error {
-    err := txn.Set(id_bytes, node_serialized.Data)
-    if err != nil {
-      return err
-    }
-    if sq_serialized != nil {
-      err := txn.Set(append(id_bytes, signal_queue_suffix...), sq_serialized.Data)
-      if err != nil {
-        return err
-      }
-    }
-    for ext_type, data := range(ext_serialized) {
-      err := txn.Set(append(id_bytes, ExtTypeSuffix(ext_type)...), data.Data)
-      if err != nil {
-        return err
-      }
-    }
-    return nil
-  })
+  return fmt.Errorf("TODO: write changes to node(and any signal queue changes)")
 }
 
 func LoadNode(ctx *Context, id NodeID) (*Node, error) {
-  ctx.Log.Logf("db", "LOADING_NODE: %s", id)
-  var node_bytes []byte = nil
-  var sq_bytes []byte = nil
-  var ext_bytes = map[ExtType][]byte{}
-
-  err := ctx.DB.View(func(txn *badger.Txn) error {
-    id_bytes, err := id.MarshalBinary()
-    if err != nil {
-      return err
-    }
-
-    node_item, err := txn.Get(id_bytes)
-    if err != nil {
-      ctx.Log.Logf("db", "node key not found")
-      return err
-    }
-
-    node_bytes, err = node_item.ValueCopy(nil)
-    if err != nil {
-      return err
-    }
-
-    sq_item, err := txn.Get(append(id_bytes, signal_queue_suffix...))
-    if err != nil {
-      ctx.Log.Logf("db", "sq key not found")
-      return err
-    }
-    sq_bytes, err = sq_item.ValueCopy(nil)
-    if err != nil {
-      return err
-    }
-
-    ext_list_item, err := txn.Get(append(id_bytes, extension_suffix...))
-    if err != nil {
-      ctx.Log.Logf("db", "ext_list key not found")
-      return err
-    }
-
-    ext_list_bytes, err := ext_list_item.ValueCopy(nil)
-    if err != nil {
-      return err
-    }
-
-    ext_list_value, remaining, err := DeserializeValue(ctx, reflect.TypeOf([]ExtType{}), ext_list_bytes)
-    if err != nil {
-      return err
-    } else if len(remaining) > 0 {
-      return fmt.Errorf("Data remaining after ext_list deserialize %d", len(remaining))
-    }
-    ext_list, ok := ext_list_value.Interface().([]ExtType)
-    if ok == false {
-      return fmt.Errorf("deserialize returned wrong type %s", ext_list_value.Type())
-    }
-
-    for _, ext_type := range(ext_list) {
-      ext_item, err := txn.Get(append(id_bytes, ExtTypeSuffix(ext_type)...))
-      if err != nil {
-        ctx.Log.Logf("db", "ext %s key not found", ext_type)
-        return err
-      }
-
-      ext_bytes[ext_type], err = ext_item.ValueCopy(nil)
-      if err != nil {
-        return err
-      }
-    }
-    return nil
-  })
-  if err != nil {
-    return nil, err
-  }
-
-  node_value, remaining, err := DeserializeValue(ctx, reflect.TypeOf((*Node)(nil)), node_bytes)
-  if err != nil {
-    return nil, err
-  } else if len(remaining) != 0 {
-    return nil, fmt.Errorf("data left after deserializing node %d", len(remaining))
-  }
-
-  node, node_ok := node_value.Interface().(*Node)
-  if node_ok == false {
-    return nil, fmt.Errorf("node wrong type %s", node_value.Type())
-  }
-
-  ctx.Log.Logf("db", "Deserialized node bytes %+v", node)
-
-  signal_queue_value, remaining, err := DeserializeValue(ctx, reflect.TypeOf([]QueuedSignal{}), sq_bytes)
-  if err != nil {
-    return nil, err
-  } else if len(remaining) != 0 {
-    return nil, fmt.Errorf("data left after deserializing signal_queue %d", len(remaining))
-  }
-
-  signal_queue, sq_ok := signal_queue_value.Interface().([]QueuedSignal)
-  if sq_ok == false {
-    return nil, fmt.Errorf("signal queue wrong type %s", signal_queue_value.Type())
-  }
-
-  for ext_type, data := range(ext_bytes) {
-    ext_info, exists := ctx.Extensions[ext_type]
-    if exists == false {
-      return nil, fmt.Errorf("0x%0x is not a known extension type", ext_type)
-    }
-
-    ext_value, remaining, err := DeserializeValue(ctx, ext_info.Reflect, data)
-    if err != nil {
-      return nil, err
-    } else if len(remaining) > 0 {
-      return nil, fmt.Errorf("data left after deserializing ext(0x%x) %d", ext_type, len(remaining))
-    }
-    ext, ext_ok := ext_value.Interface().(Extension)
-    if ext_ok == false {
-      return nil, fmt.Errorf("extension wrong type %s", ext_value.Type())
-    }
-
-    node.Extensions[ext_type] = ext
-  }
-
-  node.SignalQueue = signal_queue
-  node.NextSignal, node.TimeoutChan = SoonestSignal(signal_queue)
-
-  ctx.AddNode(id, node) 
-  ctx.Log.Logf("db", "loaded %+v", node)
-  go runNode(ctx, node)
-
-  return node, nil
+  return nil, fmt.Errorf("TODO: load node + extensions from DB")
 }
