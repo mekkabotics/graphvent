@@ -226,7 +226,7 @@ func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType
         if exists == false {
           fields[req] = fmt.Errorf("%+v does not have %+v extension", node.ID, ext_type)
         } else {
-          fields[req] = reflect.ValueOf(ext).FieldByIndex(ext_info.Fields[req]).Interface()
+          fields[req] = reflect.ValueOf(ext).Elem().FieldByIndex(ext_info.Fields[req]).Interface()
         }
       }
       exts[ext_type] = fields
@@ -420,25 +420,20 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     return nil, fmt.Errorf("Attempted to create an existing node")
   }
 
-  def, exists := ctx.Nodes[node_type]
-  if exists == false {
-    return nil, fmt.Errorf("Node type %+v not registered in Context", node_type)
-  }
-
   ext_map := map[ExtType]Extension{}
   for _, ext := range(extensions) {
     ext_type, exists := ctx.ExtensionTypes[reflect.TypeOf(ext).Elem()]
     if exists == false {
       return nil, fmt.Errorf(fmt.Sprintf("%+v is not a known Extension", reflect.TypeOf(ext)))
     }
-    _, exists = ext_map[ext_type]
+    _, exists = ext_map[ext_type.ExtType]
     if exists == true {
       return nil, fmt.Errorf("Cannot add the same extension to a node twice")
     }
-    ext_map[ext_type] = ext
+    ext_map[ext_type.ExtType] = ext
   }
 
-  for _, required_ext := range(def.Extensions) {
+  for _, required_ext := range(node_type.Extensions) {
     _, exists := ext_map[required_ext]
     if exists == false {
       return nil, fmt.Errorf(fmt.Sprintf("%+v requires %+v", node_type, required_ext))
@@ -448,19 +443,14 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
   node := &Node{
     Key: key,
     ID: id,
-    Type: node_type,
+    Type: node_type.NodeType,
     Extensions: ext_map,
     MsgChan: make(chan RecvMsg, buffer_size),
     BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},
+    writeSignalQueue: false,
   }
 
-  err = WriteNodeExtList(ctx, node)
-  if err != nil {
-    return nil, err
-  }
-
-  node.writeSignalQueue = true
   err = WriteNodeInit(ctx, node)
   if err != nil {
     return nil, err
@@ -487,23 +477,4 @@ func ExtTypeSuffix(ext_type ExtType) []byte {
   copy(ret[0:4], extension_suffix)
   binary.BigEndian.PutUint64(ret[4:], uint64(ext_type))
   return ret
-}
-
-func WriteNodeExtList(ctx *Context, node *Node) error {
-  ctx.Log.Logf("todo", "write node list")
-  return nil
-}
-
-func WriteNodeInit(ctx *Context, node *Node) error {
-  ctx.Log.Logf("todo", "write initial node entry")
-  return nil
-}
-
-func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) error {
-  ctx.Log.Logf("todo", "write node changes")
-  return nil
-}
-
-func LoadNode(ctx *Context, id NodeID) (*Node, error) {
-  return nil, fmt.Errorf("TODO: load node + extensions from DB")
 }
