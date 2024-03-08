@@ -41,123 +41,71 @@ func TestSerializeTypes(t *testing.T) {
 }
 
 func testSerializeCompare[T comparable](t *testing.T, ctx *Context, value T) {
-  serialized, err := SerializeValue(ctx, reflect.ValueOf(value))
+  serialized, err := Serialize(ctx, value) 
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[T](), value, serialized)
 
-  deserialized, left, err := DeserializeValue(ctx, serialized, reflect.TypeFor[T]())
+  deserialized, err := Deserialize[T](ctx, serialized)
   fatalErr(t, err)
 
-  if len(left) != 0 {
-    t.Fatalf("Data left after deserialize[%+v]: %+v", deserialized, left)
-  }
-
-  if reflect.TypeFor[T]() != deserialized.Type() {
-    t.Fatalf("Type mismatch after deserialize %s != %s", reflect.TypeFor[T](), deserialized.Type())
-  }
-
-  val, ok := deserialized.Interface().(T)
-  if ok == false {
-    t.Fatalf("Deserialized type[%s] can't cast to type %s", deserialized.Type(), reflect.TypeFor[T]())
-  }
-
-  if value != val {
+  if value != deserialized {
     t.Fatalf("Deserialized value[%+v] doesn't match original[%+v]", value, deserialized)
   }
 
-  ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", value, val)
+  ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", value, deserialized)
 }
 
 func testSerializeList[L []T, T comparable](t *testing.T, ctx *Context, value L) {
-  serialized, err := SerializeValue(ctx, reflect.ValueOf(value))
+  serialized, err := Serialize(ctx, value)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[L](), value, serialized)
 
-  deserialized, left, err := DeserializeValue(ctx, serialized, reflect.TypeFor[L]())
+  deserialized, err := Deserialize[L](ctx, serialized)
   fatalErr(t, err)
 
-  if len(left) != 0 {
-    t.Fatalf("Data left after deserialize[%+v]: %+v", deserialized, left)
-  }
-
-  if reflect.TypeFor[L]() != deserialized.Type() {
-    t.Fatalf("Type mismatch after deserialize %s != %s", reflect.TypeFor[L](), deserialized.Type())
-  }
-
-  val, ok := deserialized.Interface().(L)
-  if ok == false {
-    t.Fatalf("Deserialized type[%s] can't cast to type %s", deserialized.Type(), reflect.TypeFor[L]())
-  }
-
   for i, item := range(value) {
-    if item != val[i] {
-      t.Fatalf("Deserialized list %+v does not match original %+v", value, val)
+    if item != deserialized[i] {
+      t.Fatalf("Deserialized list %+v does not match original %+v", value, deserialized)
     }
   }
 
-  ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", value, val)
+  ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", value, deserialized)
 }
 
 func testSerializePointer[P interface {*T}, T comparable](t *testing.T, ctx *Context, value P) {
-  serialized, err := SerializeValue(ctx, reflect.ValueOf(value))
+  serialized, err := Serialize(ctx, value)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[P](), value, serialized)
 
-  deserialized, left, err := DeserializeValue(ctx, serialized, reflect.TypeFor[P]())
+  deserialized, err := Deserialize[P](ctx, serialized)
   fatalErr(t, err)
 
-  if len(left) != 0 {
-    t.Fatalf("Data left after deserialize[%+v]: %+v", deserialized, left)
-  }
-
-  if reflect.TypeFor[P]() != deserialized.Type() {
-    t.Fatalf("Type mismatch after deserialize %s != %s", reflect.TypeFor[P](), deserialized.Type())
-  }
-
-  val, ok := deserialized.Interface().(P)
-  if ok == false {
-    t.Fatalf("Deserialized type[%s] can't cast to type %s", deserialized.Type(), reflect.TypeFor[P]())
-  }
-
-  if value == nil && val == nil {
+  if value == nil && deserialized == nil {
     ctx.Log.Logf("test", "Deserialized nil")
   } else if value == nil {
-    t.Fatalf("Non-nil value[%+v] returned for nil value", val)
-  } else if val == nil {
+    t.Fatalf("Non-nil value[%+v] returned for nil value", deserialized)
+  } else if deserialized == nil {
     t.Fatalf("Nil value returned for non-nil value[%+v]", value)
-  } else if *val != *value {
+  } else if *deserialized != *value {
     t.Fatalf("Deserialized value[%+v] doesn't match original[%+v]", value, deserialized)
   } else {
-    ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", *value, *val)
+    ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", *value, *deserialized)
   }
 }
 
 func testSerialize[T any](t *testing.T, ctx *Context, value T) {
-  serialized, err := SerializeValue(ctx, reflect.ValueOf(value))
+  serialized, err := Serialize(ctx, value)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[T](), value, serialized)
 
-  deserialized, left, err := DeserializeValue(ctx, serialized, reflect.TypeFor[T]())
+  deserialized, err := Deserialize[T](ctx, serialized)
   fatalErr(t, err)
 
-  if len(left) != 0 {
-    t.Fatalf("Data left after deserialize[%+v]: %+v", deserialized, left)
-  }
-
-  if reflect.TypeFor[T]() != deserialized.Type() {
-    t.Fatalf("Type mismatch after deserialize %s != %s", reflect.TypeFor[T](), deserialized.Type())
-  }
-
-  val, ok := deserialized.Interface().(T)
-  if ok == false {
-    t.Fatalf("Deserialized type[%s] can't cast to type %s", deserialized.Type(), reflect.TypeFor[T]())
-  }
-
-  ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", value, val)
+  ctx.Log.Logf("test", "Deserialized Value[%+v]: %+v", value, deserialized)
 }
 
 func TestSerializeValues(t *testing.T) {

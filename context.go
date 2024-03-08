@@ -92,56 +92,63 @@ type Context struct {
   nodeMap map[NodeID]*Node
 }
 
-func (ctx *Context) GQLType(t reflect.Type) graphql.Type {
+func (ctx *Context) GQLType(t reflect.Type) (graphql.Type, error) {
   info, mapped := ctx.TypeTypes[t]
   if mapped {
-    return info.Type
+    return info.Type, nil
   } else {
     switch t.Kind() {
     case reflect.Array:
       info, mapped := ctx.TypeTypes[t.Elem()]
       if mapped {
-        return graphql.NewList(info.Type)
+        return graphql.NewList(info.Type), nil
       }
     case reflect.Slice:
       info, mapped := ctx.TypeTypes[t.Elem()]
       if mapped {
-        return graphql.NewList(info.Type)
+        return graphql.NewList(info.Type), nil
       }
     case reflect.Map:
       info, exists := ctx.TypeTypes[t]
       if exists {
-        return info.Type
+        return info.Type, nil
       } else {
         err := RegisterMap(ctx, t)
         if err != nil {
-          return nil
+          return nil, err
         }
-        return ctx.TypeTypes[t].Type
+        map_type := ctx.TypeTypes[t].Type
+        ctx.Log.Logf("gql", "Getting type for %s: %s", t, map_type)
+        return map_type, nil
       }
     case reflect.Pointer:
       info, mapped := ctx.TypeTypes[t.Elem()]
       if mapped {
-        return info.Type
+        return info.Type, nil
       }
     }
-    return nil
+    return nil, fmt.Errorf("Can't convert %s to GQL type", t)
   }
 }
 
 func RegisterMap(ctx *Context, reflect_type reflect.Type) error {
-  key_type := ctx.GQLType(reflect_type.Key())
-  if key_type == nil {
-    return nil
+  key_type, err := ctx.GQLType(reflect_type.Key())
+  if err != nil {
+    return err
   }
 
-  val_type := ctx.GQLType(reflect_type.Elem())
-  if val_type == nil {
-    return nil
+  val_type, err := ctx.GQLType(reflect_type.Elem())
+  if err != nil {
+    return err
   }
+
+  gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
+  gql_name = strings.ReplaceAll(gql_name, "[", "_")
+  gql_name = strings.ReplaceAll(gql_name, "]", "_")
+  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
 
   gql_pair := graphql.NewObject(graphql.ObjectConfig{
-    Name: strings.ReplaceAll(reflect_type.String(), ".", "_"),
+    Name: gql_name,
     Fields: graphql.Fields{
       "Key": &graphql.Field{
         Type: key_type,
@@ -158,6 +165,7 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type) error {
     },
   })
 
+  ctx.Log.Logf("gql", "Registering new map with pair type %+v", gql_pair)
   gql_map := graphql.NewList(gql_pair)
 
   serialized_type := SerializeType(reflect_type)
@@ -227,8 +235,10 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
     return fmt.Errorf("Cannot register extension %+v of type %+v, type already exists in context", reflect_type, ext_type)
   }
 
+  gql_name := "interface_" + strings.ReplaceAll(reflect_type.String(), ".", "_")
+  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
   gql_interface := graphql.NewInterface(graphql.InterfaceConfig{
-    Name: "interface_" + strings.ReplaceAll(reflect_type.String(), ".", "_"),
+    Name: gql_name,
     ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
       ctx, ok := p.Context.Value("resolve").(*ResolveContext)
       if ok == false {
@@ -260,9 +270,9 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
     if tagged_gv {
       fields[gv_tag] = field.Index
 
-      gql_type := ctx.GQLType(field.Type)
-      if gql_type == nil {
-        return fmt.Errorf("Extension %s has field %s of unregistered type %s", reflect_type, gv_tag, field.Type)
+      gql_type, err := ctx.GQLType(field.Type)
+      if err != nil {
+        return err
       }
 
       gql_interface.AddFieldConfig(gv_tag, &graphql.Field{
@@ -347,8 +357,10 @@ func RegisterObject[T any](ctx *Context) error {
     return fmt.Errorf("%+v already registered in TypeMap", reflect_type)
   }
 
+  gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
+  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
   gql := graphql.NewObject(graphql.ObjectConfig{
-    Name: strings.ReplaceAll(reflect_type.String(), ".", "_"),
+    Name: gql_name,
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
       return reflect_type == reflect.TypeOf(p.Value)
     },
@@ -372,9 +384,9 @@ func RegisterObject[T any](ctx *Context) error {
         Index: field.Index,
       }
 
-      gql_type := ctx.GQLType(field.Type)
-      if gql_type == nil {
-        return fmt.Errorf("Object %+v has field %s of unknown type %+v", reflect_type, gv_tag, field.Type)
+      gql_type, err := ctx.GQLType(field.Type)
+      if err != nil {
+        return err
       }
       gql.AddFieldConfig(gv_tag, &graphql.Field{
         Type: gql_type,
@@ -532,8 +544,10 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
     return fmt.Errorf("%+v already registered in TypeMap", reflect_type)
   }
 
+  gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
+  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
   gql := graphql.NewScalar(graphql.ScalarConfig{
-    Name: strings.ReplaceAll(reflect_type.String(), ".", "_"),
+    Name: gql_name,
     Serialize: to_json,
     ParseValue: from_json,
     ParseLiteral: from_ast,
@@ -726,22 +740,17 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterMap(ctx, reflect.TypeFor[WaitMap]())
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterExtension[ListenerExt](ctx, nil)
-  if err != nil {
-    return nil, err
-  }
-
   err = RegisterExtension[LockableExt](ctx, nil)
   if err != nil {
     return nil, err
   }
 
   err = RegisterExtension[EventExt](ctx, nil)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterExtension[ListenerExt](ctx, nil)
   if err != nil {
     return nil, err
   }
@@ -756,7 +765,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  _, err = BuildSchema(ctx, graphql.NewObject(graphql.ObjectConfig{
+  schema, err := BuildSchema(ctx, graphql.NewObject(graphql.ObjectConfig{
     Name: "Query",
     Fields: graphql.Fields{
       "Test": &graphql.Field{
@@ -780,6 +789,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   if err != nil {
     return nil, err
   }
+
+  ctx.ExtensionTypes[reflect.TypeFor[GQLExt]()].Data = schema
 
   return ctx, nil
 }
