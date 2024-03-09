@@ -25,11 +25,11 @@ var ReqStateStrings = map[ReqState]string {
 type LockableExt struct{
   State ReqState `gv:"state"`
   ReqID *uuid.UUID `gv:"req_id"`
-  Owner *NodeID `gv:"owner"`
-  PendingOwner *NodeID `gv:"pending_owner"`
+  Owner *NodeID `gv:"owner" node:"Base"`
+  PendingOwner *NodeID `gv:"pending_owner" node:"Base"`
   PendingID uuid.UUID `gv:"pending_id"`
-  Requirements map[NodeID]ReqState `gv:"requirements"`
-  WaitInfos WaitMap `gv:"wait_infos"`
+  Requirements map[NodeID]ReqState `gv:"requirements" node:"Lockable:"`
+  WaitInfos WaitMap `gv:"wait_infos" node:":Base"`
 }
 
 func NewLockableExt(requirements []NodeID) *LockableExt {

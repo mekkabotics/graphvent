@@ -12,7 +12,7 @@ type EventExt struct {
   Name string `gv:"name"`
   State EventState `gv:"state"`
   StateStart time.Time `gv:"state_start"`
-  Parent NodeID `gv:"parent"`
+  Parent NodeID `gv:"parent" node:"Base"`
 }
 
 func (ext *EventExt) Load(ctx *Context, node *Node) error {

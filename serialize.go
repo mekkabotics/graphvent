@@ -39,28 +39,13 @@ func (t FieldTag) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
-func NodeTypeFor(name string, extensions []ExtType, mappings map[string]FieldIndex) NodeType {
-  digest := []byte("GRAPHVENT_NODE[" + name + "] - ")
+func NodeTypeFor(extensions []ExtType) NodeType {
+  digest := []byte("GRAPHVENT_NODE - ")
+
+  slices.Sort(extensions)
+
   for _, ext := range(extensions) {
     digest = binary.BigEndian.AppendUint64(digest, uint64(ext))
-  }
-
-  digest = binary.BigEndian.AppendUint64(digest, 0)
-
-  sorted_keys := make([]string, len(mappings))
-  i := 0
-  for key := range(mappings) {
-    sorted_keys[i] = key
-    i += 1
-  }
-  slices.Sort(sorted_keys)
-
-
-
-  for _, key := range(sorted_keys) {
-    digest = append(digest, []byte(key + ":")...)
-    digest = binary.BigEndian.AppendUint64(digest, uint64(mappings[key].Extension))
-    digest = append(digest, []byte(mappings[key].Field + "|")...)
   }
 
   hash := sha512.Sum512(digest)

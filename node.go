@@ -104,7 +104,7 @@ func (node *Node) PostDeserialize(ctx *Context) error {
 
 type WaitReason string
 type WaitInfo struct {
-  Destination NodeID `gv:"destination"`
+  Destination NodeID `gv:"destination" node:"Base"`
   Timeout uuid.UUID `gv:"timeout"`
   Reason WaitReason `gv:"reason"`
 }
@@ -226,7 +226,7 @@ func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType
         if exists == false {
           fields[req] = fmt.Errorf("%+v does not have %+v extension", node.ID, ext_type)
         } else {
-          fields[req] = reflect.ValueOf(ext).Elem().FieldByIndex(ext_info.Fields[req]).Interface()
+          fields[req] = reflect.ValueOf(ext).Elem().FieldByIndex(ext_info.Fields[req].Index).Interface()
         }
       }
       exts[ext_type] = fields

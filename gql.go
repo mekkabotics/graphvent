@@ -1,18 +1,12 @@
 package graphvent
 
 import (
-  "bytes"
   "context"
-  "crypto"
-  "crypto/aes"
-  "crypto/cipher"
   "crypto/ecdh"
   "crypto/ecdsa"
-  "crypto/ed25519"
   "crypto/elliptic"
   "crypto/rand"
   "crypto/x509"
-  "encoding/base64"
   "encoding/json"
   "fmt"
   "io"
@@ -20,12 +14,9 @@ import (
   "net"
   "net/http"
   "reflect"
-  "strings"
   "sync"
   "time"
 
-  "filippo.io/edwards25519"
-  "crypto/sha512"
   "github.com/gobwas/ws"
   "github.com/gobwas/ws/wsutil"
   "github.com/graphql-go/graphql"
@@ -40,39 +31,6 @@ import (
   "github.com/google/uuid"
 )
 
-func NodeInterfaceDefaultIsType(required_extensions []ExtType) func(graphql.IsTypeOfParams) bool {
-  return func(p graphql.IsTypeOfParams) bool {
-    ctx, ok := p.Context.Value("resolve").(*ResolveContext)
-    if ok == false {
-      return false
-    }
-    node, ok := p.Value.(NodeResult)
-    if ok == false {
-      return false
-    }
-
-    node_type_def, exists := ctx.Context.Nodes[node.NodeType]
-    if exists == false {
-      return false
-    } else {
-      for _, ext := range(required_extensions) {
-        found := false
-        for _, e := range(node_type_def.Extensions) {
-          if e == ext {
-            found = true
-            break
-          }
-        }
-        if found == false {
-          return false
-        }
-      }
-    }
-
-    return true
-  }
-}
-
 func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
   resolve_context, ok := p.Context.Value("resolve").(*ResolveContext)
   if ok == false {
@@ -82,7 +40,7 @@ func PrepResolve(p graphql.ResolveParams) (*ResolveContext, error) {
   return resolve_context, nil
 }
 
-// TODO: Make composabe by checkinf if K is a slice, then recursing in the same way that ExtractList does
+// TODO: Make composabe by checking if K is a slice, then recursing in the same way that ExtractList does
 func ExtractParam[K interface{}](p graphql.ResolveParams, name string) (K, error) {
   var zero K
   arg_if, ok := p.Args[name]
@@ -284,84 +242,6 @@ type ResolveContext struct {
 
   // Cache of resolved nodes
   NodeCache map[NodeID]NodeResult
-}
-
-func AuthB64(client_key ed25519.PrivateKey, server_pubkey ed25519.PublicKey) (string, error) {
-  token_start := time.Now()
-  token_start_bytes, err := token_start.MarshalBinary()
-  if err != nil {
-    return "", err
-  }
-
-  session_key_public, session_key_private, err := ed25519.GenerateKey(rand.Reader)
-  if err != nil {
-    return "", err
-  }
-
-  session_h := sha512.Sum512(session_key_private.Seed())
-  ecdh_client, err := ECDH.NewPrivateKey(session_h[:32])
-  if err != nil {
-    return "", err
-  }
-
-  server_point, err := (&edwards25519.Point{}).SetBytes(server_pubkey)
-  if err != nil {
-    return "", err
-  }
-
-  ecdh_server, err := ECDH.NewPublicKey(server_point.BytesMontgomery())
-  if err != nil {
-    return "", err
-  }
-
-
-  secret, err := ecdh_client.ECDH(ecdh_server)
-  if err != nil {
-    return "", err
-  }
-
-  if len(secret) != 32 {
-    return "", fmt.Errorf("ECDH secret not 32 bytes(for AES-256): %d bytes long", len(secret))
-  }
-
-  block, err := aes.NewCipher(secret)
-  if err != nil {
-    return "", err
-  }
-
-  iv := make([]byte, block.BlockSize())
-  iv_len, err := rand.Reader.Read(iv)
-  if err != nil {
-    return "", err
-  } else if iv_len != block.BlockSize() {
-    return "", fmt.Errorf("Not enough iv bytes read: %d", iv_len)
-  }
-
-  var key_encrypted bytes.Buffer
-  stream := cipher.NewOFB(block, iv)
-  writer := &cipher.StreamWriter{S: stream, W: &key_encrypted}
-
-  bytes_written, err := writer.Write(session_key_private.Seed())
-  if err != nil {
-    return "", err
-  } else if bytes_written != len(ecdh_client.Bytes()) {
-    return "", fmt.Errorf("wrong number of bytes encrypted %d/%d", bytes_written, len(ecdh_client.Bytes()))
-  }
-
-  digest := append(session_key_public, token_start_bytes...)
-  signature, err := client_key.Sign(rand.Reader, digest, crypto.Hash(0))
-  if err != nil {
-    return "", err
-  }
-
-  start_b64 := base64.StdEncoding.EncodeToString(token_start_bytes)
-  iv_b64 := base64.StdEncoding.EncodeToString(iv)
-  encrypted_b64 := base64.StdEncoding.EncodeToString(key_encrypted.Bytes())
-  key_b64 := base64.StdEncoding.EncodeToString(session_key_public)
-  sig_b64 := base64.StdEncoding.EncodeToString(signature)
-  id_b64 := base64.StdEncoding.EncodeToString(client_key.Public().(ed25519.PublicKey))
-
-  return base64.StdEncoding.EncodeToString([]byte(strings.Join([]string{id_b64, iv_b64, key_b64, encrypted_b64, start_b64, sig_b64}, ":"))), nil
 }
 
 func NewResolveContext(ctx *Context, server *Node, gql_ext *GQLExt) (*ResolveContext, error) {

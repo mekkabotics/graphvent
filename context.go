@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +32,8 @@ type DeserializeFn func(ctx *Context, data []byte) (reflect.Value, []byte, error
 
 type FieldInfo struct {
   Index []int
-  Tag FieldTag
+  Tag string
+  NodeTag string
   Type reflect.Type
 }
 
@@ -49,22 +51,20 @@ type TypeInfo struct {
 
 type ExtensionInfo struct {
   ExtType
-  Interface *graphql.Interface
-  Fields map[string][]int
+  Fields map[string]FieldInfo
   Data interface{}
 }
 
 type FieldIndex struct {
-  FieldTag
+  FieldTag FieldTag
   Extension ExtType
-  Field string
 }
 
 type NodeInfo struct {
   NodeType
   Type *graphql.Object
+  Interface *graphql.Interface
   Extensions []ExtType
-  Fields map[string]FieldIndex
 }
 
 // A Context stores all the data to run a graphvent process
@@ -92,52 +92,65 @@ type Context struct {
   nodeMap map[NodeID]*Node
 }
 
-func (ctx *Context) GQLType(t reflect.Type) (graphql.Type, error) {
-  info, mapped := ctx.TypeTypes[t]
-  if mapped {
-    return info.Type, nil
-  } else {
-    switch t.Kind() {
-    case reflect.Array:
-      info, mapped := ctx.TypeTypes[t.Elem()]
-      if mapped {
-        return graphql.NewList(info.Type), nil
-      }
-    case reflect.Slice:
-      info, mapped := ctx.TypeTypes[t.Elem()]
-      if mapped {
-        return graphql.NewList(info.Type), nil
-      }
-    case reflect.Map:
-      info, exists := ctx.TypeTypes[t]
-      if exists {
-        return info.Type, nil
-      } else {
-        err := RegisterMap(ctx, t)
-        if err != nil {
-          return nil, err
-        }
-        map_type := ctx.TypeTypes[t].Type
-        ctx.Log.Logf("gql", "Getting type for %s: %s", t, map_type)
-        return map_type, nil
-      }
-    case reflect.Pointer:
-      info, mapped := ctx.TypeTypes[t.Elem()]
-      if mapped {
-        return info.Type, nil
-      }
+func (ctx *Context) GQLType(t reflect.Type, node_type string) (graphql.Type, error) {
+  if t == reflect.TypeFor[NodeID]() {
+    node_info, mapped := ctx.NodeTypes[node_type]
+    if mapped == false {
+      return nil, fmt.Errorf("Cannot get GQL type for unregistered Node Type \"%s\"", node_type)
+    } else {
+      return node_info.Interface, nil
     }
-    return nil, fmt.Errorf("Can't convert %s to GQL type", t)
+  } else {
+    info, mapped := ctx.TypeTypes[t]
+    if mapped {
+      return info.Type, nil
+    } else {
+      switch t.Kind() {
+      case reflect.Array:
+        info, mapped := ctx.TypeTypes[t.Elem()]
+        if mapped {
+          return graphql.NewList(info.Type), nil
+        }
+      case reflect.Slice:
+        info, mapped := ctx.TypeTypes[t.Elem()]
+        if mapped {
+          return graphql.NewList(info.Type), nil
+        }
+      case reflect.Map:
+        info, exists := ctx.TypeTypes[t]
+        if exists {
+          return info.Type, nil
+        } else {
+          err := RegisterMap(ctx, t, node_type)
+          if err != nil {
+            return nil, err
+          }
+          map_type := ctx.TypeTypes[t].Type
+          ctx.Log.Logf("gql", "Getting type for %s: %s", t, map_type)
+          return map_type, nil
+        }
+      case reflect.Pointer:
+        return ctx.GQLType(t.Elem(), node_type)
+      }
+      return nil, fmt.Errorf("Can't convert %s to GQL type", t)
+    }
   }
 }
 
-func RegisterMap(ctx *Context, reflect_type reflect.Type) error {
-  key_type, err := ctx.GQLType(reflect_type.Key())
+func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) error {
+  ctx.Log.Logf("gql", "Registering map %s with node_type %s", reflect_type, node_type)
+  node_types := strings.Split(node_type, ":")
+
+  if len(node_types) != 2 {
+    return fmt.Errorf("Invalid node tag for map type %s: \"%s\"", reflect_type, node_type)
+  }
+
+  key_type, err := ctx.GQLType(reflect_type.Key(), node_types[0])
   if err != nil {
     return err
   }
 
-  val_type, err := ctx.GQLType(reflect_type.Elem())
+  val_type, err := ctx.GQLType(reflect_type.Elem(), node_types[1])
   if err != nil {
     return err
   }
@@ -181,17 +194,18 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type) error {
 
 func BuildSchema(ctx *Context, query, mutation *graphql.Object) (graphql.Schema, error) {
   types := []graphql.Type{}
+  ctx.Log.Logf("gql", "Building Schema")
 
   for _, info := range(ctx.TypeMap) {
+    ctx.Log.Logf("gql", "Adding type %+v", info.Type)
     types = append(types, info.Type)
-  }
-
-  for _, info := range(ctx.Extensions) {
-    types = append(types, info.Interface) 
   }
 
   for _, info := range(ctx.Nodes) {
+    ctx.Log.Logf("gql", "Adding node type object %+v", info.Type)
     types = append(types, info.Type)
+    ctx.Log.Logf("gql", "Adding node type interface %+v", info.Interface)
+    types = append(types, info.Interface) 
   }
 
   subscription := graphql.NewObject(graphql.ObjectConfig{
@@ -214,19 +228,6 @@ func BuildSchema(ctx *Context, query, mutation *graphql.Object) (graphql.Schema,
   })
 }
 
-func RegisterSignal[S Signal](ctx *Context) error {
-  reflect_type := reflect.TypeFor[S]()
-  signal_type := SignalTypeFor[S]()
-
-  err := RegisterObject[S](ctx)
-  if err != nil {
-    return err
-  }
-
-  ctx.Log.Logf("serialize_types", "Registered SignalType: %+v - %+v", reflect_type, signal_type)
-  return nil
-}
-
 func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data interface{}) error {
   reflect_type := reflect.TypeFor[E]()
   ext_type := ExtType(SerializedTypeFor[E]())
@@ -235,62 +236,24 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
     return fmt.Errorf("Cannot register extension %+v of type %+v, type already exists in context", reflect_type, ext_type)
   }
 
-  gql_name := "interface_" + strings.ReplaceAll(reflect_type.String(), ".", "_")
-  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
-  gql_interface := graphql.NewInterface(graphql.InterfaceConfig{
-    Name: gql_name,
-    ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
-      ctx, ok := p.Context.Value("resolve").(*ResolveContext)
-      if ok == false {
-        return nil
-      }
+  fields := map[string]FieldInfo{}
 
-      node, ok := p.Value.(NodeResult)
-      if ok == false {
-        return nil
-      }
-
-      type_info, type_exists := ctx.Context.Nodes[node.NodeType]
-      if type_exists == false {
-        return ctx.Context.NodeTypes["Base"].Type
-      }
-
-      return type_info.Type
-    },
-    Fields: graphql.Fields{
-      "ID": &graphql.Field{
-        Type: graphql.String,
-      },
-    },
-  })
-
-  fields := map[string][]int{}
-  for _, field := range reflect.VisibleFields(reflect.TypeFor[E]()) {
+  for _, field := range(reflect.VisibleFields(reflect_type)) {
     gv_tag, tagged_gv := field.Tag.Lookup("gv")
     if tagged_gv {
-      fields[gv_tag] = field.Index
-
-      gql_type, err := ctx.GQLType(field.Type)
-      if err != nil {
-        return err
+      fields[gv_tag] = FieldInfo{
+        Index: field.Index,
+        Tag: gv_tag,
+        NodeTag: field.Tag.Get("node"),
+        Type: field.Type,
       }
-
-      gql_interface.AddFieldConfig(gv_tag, &graphql.Field{
-        Type: gql_type,
-      })
     }
-  }
-
-  err := RegisterObject[E](ctx)
-  if err != nil {
-    return err
   }
 
   ctx.Log.Logf("serialize_types", "Registered ExtType: %+v - %+v", reflect_type, ext_type)
 
   ctx.Extensions[ext_type] = &ExtensionInfo{
     ExtType: ext_type,
-    Interface: gql_interface,
     Data: data,
     Fields: fields,
   }
@@ -299,8 +262,9 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
   return nil
 }
 
-func RegisterNodeType(ctx *Context, name string, extensions []ExtType, mappings map[string]FieldIndex) error {
-  node_type := NodeTypeFor(name, extensions, mappings)
+func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
+  ctx.Log.Logf("gql", "Registering NodeType %s with extensions %+v", name, extensions)
+  node_type := NodeTypeFor(extensions)
   _, exists := ctx.Nodes[node_type]
   if exists == true {
     return fmt.Errorf("Cannot register node type %+v, type already exists in context", node_type)
@@ -310,7 +274,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType, mappings 
   for _, extension := range(extensions) {
     _, in_ctx := ctx.Extensions[extension]
     if in_ctx == false {
-      return fmt.Errorf("Cannot register node type %+v, required extension %+v not in context", node_type, extension)
+      return fmt.Errorf("Cannot register node type %+v, required extension %+v not in context", name, extension)
     }
 
     _, duplicate := ext_found[extension]
@@ -321,29 +285,111 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType, mappings 
     ext_found[extension] = true
   }
   
-  gql := graphql.NewObject(graphql.ObjectConfig{
+  gql_interface := graphql.NewInterface(graphql.InterfaceConfig{
     Name: name,
-    Interfaces: []*graphql.Interface{},
     Fields: graphql.Fields{
       "ID": &graphql.Field{
-        Type: graphql.String,
+        Type: ctx.TypeTypes[reflect.TypeFor[NodeID]()].Type,
       },
       "Type": &graphql.Field{
-        Type: graphql.String,
+        Type: ctx.TypeTypes[reflect.TypeFor[NodeType]()].Type,
+      },
+    },
+    ResolveType: func(p graphql.ResolveTypeParams) *graphql.Object {
+      ctx_val := p.Context.Value("resolve")
+      ctx, ok := ctx_val.(*ResolveContext)
+      if ok == false {
+        return nil
+      }
+
+      val, ok := p.Value.(NodeResult)
+      if ok == false {
+        return nil
+      }
+
+      node_info, exists := ctx.Context.Nodes[val.NodeType]
+      if exists == false {
+        return nil
+      }
+
+      for _, ext_type := range(extensions) {
+        if slices.Contains(node_info.Extensions, ext_type) == false {
+          // node_info does not contain required extension, so this cannot be a type of this interface
+          return nil
+        }
+      }
+
+      return node_info.Type
+    },
+  })
+
+  gql := graphql.NewObject(graphql.ObjectConfig{
+    Name: name + "Node",
+    Fields: graphql.Fields{
+      "ID": &graphql.Field{
+        Type: ctx.TypeTypes[reflect.TypeFor[NodeID]()].Type,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          source, ok := p.Source.(NodeResult)
+          if ok == false {
+            return nil, fmt.Errorf("GQL Node value is not NodeResult")
+          }
+          return source.NodeID, nil
+        },
+      },
+      "Type": &graphql.Field{
+        Type: ctx.TypeTypes[reflect.TypeFor[NodeType]()].Type,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          source, ok := p.Source.(NodeResult)
+          if ok == false {
+            return nil, fmt.Errorf("GQL Node value is not NodeResult")
+          }
+          return source.NodeType, nil
+        },
       },
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
+      source, ok := p.Value.(NodeResult)
+      if ok == false {
         return false
+      }
+      return source.NodeType == node_type
     },
   })
 
   ctx.Nodes[node_type] = &NodeInfo{
     NodeType: node_type,
+    Interface: gql_interface,
     Type: gql,
     Extensions: extensions,
-    Fields: mappings,
   }
   ctx.NodeTypes[name] = ctx.Nodes[node_type]
+
+  for _, ext_type := range(extensions) {
+    ext_info, ext_found := ctx.Extensions[ext_type]
+    if ext_found == false {
+      return fmt.Errorf("Extension %s not found", ext_type)
+    }
+
+    for field_name, field_info := range(ext_info.Fields) {
+      gql_type, err := ctx.GQLType(field_info.Type, field_info.NodeTag)
+      if err != nil {
+        return err 
+      }
+      ctx.Log.Logf("gql", "Adding field %s[%+v] to %s with gql type %+v", field_name, field_info, name, gql_type)
+
+      gql_interface.AddFieldConfig(field_name, &graphql.Field{
+        Type: gql_type,
+      })
+
+      gql.AddFieldConfig(field_name, &graphql.Field{
+        Type: gql_type,
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          return nil, fmt.Errorf("NOT_IMPLEMENTED: TODO")
+        },
+      })
+    }
+
+  }
 
   return nil
 }
@@ -378,16 +424,19 @@ func RegisterObject[T any](ctx *Context) error {
   for _, field := range(reflect.VisibleFields(reflect_type)) {
     gv_tag, tagged_gv := field.Tag.Lookup("gv")
     if tagged_gv {
+      node_tag := field.Tag.Get("node")
       field_infos[GetFieldTag(gv_tag)] = FieldInfo{
         Type: field.Type,
-        Tag: GetFieldTag(gv_tag),
         Index: field.Index,
+        NodeTag: node_tag,
+        Tag: gv_tag,
       }
 
-      gql_type, err := ctx.GQLType(field.Type)
+      gql_type, err := ctx.GQLType(field.Type, node_tag)
       if err != nil {
         return err
       }
+
       gql.AddFieldConfig(gv_tag, &graphql.Field{
         Type: gql_type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -563,7 +612,6 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
   return nil
 }
 
-
 func (ctx *Context) AddNode(id NodeID, node *Node) {
   ctx.nodeMapLock.Lock()
   ctx.nodeMap[id] = node
@@ -670,6 +718,21 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
   var err error
 
+  err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID]) 
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType]) 
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterNodeType(ctx, "Base", []ExtType{})
+  if err != nil {
+    return nil, err
+  }
+
   err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool])
   if err != nil {
     return nil, err
@@ -715,17 +778,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID]) 
-  if err != nil {
-    return nil, err
-  }
-
   err = RegisterScalar[WaitReason](ctx, identity, coerce[WaitReason], astString[WaitReason])
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType])
   if err != nil {
     return nil, err
   }
@@ -760,18 +813,42 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterNodeType(ctx, "Base", []ExtType{}, map[string]FieldIndex{})
+  err = RegisterNodeType(ctx, "Lockable", []ExtType{ExtTypeFor[LockableExt]()})
   if err != nil {
     return nil, err
   }
 
+  err = RegisterObject[LockableExt](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterObject[EventExt](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterObject[ListenerExt](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterObject[GQLExt](ctx)
+  if err != nil {
+    return nil, err
+  }
+  
   schema, err := BuildSchema(ctx, graphql.NewObject(graphql.ObjectConfig{
     Name: "Query",
     Fields: graphql.Fields{
-      "Test": &graphql.Field{
-        Type: graphql.String,
+      "Self": &graphql.Field{
+        Type: ctx.NodeTypes["Base"].Type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          return "TEST", nil
+          // TODO: Send read request and get response instead of hard-coding 
+          return NodeResult{
+            NodeID: RandID(),
+            NodeType: NodeTypeFor([]ExtType{}),
+          }, nil
         },
       },
     },
