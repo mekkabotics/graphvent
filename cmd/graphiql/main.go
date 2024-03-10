@@ -25,11 +25,13 @@ func main() {
 
   listener_ext := gv.NewListenerExt(1000)
 
-  _, err = gv.NewNode(ctx, nil, "Base", 1000, gql_ext, listener_ext)
+  _, err = gv.NewNode(ctx, nil, "Lockable", 1000, gql_ext, listener_ext, gv.NewLockableExt(nil))
   check(err)
 
-  select {
-  case message := <- listener_ext.Chan:
-    fmt.Printf("Listener Message: %+v\n", message)
+  for true {
+    select {
+    case message := <- listener_ext.Chan:
+      fmt.Printf("Listener Message: %+v\n", message)
+    }
   }
 }

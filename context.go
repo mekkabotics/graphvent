@@ -47,6 +47,8 @@ type TypeInfo struct {
 
   Serialize SerializeFn
   Deserialize DeserializeFn
+
+  Resolve func(interface{})(interface{}, error) 
 }
 
 type ExtensionInfo struct {
@@ -55,16 +57,12 @@ type ExtensionInfo struct {
   Data interface{}
 }
 
-type FieldIndex struct {
-  FieldTag FieldTag
-  Extension ExtType
-}
-
 type NodeInfo struct {
   NodeType
   Type *graphql.Object
   Interface *graphql.Interface
   Extensions []ExtType
+  Fields map[string]ExtType
 }
 
 // A Context stores all the data to run a graphvent process
@@ -137,6 +135,11 @@ func (ctx *Context) GQLType(t reflect.Type, node_type string) (graphql.Type, err
   }
 }
 
+type Pair struct {
+  Key any
+  Val any
+}
+
 func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) error {
   ctx.Log.Logf("gql", "Registering map %s with node_type %s", reflect_type, node_type)
   node_types := strings.Split(node_type, ":")
@@ -166,13 +169,23 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
       "Key": &graphql.Field{
         Type: key_type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          return nil, fmt.Errorf("NOT_IMPLEMENTED")
+          source, ok := p.Source.(Pair)
+          if ok == false {
+            return nil, fmt.Errorf("%+v is not Pair", source)
+          }
+
+          return source.Key, nil
         },
       },
       "Value": &graphql.Field{
         Type: val_type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          return nil, fmt.Errorf("NOT_IMPLEMENTED")
+          source, ok := p.Source.(Pair)
+          if ok == false {
+            return nil, fmt.Errorf("%+v is not Pair", source)
+          }
+
+          return source.Val, nil
         },
       },
     },
@@ -186,6 +199,24 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql_map,
+    Resolve: func(v interface{}) (interface{}, error) {
+      val := reflect.ValueOf(v)
+      if val.Type() != (reflect_type) {
+        return nil, fmt.Errorf("%s is not %s", val.Type(), reflect_type)
+      } else {
+        pairs := make([]Pair, val.Len())
+        iter := val.MapRange()
+        i := 0
+        for iter.Next() {
+          pairs[i] = Pair{
+            Key: iter.Key().Interface(),
+            Val: iter.Value().Interface(),
+          }
+          i += 1
+        }
+        return pairs, nil
+      }
+    },
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
  
@@ -270,9 +301,11 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
     return fmt.Errorf("Cannot register node type %+v, type already exists in context", node_type)
   }
 
+  fields := map[string]ExtType{}
+
   ext_found := map[ExtType]bool{}
   for _, extension := range(extensions) {
-    _, in_ctx := ctx.Extensions[extension]
+    ext_info, in_ctx := ctx.Extensions[extension]
     if in_ctx == false {
       return fmt.Errorf("Cannot register node type %+v, required extension %+v not in context", name, extension)
     }
@@ -283,6 +316,14 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
     }
 
     ext_found[extension] = true
+
+    for field_name := range(ext_info.Fields) {
+      _, exists := fields[field_name]
+      if exists {
+        return fmt.Errorf("Cannot register NodeType %s with duplicate field name %s", name, field_name)
+      }
+      fields[field_name] = extension
+    }
   }
   
   gql_interface := graphql.NewInterface(graphql.InterfaceConfig{
@@ -304,17 +345,19 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
 
       val, ok := p.Value.(NodeResult)
       if ok == false {
+        ctx.Context.Log.Logf("gql", "Interface ResolveType got bad Value %+v", p.Value)
         return nil
       }
 
       node_info, exists := ctx.Context.Nodes[val.NodeType]
       if exists == false {
+        ctx.Context.Log.Logf("gql", "Interface ResolveType got bad NodeType", val.NodeType)
         return nil
       }
 
       for _, ext_type := range(extensions) {
         if slices.Contains(node_info.Extensions, ext_type) == false {
-          // node_info does not contain required extension, so this cannot be a type of this interface
+          ctx.Context.Log.Logf("gql", "Interface ResolveType for %s missing extensions %s: %+v", name, ext_type, val)
           return nil
         }
       }
@@ -325,26 +368,15 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
 
   gql := graphql.NewObject(graphql.ObjectConfig{
     Name: name + "Node",
+    Interfaces: ctx.GQLInterfaces(node_type, extensions),
     Fields: graphql.Fields{
       "ID": &graphql.Field{
         Type: ctx.TypeTypes[reflect.TypeFor[NodeID]()].Type,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          source, ok := p.Source.(NodeResult)
-          if ok == false {
-            return nil, fmt.Errorf("GQL Node value is not NodeResult")
-          }
-          return source.NodeID, nil
-        },
+        Resolve: ResolveNodeID,
       },
       "Type": &graphql.Field{
         Type: ctx.TypeTypes[reflect.TypeFor[NodeType]()].Type,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          source, ok := p.Source.(NodeResult)
-          if ok == false {
-            return nil, fmt.Errorf("GQL Node value is not NodeResult")
-          }
-          return source.NodeType, nil
-        },
+        Resolve: ResolveNodeType,
       },
     },
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
@@ -361,6 +393,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
     Interface: gql_interface,
     Type: gql,
     Extensions: extensions,
+    Fields: fields,
   }
   ctx.NodeTypes[name] = ctx.Nodes[node_type]
 
@@ -375,6 +408,11 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
       if err != nil {
         return err 
       }
+
+      gql_resolve, err := ctx.GQLResolve(field_info.Type, field_info.NodeTag)
+      if err != nil {
+        return err
+      }
       ctx.Log.Logf("gql", "Adding field %s[%+v] to %s with gql type %+v", field_name, field_info, name, gql_type)
 
       gql_interface.AddFieldConfig(field_name, &graphql.Field{
@@ -384,7 +422,21 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
       gql.AddFieldConfig(field_name, &graphql.Field{
         Type: gql_type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          return nil, fmt.Errorf("NOT_IMPLEMENTED: TODO")
+          node, ok := p.Source.(NodeResult)
+          if ok == false {
+            return nil, fmt.Errorf("Can't resolve Node field on non-Node %s", reflect.TypeOf(p.Source))
+          }
+          
+          node_info, mapped := ctx.Nodes[node.NodeType]
+          if mapped == false {
+            return nil, fmt.Errorf("Can't resolve unknown NodeType %s", node.NodeType)
+          }
+
+          if gql_resolve != nil {
+            return gql_resolve(node.Data[node_info.Fields[field_name]][field_name])
+          } else {
+            return node.Data[node_info.Fields[field_name]][field_name], nil
+          }
         },
       })
     }
@@ -392,6 +444,28 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
   }
 
   return nil
+}
+
+func (ctx *Context) GQLInterfaces(known_type NodeType, extensions []ExtType) graphql.InterfacesThunk {
+  return func() []*graphql.Interface {
+    interfaces := []*graphql.Interface{}
+    for node_type, node_info := range(ctx.Nodes) {
+      if node_type != known_type {
+        has_ext := true
+        for _, ext := range(node_info.Extensions) {
+          if slices.Contains(extensions, ext) == false {
+            has_ext = false
+            break
+          }
+        }
+        if has_ext == false {
+          continue
+        }
+      }
+      interfaces = append(interfaces, node_info.Interface)
+    }
+    return interfaces
+  }
 }
 
 func RegisterObject[T any](ctx *Context) error {
@@ -462,6 +536,7 @@ func RegisterObject[T any](ctx *Context) error {
     Reflect: reflect_type,
     Fields: field_infos,
     Type: gql,
+    Resolve: nil,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
@@ -490,7 +565,7 @@ func unstringify[T any, E interface { *T; encoding.TextUnmarshaler }](value inte
     return nil
   }
 
-  var tmp E
+  var tmp E = new(T)
   err := tmp.UnmarshalText([]byte(str))
   if err != nil {
     return nil
@@ -606,6 +681,7 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql,
+    Resolve: nil,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
@@ -696,6 +772,21 @@ func (ctx *Context) Send(node *Node, messages []SendMsg) error {
     }
   }
   return nil
+}
+
+func (ctx *Context)GQLResolve(t reflect.Type, node_type string) (func(interface{})(interface{}, error), error) {
+  info, mapped := ctx.TypeTypes[t]
+  if mapped {
+    return info.Resolve, nil
+  } else {
+    switch t.Kind() {
+    //case reflect.Array:
+    //case reflect.Slice:
+    case reflect.Pointer:
+      return ctx.GQLResolve(t.Elem(), node_type)
+    }
+  }
+  return nil, fmt.Errorf("Cannot get resolver for %s", t)
 }
 
 // Create a new Context with the base library content added
@@ -842,13 +933,29 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Name: "Query",
     Fields: graphql.Fields{
       "Self": &graphql.Field{
-        Type: ctx.NodeTypes["Base"].Type,
+        Type: ctx.NodeTypes["Lockable"].Interface,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          // TODO: Send read request and get response instead of hard-coding 
-          return NodeResult{
-            NodeID: RandID(),
-            NodeType: NodeTypeFor([]ExtType{}),
-          }, nil
+          ctx, err := PrepResolve(p)
+          if err != nil {
+            return nil, err
+          }
+          return ResolveNode(ctx.Server.ID, p)
+        },
+      },
+      "Node": &graphql.Field{
+        Type: ctx.NodeTypes["Base"].Interface,
+        Args: graphql.FieldConfigArgument{
+          "id": &graphql.ArgumentConfig{
+            Type: ctx.TypeTypes[reflect.TypeFor[NodeID]()].Type,
+          },
+        },
+        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+          id, err := ExtractParam[NodeID](p, "id")
+          if err != nil {
+            return nil, err
+          }
+
+          return ResolveNode(id, p)
         },
       },
     },

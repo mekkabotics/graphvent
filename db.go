@@ -2,6 +2,7 @@ package graphvent
 
 import (
 	badger "github.com/dgraph-io/badger/v3"
+  "fmt"
 )
 
 func WriteNodeInit(ctx *Context, node *Node) error {
@@ -35,7 +36,7 @@ func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) err
 }
 
 func LoadNode(ctx *Context, id NodeID) (*Node, error) {
-  err := ctx.DB.Update(func(tx *badger.Txn) error {
+  err := ctx.DB.View(func(tx *badger.Txn) error {
     return nil
   })
 
@@ -43,5 +44,5 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
     return nil, err
   }
 
-  return nil, nil
+  return nil, fmt.Errorf("NOT_IMPLEMENTED")
 } 

@@ -76,20 +76,6 @@ func ExtractList[K interface{}](p graphql.ResolveParams, name string) ([]K, erro
   return ret, nil
 }
 
-func ExtractID(p graphql.ResolveParams, name string) (NodeID, error) {
-  id_str, err := ExtractParam[string](p, name)
-  if err != nil {
-    return ZeroID, err
-  }
-
-  id, err := ParseID(id_str)
-  if err != nil {
-    return ZeroID, err
-  }
-
-  return id, nil
-}
-
 func GraphiQLHandler() func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     graphiql_string := fmt.Sprintf(`
