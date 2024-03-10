@@ -11,6 +11,8 @@ func TestEvent(t *testing.T) {
   ctx := logTestContext(t, []string{"event", "listener", "listener_debug"})
   err := RegisterExtension[TestEventExt](ctx, nil)
   fatalErr(t, err)
+  err = RegisterObject[TestEventExt](ctx)
+  fatalErr(t, err)
 
 
   event_public, event_private, err := ed25519.GenerateKey(rand.Reader)

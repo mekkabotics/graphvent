@@ -17,7 +17,7 @@ func main() {
   db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
   check(err)
 
-  ctx, err := gv.NewContext(db, gv.NewConsoleLogger([]string{"test", "gql"}))
+  ctx, err := gv.NewContext(db, gv.NewConsoleLogger([]string{"test", "signal"}))
   check(err)
 
   gql_ext, err := gv.NewGQLExt(ctx, ":8080", nil, nil)
@@ -25,7 +25,13 @@ func main() {
 
   listener_ext := gv.NewListenerExt(1000)
 
-  _, err = gv.NewNode(ctx, nil, "Lockable", 1000, gql_ext, listener_ext, gv.NewLockableExt(nil))
+  n1, err := gv.NewNode(ctx, nil, "Lockable", 1000, gv.NewLockableExt(nil))
+  check(err)
+
+  n2, err := gv.NewNode(ctx, nil, "Lockable", 1000, gv.NewLockableExt([]gv.NodeID{n1.ID}))
+  check(err)
+
+  _, err = gv.NewNode(ctx, nil, "Lockable", 1000, gql_ext, listener_ext, gv.NewLockableExt([]gv.NodeID{n2.ID}))
   check(err)
 
   for true {

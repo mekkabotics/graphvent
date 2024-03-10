@@ -89,15 +89,15 @@ func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) (
   return fields, nil
 }
 
-func ResolveNode(id NodeID, p graphql.ResolveParams) (interface{}, error) {
+func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
   ctx, err := PrepResolve(p)
   if err != nil {
-    return nil, err
+    return NodeResult{}, err
   }
 
   fields, err := GetResolveFields(id, ctx, p)
   if err != nil {
-    return nil, err
+    return NodeResult{}, err
   }
   
   ctx.Context.Log.Logf("gql", "Resolving fields %+v on node %s", fields, id)
@@ -111,13 +111,13 @@ func ResolveNode(id NodeID, p graphql.ResolveParams) (interface{}, error) {
   }})
   if err != nil {
     ctx.Ext.FreeResponseChannel(signal.ID())
-    return nil, err
+    return NodeResult{}, err
   }
 
   response, _, err := WaitForResponse(response_chan, 100*time.Millisecond, signal.ID())
   ctx.Ext.FreeResponseChannel(signal.ID())
   if err != nil {
-    return nil, err
+    return NodeResult{}, err
   }
 
   switch response := response.(type) {
@@ -147,6 +147,6 @@ func ResolveNode(id NodeID, p graphql.ResolveParams) (interface{}, error) {
     ctx.NodeCache[id] = cache
     return ctx.NodeCache[id], nil
   default:
-    return nil, fmt.Errorf("Bad read response: %+v", response)
+    return NodeResult{}, fmt.Errorf("Bad read response: %+v", response)
   }
 }

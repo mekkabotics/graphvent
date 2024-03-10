@@ -29,7 +29,7 @@ func logTestContext(t * testing.T, components []string) *Context {
   ctx, err := NewContext(db, NewConsoleLogger(components))
   fatalErr(t, err)
 
-  err = RegisterNodeType(ctx, "LockableListener", []ExtType{ExtTypeFor[ListenerExt](), ExtTypeFor[LockableExt]()}, map[string]FieldIndex{})
+  err = RegisterNodeType(ctx, "LockableListener", []ExtType{ExtTypeFor[ListenerExt](), ExtTypeFor[LockableExt]()})
   fatalErr(t, err)
 
   return ctx

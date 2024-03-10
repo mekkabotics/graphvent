@@ -80,10 +80,10 @@ func GetFieldTag(tag string) FieldTag {
   return FieldTag(Hash("GRAPHVENT_FIELD_TAG", tag))
 }
 
-func TypeStack(ctx *Context, t reflect.Type) ([]SerializedType, error) {
+func TypeStack(ctx *Context, t reflect.Type) ([]byte, error) {
   info, registered := ctx.TypeTypes[t]
   if registered {
-    return []SerializedType{info.Serialized}, nil
+    return binary.BigEndian.AppendUint64(nil, uint64(info.Serialized)), nil
   } else {
     switch t.Kind() {
     case reflect.Map:
@@ -97,45 +97,47 @@ func TypeStack(ctx *Context, t reflect.Type) ([]SerializedType, error) {
         return nil, err
       }
 
-      return append([]SerializedType{SerializeType(reflect.Map)}, append(key_stack, elem_stack...)...), nil
+      return append(binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Map))), append(key_stack, elem_stack...)...), nil
     case reflect.Pointer:
       elem_stack, err := TypeStack(ctx, t.Elem())
       if err != nil {
         return nil, err
       }
 
-      return append([]SerializedType{SerializeType(reflect.Pointer)}, elem_stack...), nil
+      return append(binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Pointer))), elem_stack...), nil
     case reflect.Slice:
       elem_stack, err := TypeStack(ctx, t.Elem())
       if err != nil {
         return nil, err
       }
 
-      return append([]SerializedType{SerializeType(reflect.Slice)}, elem_stack...), nil
+      return append(binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Slice))), elem_stack...), nil
     case reflect.Array:
       elem_stack, err := TypeStack(ctx, t.Elem())
       if err != nil {
         return nil, err
       }
 
-      return append([]SerializedType{SerializeType(reflect.Array), SerializedType(t.Len())}, elem_stack...), nil
+      stack := binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Array)))
+      stack = binary.BigEndian.AppendUint64(stack, uint64(t.Len()))
+      return append(stack, elem_stack...), nil
     default:
       return nil, fmt.Errorf("Hit %s, which is not a registered type", t.String())
     }
   }
 }
 
-func UnwrapStack(ctx *Context, stack []SerializedType) (reflect.Type, []SerializedType, error) {
-  first := stack[0]
-  stack = stack[1:]
+func UnwrapStack(ctx *Context, stack []byte) (reflect.Type, []byte, error) {
+  first_bytes, left := split(stack, 8)
+  first := SerializedType(binary.BigEndian.Uint64(first_bytes))
 
   info, registered := ctx.TypeMap[first]
   if registered {
-    return info.Reflect, stack, nil
+    return info.Reflect, left, nil
   } else {
     switch first {
     case SerializeType(reflect.Map):
-      key_type, after_key, err := UnwrapStack(ctx, stack)
+      key_type, after_key, err := UnwrapStack(ctx, left)
       if err != nil {
         return nil, nil, err 
       }
@@ -147,23 +149,22 @@ func UnwrapStack(ctx *Context, stack []SerializedType) (reflect.Type, []Serializ
 
       return reflect.MapOf(key_type, elem_type), after_elem, nil
     case SerializeType(reflect.Pointer):
-      elem_type, rest, err := UnwrapStack(ctx, stack)
+      elem_type, rest, err := UnwrapStack(ctx, left)
       if err != nil {
         return nil, nil, err 
       }
       return reflect.PointerTo(elem_type), rest, nil
     case SerializeType(reflect.Slice):
-      elem_type, rest, err := UnwrapStack(ctx, stack)
+      elem_type, rest, err := UnwrapStack(ctx, left)
       if err != nil {
         return nil, nil, err
       }
       return reflect.SliceOf(elem_type), rest, nil
     case SerializeType(reflect.Array):
-      length := int(stack[0])
+      length_bytes, left := split(left, 8)
+      length := int(binary.BigEndian.Uint64(length_bytes))
 
-      stack = stack[1:]
-
-      elem_type, rest, err := UnwrapStack(ctx, stack)
+      elem_type, rest, err := UnwrapStack(ctx, left)
       if err != nil {
         return nil, nil, err
       }
@@ -176,7 +177,7 @@ func UnwrapStack(ctx *Context, stack []SerializedType) (reflect.Type, []Serializ
 }
 
 func Serialize[T any](ctx *Context, value T) ([]byte, error) {
-  return serializeValue(ctx, reflect.ValueOf(value))
+  return serializeValue(ctx, reflect.ValueOf(&value).Elem())
 }
 
 func Deserialize[T any](ctx *Context, data []byte) (T, error) {
@@ -328,6 +329,17 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
         return data, nil
       }
 
+    case reflect.Interface:
+      data, err := TypeStack(ctx, value.Elem().Type())
+
+      val_data, err := serializeValue(ctx, value.Elem())
+      if err != nil {
+        return nil, err
+      }
+
+      data = append(data, val_data...)
+
+      return data, nil
     default:
       return nil, fmt.Errorf("Don't know how to serialize %s", value.Type())
     }
@@ -525,6 +537,22 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
       } else {
         return reflect.Value{}, nil, fmt.Errorf("Cannot deserialize unregistered struct %s", t)
       }
+
+    case reflect.Interface:
+      elem_type, rest, err := UnwrapStack(ctx, data)
+      if err != nil {
+        return reflect.Value{}, nil, err
+      }
+
+      elem_val, left, err := deserializeValue(ctx, rest, elem_type)
+      if err != nil {
+        return reflect.Value{}, nil, err
+      }
+
+      val := reflect.New(t).Elem()
+      val.Set(elem_val)
+
+      return val, left, nil
 
     default:
       return reflect.Value{}, nil, fmt.Errorf("Don't know how to deserialize %s", t)

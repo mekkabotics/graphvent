@@ -5,17 +5,8 @@ import (
   "time"
 )
 
-func lockableTestContext(t *testing.T, logs []string) *Context {
-  ctx := logTestContext(t, logs)
-
-  err := RegisterNodeType(ctx, "Lockable", []ExtType{ExtTypeFor[LockableExt]()}, map[string]FieldIndex{})
-  fatalErr(t, err)
-
-  return ctx
-}
-
 func TestLink(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"lockable", "listener"})
+  ctx := logTestContext(t, []string{"lockable", "listener"})
 
 
   l2_listener := NewListenerExt(10)
@@ -52,7 +43,7 @@ func TestLink(t *testing.T) {
 }
 
 func Test1000Lock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test"})
 
   NewLockable := func()(*Node) {
     l, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
@@ -88,7 +79,7 @@ func Test1000Lock(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-  ctx := lockableTestContext(t, []string{"test", "lockable"})
+  ctx := logTestContext(t, []string{"test", "lockable"})
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(1000)

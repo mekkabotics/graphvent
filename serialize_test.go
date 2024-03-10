@@ -111,6 +111,8 @@ func testSerialize[T any](t *testing.T, ctx *Context, value T) {
 func TestSerializeValues(t *testing.T) {
   ctx := logTestContext(t, []string{"test"})
 
+  testSerialize(t, ctx, Extension(NewLockableExt(nil)))
+
   testSerializeCompare[int8](t, ctx, -64)
   testSerializeCompare[int16](t, ctx, -64)
   testSerializeCompare[int32](t, ctx, -64)

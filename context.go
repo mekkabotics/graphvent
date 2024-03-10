@@ -48,7 +48,7 @@ type TypeInfo struct {
   Serialize SerializeFn
   Deserialize DeserializeFn
 
-  Resolve func(interface{})(interface{}, error) 
+  Resolve func(interface{},graphql.ResolveParams)(interface{},error)
 }
 
 type ExtensionInfo struct {
@@ -63,6 +63,11 @@ type NodeInfo struct {
   Interface *graphql.Interface
   Extensions []ExtType
   Fields map[string]ExtType
+}
+
+type InterfaceInfo struct {
+  Serialized SerializedType
+  Reflect reflect.Type
 }
 
 // A Context stores all the data to run a graphvent process
@@ -80,6 +85,9 @@ type Context struct {
   // Map between database extension hashes and the registered info
   Extensions map[ExtType]*ExtensionInfo
   ExtensionTypes map[reflect.Type]*ExtensionInfo
+
+  Interfaces map[SerializedType]*InterfaceInfo
+  InterfaceTypes map[reflect.Type]*InterfaceInfo
 
   // Map between database type hashes and the registered info
   Nodes map[NodeType]*NodeInfo
@@ -153,10 +161,14 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
     return err
   }
 
+  key_resolve := ctx.GQLResolve(reflect_type.Key(), node_types[0])
+
   val_type, err := ctx.GQLType(reflect_type.Elem(), node_types[1])
   if err != nil {
     return err
   }
+
+  val_resolve := ctx.GQLResolve(reflect_type.Elem(), node_types[1])
 
   gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
   gql_name = strings.ReplaceAll(gql_name, "[", "_")
@@ -174,7 +186,11 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
             return nil, fmt.Errorf("%+v is not Pair", source)
           }
 
-          return source.Key, nil
+          if key_resolve == nil {
+            return source.Key, nil
+          } else {
+            return key_resolve(source.Key, p)
+          }
         },
       },
       "Value": &graphql.Field{
@@ -185,7 +201,11 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
             return nil, fmt.Errorf("%+v is not Pair", source)
           }
 
-          return source.Val, nil
+          if val_resolve == nil {
+            return source.Val, nil
+          } else {
+            return val_resolve(source.Val, p)
+          }
         },
       },
     },
@@ -199,7 +219,7 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql_map,
-    Resolve: func(v interface{}) (interface{}, error) {
+    Resolve: func(v interface{},p graphql.ResolveParams) (interface{}, error) {
       val := reflect.ValueOf(v)
       if val.Type() != (reflect_type) {
         return nil, fmt.Errorf("%s is not %s", val.Type(), reflect_type)
@@ -241,15 +261,43 @@ func BuildSchema(ctx *Context, query, mutation *graphql.Object) (graphql.Schema,
 
   subscription := graphql.NewObject(graphql.ObjectConfig{
     Name: "Subscription",
-    Fields: graphql.Fields{
-      "Test": &graphql.Field{
-        Type: graphql.String,
-        Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-          return "TEST", nil
-        },
-      },
-    },
+    Fields: graphql.Fields{},
   })
+
+  for query_name, query := range(query.Fields()) {
+    args := graphql.FieldConfigArgument{}
+    for _, arg := range(query.Args) {
+      args[arg.Name()] = &graphql.ArgumentConfig{
+        Type: arg.Type,
+        DefaultValue: arg.DefaultValue,
+        Description: arg.Description(),
+      }
+    }
+    subscription.AddFieldConfig(query_name, &graphql.Field{
+      Type: query.Type,
+      Args: args,
+      Subscribe: func(p graphql.ResolveParams) (interface{}, error) {
+        ctx, err := PrepResolve(p)
+        if err != nil {
+          return nil, err
+        }
+
+        c, err := ctx.Ext.AddSubscription(ctx.ID)
+        if err != nil {
+          return nil, err
+        }
+
+        first_result, err := query.Resolve(p)
+        if err != nil {
+          return nil, err
+        }
+
+        c <- first_result
+        return c, nil
+      },
+      Resolve: query.Resolve,
+    })
+  }
 
   return graphql.NewSchema(graphql.SchemaConfig{
     Types: types,
@@ -409,11 +457,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
         return err 
       }
 
-      gql_resolve, err := ctx.GQLResolve(field_info.Type, field_info.NodeTag)
-      if err != nil {
-        return err
-      }
-      ctx.Log.Logf("gql", "Adding field %s[%+v] to %s with gql type %+v", field_name, field_info, name, gql_type)
+      gql_resolve := ctx.GQLResolve(field_info.Type, field_info.NodeTag)
 
       gql_interface.AddFieldConfig(field_name, &graphql.Field{
         Type: gql_type,
@@ -433,7 +477,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
           }
 
           if gql_resolve != nil {
-            return gql_resolve(node.Data[node_info.Fields[field_name]][field_name])
+            return gql_resolve(node.Data[node_info.Fields[field_name]][field_name], p)
           } else {
             return node.Data[node_info.Fields[field_name]][field_name], nil
           }
@@ -511,6 +555,8 @@ func RegisterObject[T any](ctx *Context) error {
         return err
       }
 
+      gql_resolve := ctx.GQLResolve(field.Type, node_tag)
+
       gql.AddFieldConfig(gv_tag, &graphql.Field{
         Type: gql_type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -524,7 +570,11 @@ func RegisterObject[T any](ctx *Context) error {
             return nil, err
           }
 
-          return value.Interface(), nil
+          if gql_resolve == nil {
+            return value.Interface(), nil
+          } else {
+            return gql_resolve(value.Interface(), p)
+          }
         },
       })
     }
@@ -659,7 +709,7 @@ func astInt[T constraints.Integer](value ast.Value) interface{} {
   }
 }
 
-func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}) error {
+func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}, resolve func(interface{},graphql.ResolveParams)(interface{},error)) error {
   reflect_type := reflect.TypeFor[S]()
   serialized_type := SerializedTypeFor[S]()
 
@@ -681,7 +731,7 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql,
-    Resolve: nil,
+    Resolve: resolve,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
@@ -749,7 +799,7 @@ func (ctx *Context) getNode(id NodeID) (*Node, error) {
 // Route Messages to dest. Currently only local context routing is supported
 func (ctx *Context) Send(node *Node, messages []SendMsg) error {
   for _, msg := range(messages) {
-    ctx.Log.Logf("signal", "Sending %s -> %+v", msg.Dest, msg)
+    ctx.Log.Logf("signal", "Sending %s to %s", msg.Signal, msg.Dest)
     if msg.Dest == ZeroID {
       panic("Can't send to null ID")
     }
@@ -757,7 +807,7 @@ func (ctx *Context) Send(node *Node, messages []SendMsg) error {
     if err == nil {
       select {
       case target.MsgChan <- RecvMsg{node.ID, msg.Signal}:
-        ctx.Log.Logf("signal", "Sent %s -> %+v", target.ID, msg)
+        ctx.Log.Logf("signal", "Sent %s to %s", msg.Signal, msg.Dest)
       default:
         buf := make([]byte, 4096)
         n := runtime.Stack(buf, false)
@@ -774,19 +824,38 @@ func (ctx *Context) Send(node *Node, messages []SendMsg) error {
   return nil
 }
 
-func (ctx *Context)GQLResolve(t reflect.Type, node_type string) (func(interface{})(interface{}, error), error) {
+func (ctx *Context)GQLResolve(t reflect.Type, node_type string) (func(interface{},graphql.ResolveParams)(interface{},error)) {
   info, mapped := ctx.TypeTypes[t]
   if mapped {
-    return info.Resolve, nil
+    return info.Resolve
   } else {
     switch t.Kind() {
     //case reflect.Array:
     //case reflect.Slice:
     case reflect.Pointer:
       return ctx.GQLResolve(t.Elem(), node_type)
+    default:
+      return nil
     }
   }
-  return nil, fmt.Errorf("Cannot get resolver for %s", t)
+}
+
+func RegisterInterface[T any](ctx *Context) error {
+  serialized_type := SerializeType(reflect.TypeFor[T]())
+  reflect_type := reflect.TypeFor[T]()
+
+  _, exists := ctx.Interfaces[serialized_type]
+  if exists == true {
+    return fmt.Errorf("Interface %+v already exists in context", reflect_type)
+  }
+
+  ctx.Interfaces[serialized_type] = &InterfaceInfo{
+    Serialized: serialized_type,
+    Reflect: reflect_type,
+  }
+  ctx.InterfaceTypes[reflect_type] = ctx.Interfaces[serialized_type]
+
+  return nil
 }
 
 // Create a new Context with the base library content added
@@ -801,6 +870,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Extensions: map[ExtType]*ExtensionInfo{},
     ExtensionTypes: map[reflect.Type]*ExtensionInfo{},
 
+    Interfaces: map[SerializedType]*InterfaceInfo{},
+    InterfaceTypes: map[reflect.Type]*InterfaceInfo{},
+
     Nodes: map[NodeType]*NodeInfo{},
     NodeTypes: map[string]*NodeInfo{},
 
@@ -809,12 +881,29 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
 
   var err error
 
-  err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID]) 
+  err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID], func(v interface{}, p graphql.ResolveParams)(interface{}, error) {
+    id, ok := v.(NodeID)
+    if ok == false {
+      return nil, fmt.Errorf("%+v is not NodeID", v)
+    }
+    
+    node, err := ResolveNode(id, p)
+    if err != nil {
+      return nil, err
+    }
+
+    return node, nil
+  }) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType]) 
+  err = RegisterInterface[Extension](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType], nil) 
   if err != nil {
     return nil, err
   }
@@ -824,52 +913,52 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool])
+  err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool], nil)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[int](ctx, identity, coerce[int], astInt[int]) 
+  err = RegisterScalar[int](ctx, identity, coerce[int], astInt[int], nil) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[uint32](ctx, identity, coerce[uint32], astInt[uint32])
+  err = RegisterScalar[uint32](ctx, identity, coerce[uint32], astInt[uint32], nil)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[uint8](ctx, identity, coerce[uint8], astInt[uint8])
+  err = RegisterScalar[uint8](ctx, identity, coerce[uint8], astInt[uint8], nil)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[time.Time](ctx, stringify, unstringify[time.Time], unstringifyAST[time.Time])
+  err = RegisterScalar[time.Time](ctx, stringify, unstringify[time.Time], unstringifyAST[time.Time], nil)
   if err != nil {
     return nil, err
   }
   
-  err = RegisterScalar[string](ctx, identity, coerce[string], astString[string])
+  err = RegisterScalar[string](ctx, identity, coerce[string], astString[string], nil)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[EventState](ctx, identity, coerce[EventState], astString[EventState])
+  err = RegisterScalar[EventState](ctx, identity, coerce[EventState], astString[EventState], nil)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[ReqState](ctx, identity, coerce[ReqState], astInt[ReqState]) 
+  err = RegisterScalar[ReqState](ctx, identity, coerce[ReqState], astInt[ReqState], nil) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[uuid.UUID](ctx, stringify, unstringify[uuid.UUID], unstringifyAST[uuid.UUID]) 
+  err = RegisterScalar[uuid.UUID](ctx, stringify, unstringify[uuid.UUID], unstringifyAST[uuid.UUID], nil) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[WaitReason](ctx, identity, coerce[WaitReason], astString[WaitReason])
+  err = RegisterScalar[WaitReason](ctx, identity, coerce[WaitReason], astString[WaitReason], nil)
   if err != nil {
     return nil, err
   }
