@@ -336,10 +336,10 @@ func GQLWSDo(ctx * Context, p graphql.Params) chan *graphql.Result {
 
   if operation == ast.OperationTypeSubscription {
     return graphql.Subscribe(p)
+  } else {
+    res := graphql.Do(p)
+    return sendOneResultAndClose(res)
   }
-
-  res := graphql.Do(p)
-  return sendOneResultAndClose(res)
 }
 
 func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.ResponseWriter, *http.Request) {

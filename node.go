@@ -4,7 +4,6 @@ import (
   "crypto/ed25519"
   "crypto/rand"
   "crypto/sha512"
-  "encoding/binary"
   "fmt"
   "reflect"
   "sync/atomic"
@@ -193,12 +192,11 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   }
 }
 
-func runNode(ctx *Context, node *Node) {
+func runNode(ctx *Context, node *Node, started chan error) {
   ctx.Log.Logf("node", "RUN_START: %s", node.ID)
-  err := nodeLoop(ctx, node)
+  err := nodeLoop(ctx, node, started)
   if err != nil {
     ctx.Log.Logf("node", "%s runNode err %s", node.ID, err)
-    panic(err)
   }
   ctx.Log.Logf("node", "RUN_STOP: %s", node.ID)
 }
@@ -236,11 +234,24 @@ func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType
 }
 
 // Main Loop for nodes
-func nodeLoop(ctx *Context, node *Node) error {
-  started := node.Active.CompareAndSwap(false, true)
-  if started == false {
+func nodeLoop(ctx *Context, node *Node, started chan error) error {
+  is_started := node.Active.CompareAndSwap(false, true)
+  if is_started == false {
     return fmt.Errorf("%s is already started, will not start again", node.ID)
+  } else {
+    ctx.Log.Logf("node", "Set %s active", node.ID)
   }
+
+  for _, extension := range(node.Extensions) {
+    err := extension.Load(ctx, node)
+    if err != nil {
+      node.Active.Store(false)
+      ctx.Log.Logf("node", "Failed to load extension %s on node %s", reflect.TypeOf(extension), node.ID)
+      return err
+    }
+  }
+
+  started <- nil
 
   run := true
   for run == true {
@@ -422,9 +433,13 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
 
   ext_map := map[ExtType]Extension{}
   for _, ext := range(extensions) {
+    if ext == nil {
+      return nil, fmt.Errorf("Cannot create node with nil extension")
+    }
+
     ext_type, exists := ctx.ExtensionTypes[reflect.TypeOf(ext).Elem()]
     if exists == false {
-      return nil, fmt.Errorf(fmt.Sprintf("%+v is not a known Extension", reflect.TypeOf(ext)))
+      return nil, fmt.Errorf("%+v is not a known Extension", reflect.TypeOf(ext))
     }
     _, exists = ext_map[ext_type.ExtType]
     if exists == true {
@@ -456,25 +471,14 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     return nil, err
   }
 
-  // Load each extension before starting the main loop
-  for _, extension := range(node.Extensions) {
-    err := extension.Load(ctx, node)
-    if err != nil {
-      return nil, err
-    }
+  ctx.AddNode(id, node)
+  started := make(chan error, 1)
+  go runNode(ctx, node, started)
+
+  err = <- started
+  if err != nil {
+    return nil, err
   }
 
-  ctx.AddNode(id, node)
-  go runNode(ctx, node)
-
   return node, nil
-}
-
-var extension_suffix = []byte{0xEE, 0xFF, 0xEE, 0xFF}
-var signal_queue_suffix = []byte{0xAB, 0xBA, 0xAB, 0xBA}
-func ExtTypeSuffix(ext_type ExtType) []byte {
-  ret := make([]byte, 12)
-  copy(ret[0:4], extension_suffix)
-  binary.BigEndian.PutUint64(ret[4:], uint64(ext_type))
-  return ret
 }

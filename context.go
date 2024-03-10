@@ -150,7 +150,7 @@ type Pair struct {
 
 func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) error {
   ctx.Log.Logf("gql", "Registering map %s with node_type %s", reflect_type, node_type)
-  node_types := strings.Split(node_type, ":")
+  node_types := strings.SplitN(node_type, ":", 2)
 
   if len(node_types) != 2 {
     return fmt.Errorf("Invalid node tag for map type %s: \"%s\"", reflect_type, node_type)
@@ -782,13 +782,31 @@ func (ctx *Context) Stop() {
   ctx.nodeMapLock.Unlock()
 }
 
+func (ctx *Context) Load(id NodeID) (*Node, error) {
+  node, err := LoadNode(ctx, id)
+  if err != nil {
+    return nil, err
+  }
+
+  ctx.AddNode(id, node)
+  started := make(chan error, 1)
+  go runNode(ctx, node, started)
+
+  err = <- started
+  if err != nil {
+    return nil, err
+  }
+
+  return node, nil
+}
+
 // Get a node from the context, or load from the database if not loaded
 func (ctx *Context) getNode(id NodeID) (*Node, error) {
   target, exists := ctx.Node(id)
 
   if exists == false {
     var err error
-    target, err = LoadNode(ctx, id)
+    target, err = ctx.Load(id)
     if err != nil {
       return nil, err
     }

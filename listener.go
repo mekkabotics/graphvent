@@ -10,12 +10,35 @@ type ListenerExt struct {
   Chan chan Signal
 }
 
+type LoadedSignal struct {
+  SignalHeader
+}
+
+func NewLoadedSignal() *LoadedSignal {
+  return &LoadedSignal{
+    SignalHeader: NewSignalHeader(),
+  }
+}
+
+type UnloadedSignal struct {
+  SignalHeader
+}
+
+func NewUnloadedSignal() *UnloadedSignal {
+  return &UnloadedSignal{
+    SignalHeader: NewSignalHeader(),
+  }
+}
+
 func (ext *ListenerExt) Load(ctx *Context, node *Node) error {
   ext.Chan = make(chan Signal, ext.Buffer)
+  ext.Chan <- NewLoadedSignal()
   return nil
 }
 
 func (ext *ListenerExt) Unload(ctx *Context, node *Node) {
+  ext.Chan <- NewUnloadedSignal()
+  close(ext.Chan)
 }
 
 // Create a new listener extension with a given buffer size
