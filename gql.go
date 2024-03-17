@@ -544,7 +544,7 @@ type GQLExt struct {
   State string `gv:"state"`
   TLSKey []byte `gv:"tls_key"`
   TLSCert []byte `gv:"tls_cert"`
-  Listen string `gv:"listen"`
+  Listen string `gv:"listen" gql:"GQLListen"`
 }
 
 func (ext *GQLExt) Load(ctx *Context, node *Node) error {

@@ -23,7 +23,7 @@ var ReqStateStrings = map[ReqState]string {
 }
 
 type LockableExt struct{
-  State ReqState `gv:"state"`
+  State ReqState `gv:"lockable_state"`
   ReqID *uuid.UUID `gv:"req_id"`
   Owner *NodeID `gv:"owner" node:"Base"`
   PendingOwner *NodeID `gv:"pending_owner" node:"Base"`

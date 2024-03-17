@@ -25,17 +25,36 @@ func ResolveNodeType(p graphql.ResolveParams) (interface{}, error) {
   return uint64(node.NodeType), nil
 }
 
-func GetFieldNames(ctx *Context, selection_set *ast.SelectionSet) []string {
-  names := []string{}
+type FieldIndex struct {
+  Extension ExtType
+  Tag string
+}
+
+func GetFields(ctx *Context, node_type string, selection_set *ast.SelectionSet) []FieldIndex {
+  names := []FieldIndex{}
   if selection_set == nil {
     return names
+  }
+
+  node_info, mapped := ctx.NodeTypes[node_type]
+  if mapped == false {
+    return nil
   }
 
   for _, sel := range(selection_set.Selections) {
     switch field := sel.(type) {
     case *ast.Field:
-      names = append(names, field.Name.Value)
+      if field.Name.Value == "ID" || field.Name.Value == "Type" {
+        continue
+      }
+
+      extension, mapped := node_info.Fields[field.Name.Value]
+      if mapped == false {
+        continue
+      }
+      names = append(names, FieldIndex{extension, field.Name.Value})
     case *ast.InlineFragment:
+      names = append(names, GetFields(ctx, field.TypeCondition.Name.Value, field.SelectionSet)...)
     default:
       ctx.Log.Logf("gql", "Unknown selection type: %s", reflect.TypeOf(field))
     }
@@ -46,47 +65,33 @@ func GetFieldNames(ctx *Context, selection_set *ast.SelectionSet) []string {
 
 // Returns the fields that need to be resolved
 func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) (map[ExtType][]string, error) {
-  node_info, mapped := ctx.Context.NodeTypes[p.Info.ReturnType.Name()]
-  if mapped == false {
-    return nil, fmt.Errorf("No NodeType %s", p.Info.ReturnType.Name())
-  }
-
-  fields := map[ExtType][]string{}
-  names := []string{}
+  m := map[ExtType][]string{}
+  fields := []FieldIndex{}
   for _, field := range(p.Info.FieldASTs) {
-    names = append(names, GetFieldNames(ctx.Context, field.SelectionSet)...)
+    fields = append(fields, GetFields(ctx.Context, p.Info.ReturnType.Name(), field.SelectionSet)...)
   }
 
   cache, node_cached := ctx.NodeCache[id]
-  for _, name := range(names) {
-    if name == "ID" || name == "Type" {
-      continue
-    }
-
-    ext_type, field_mapped := node_info.Fields[name]
-    if field_mapped == false {
-      return nil, fmt.Errorf("NodeType %s does not have field %s", p.Info.ReturnType.Name(), name)
-    }
-
-    ext_fields, exists := fields[ext_type]
+  for _, field := range(fields) {
+    ext_fields, exists := m[field.Extension]
     if exists == false {
       ext_fields = []string{}
     }
 
     if node_cached {
-      ext_cache, ext_cached := cache.Data[ext_type]
+      ext_cache, ext_cached := cache.Data[field.Extension]
       if ext_cached {
-        _, field_cached := ext_cache[name]
+        _, field_cached := ext_cache[field.Tag]
         if field_cached {
           continue
         }
       }
     }
 
-    fields[ext_type] = append(ext_fields, name)
+    m[field.Extension] = append(ext_fields, field.Tag)
   }
   
-  return fields, nil
+  return m, nil
 }
 
 func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {

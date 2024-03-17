@@ -149,7 +149,6 @@ type Pair struct {
 }
 
 func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) error {
-  ctx.Log.Logf("gql", "Registering map %s with node_type %s", reflect_type, node_type)
   node_types := strings.SplitN(node_type, ":", 2)
 
   if len(node_types) != 2 {
@@ -173,7 +172,6 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
   gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
   gql_name = strings.ReplaceAll(gql_name, "[", "_")
   gql_name = strings.ReplaceAll(gql_name, "]", "_")
-  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
 
   gql_pair := graphql.NewObject(graphql.ObjectConfig{
     Name: gql_name,
@@ -211,7 +209,6 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
     },
   })
 
-  ctx.Log.Logf("gql", "Registering new map with pair type %+v", gql_pair)
   gql_map := graphql.NewList(gql_pair)
 
   serialized_type := SerializeType(reflect_type)
@@ -248,14 +245,13 @@ func BuildSchema(ctx *Context, query, mutation *graphql.Object) (graphql.Schema,
   ctx.Log.Logf("gql", "Building Schema")
 
   for _, info := range(ctx.TypeMap) {
-    ctx.Log.Logf("gql", "Adding type %+v", info.Type)
-    types = append(types, info.Type)
+    if info.Type != nil {
+      types = append(types, info.Type)
+    }
   }
 
   for _, info := range(ctx.Nodes) {
-    ctx.Log.Logf("gql", "Adding node type object %+v", info.Type)
     types = append(types, info.Type)
-    ctx.Log.Logf("gql", "Adding node type interface %+v", info.Interface)
     types = append(types, info.Interface) 
   }
 
@@ -329,8 +325,6 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
     }
   }
 
-  ctx.Log.Logf("serialize_types", "Registered ExtType: %+v - %+v", reflect_type, ext_type)
-
   ctx.Extensions[ext_type] = &ExtensionInfo{
     ExtType: ext_type,
     Data: data,
@@ -342,7 +336,6 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
 }
 
 func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
-  ctx.Log.Logf("gql", "Registering NodeType %s with extensions %+v", name, extensions)
   node_type := NodeTypeFor(extensions)
   _, exists := ctx.Nodes[node_type]
   if exists == true {
@@ -373,7 +366,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
       fields[field_name] = extension
     }
   }
-  
+ 
   gql_interface := graphql.NewInterface(graphql.InterfaceConfig{
     Name: name,
     Fields: graphql.Fields{
@@ -522,7 +515,6 @@ func RegisterObject[T any](ctx *Context) error {
   }
 
   gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
-  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
   gql := graphql.NewObject(graphql.ObjectConfig{
     Name: gql_name,
     IsTypeOf: func(p graphql.IsTypeOfParams) bool {
@@ -549,14 +541,12 @@ func RegisterObject[T any](ctx *Context) error {
         NodeTag: node_tag,
         Tag: gv_tag,
       }
-
       gql_type, err := ctx.GQLType(field.Type, node_tag)
       if err != nil {
         return err
       }
 
       gql_resolve := ctx.GQLResolve(field.Type, node_tag)
-
       gql.AddFieldConfig(gv_tag, &graphql.Field{
         Type: gql_type,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -564,7 +554,7 @@ func RegisterObject[T any](ctx *Context) error {
           if ok == false {
             return nil, fmt.Errorf("%s is not %s", reflect.TypeOf(p.Source), reflect_type)
           }
-          
+
           value, err := reflect.ValueOf(val).FieldByIndexErr(field.Index)
           if err != nil {
             return nil, err
@@ -709,6 +699,40 @@ func astInt[T constraints.Integer](value ast.Value) interface{} {
   }
 }
 
+func RegisterEnum[E comparable](ctx *Context, str_map map[E]string) error {
+  reflect_type := reflect.TypeFor[E]()
+  serialized_type := SerializedTypeFor[E]()
+
+  _, exists := ctx.TypeTypes[reflect_type]
+  if exists {
+    return fmt.Errorf("%+v already registered in TypeMap", reflect_type)
+  }
+
+  value_config := graphql.EnumValueConfigMap{}
+
+  for value, value_name := range(str_map) {
+    value_config[value_name] = &graphql.EnumValueConfig{
+      Value: value,
+    }
+  }
+
+  gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
+  gql := graphql.NewEnum(graphql.EnumConfig{
+    Name: gql_name,
+    Values: value_config,
+  })
+
+  ctx.TypeMap[serialized_type] = &TypeInfo{
+    Serialized: serialized_type,
+    Reflect: reflect_type,
+    Type: gql,
+    Resolve: nil,
+  }
+  ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
+
+  return nil
+}
+
 func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}, resolve func(interface{},graphql.ResolveParams)(interface{},error)) error {
   reflect_type := reflect.TypeFor[S]()
   serialized_type := SerializedTypeFor[S]()
@@ -719,7 +743,6 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
   }
 
   gql_name := strings.ReplaceAll(reflect_type.String(), ".", "_")
-  ctx.Log.Logf("gql", "Registering %s with gql name %s", reflect_type, gql_name)
   gql := graphql.NewScalar(graphql.ScalarConfig{
     Name: gql_name,
     Serialize: to_json,
@@ -966,7 +989,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[ReqState](ctx, identity, coerce[ReqState], astInt[ReqState], nil) 
+  err = RegisterEnum[ReqState](ctx, ReqStateStrings) 
   if err != nil {
     return nil, err
   }
@@ -1040,7 +1063,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     Name: "Query",
     Fields: graphql.Fields{
       "Self": &graphql.Field{
-        Type: ctx.NodeTypes["Lockable"].Interface,
+        Type: ctx.NodeTypes["Base"].Interface,
         Resolve: func(p graphql.ResolveParams) (interface{}, error) {
           ctx, err := PrepResolve(p)
           if err != nil {
