@@ -100,6 +100,9 @@ type Context struct {
 
 func (ctx *Context) GQLType(t reflect.Type, node_type string) (graphql.Type, error) {
   if t == reflect.TypeFor[NodeID]() {
+    if node_type == "" {
+      node_type = "Base"
+    }
     node_info, mapped := ctx.NodeTypes[node_type]
     if mapped == false {
       return nil, fmt.Errorf("Cannot get GQL type for unregistered Node Type \"%s\"", node_type)
@@ -149,10 +152,15 @@ type Pair struct {
 }
 
 func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) error {
-  node_types := strings.SplitN(node_type, ":", 2)
+  var node_types []string
+  if node_type == "" {
+    node_types = []string{"", ""}
+  } else {
+    node_types = strings.SplitN(node_type, ":", 2)
 
-  if len(node_types) != 2 {
-    return fmt.Errorf("Invalid node tag for map type %s: \"%s\"", reflect_type, node_type)
+    if len(node_types) != 2 {
+      return fmt.Errorf("Invalid node tag for map type %s: \"%s\"", reflect_type, node_type)
+    }
   }
 
   key_type, err := ctx.GQLType(reflect_type.Key(), node_types[0])
@@ -503,6 +511,10 @@ func (ctx *Context) GQLInterfaces(known_type NodeType, extensions []ExtType) gra
     }
     return interfaces
   }
+}
+
+func RegisterSignal[S Signal](ctx *Context) error {
+  return RegisterObject[S](ctx)
 }
 
 func RegisterObject[T any](ctx *Context) error {
@@ -997,6 +1009,11 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = RegisterScalar[ExtType](ctx, identity, coerce[ExtType], astInt[ExtType], nil)
+  if err != nil {
+    return nil, err
+  }
+
   err = RegisterNodeType(ctx, "Base", []ExtType{})
   if err != nil {
     return nil, err
@@ -1052,17 +1069,23 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
+  err = RegisterScalar[Change](ctx, identity, coerce[Change], astString[Change], nil)
+  if err != nil {
+    return nil, err
+  }
+
+  // TODO: Register as a GQL type with Signal as an interface
   err = RegisterObjectNoGQL[QueuedSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterObjectNoGQL[TimeoutSignal](ctx)
+  err = RegisterSignal[TimeoutSignal](ctx)
   if err != nil {
     return nil, err
   }
 
-  err = RegisterObjectNoGQL[StatusSignal](ctx)
+  err = RegisterSignal[StatusSignal](ctx)
   if err != nil {
     return nil, err
   }
