@@ -69,7 +69,7 @@ func NewEventControlSignal(command EventCommand) *EventControlSignal {
 func (ext *EventExt) UpdateState(node *Node, changes Changes, state EventState, state_start time.Time) {
   if ext.State != state {
     ext.StateStart = state_start
-    changes.Add("state")
+    changes = append(changes, "state")
     ext.State = state
     node.QueueSignal(time.Now(), NewEventStateSignal(node.ID, ext.State, time.Now()))
   }

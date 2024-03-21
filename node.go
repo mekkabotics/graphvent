@@ -345,6 +345,7 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
     }
     if len(ext_changes) != 0 {
       changes[ext_type] = ext_changes
+      ctx.Log.Logf("changes", "Changes for %s ext[%+v] - %+v", node.ID, ext_type, ext_changes)
     }
   }
   ctx.Log.Logf("changes", "Changes for %s after %+v - %+v", node.ID, reflect.TypeOf(signal), changes)

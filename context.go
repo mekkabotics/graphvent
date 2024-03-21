@@ -583,6 +583,49 @@ func RegisterObject[T any](ctx *Context) error {
   return nil
 }
 
+func RegisterObjectNoGQL[T any](ctx *Context) error {
+  reflect_type := reflect.TypeFor[T]()
+  serialized_type := SerializedTypeFor[T]()
+
+  _, exists := ctx.TypeTypes[reflect_type]
+  if exists {
+    return fmt.Errorf("%+v already registered in TypeMap", reflect_type)
+  }
+
+  field_infos := map[FieldTag]FieldInfo{}
+
+  post_deserialize, post_deserialize_exists := reflect.PointerTo(reflect_type).MethodByName("PostDeserialize")
+  post_deserialize_index := -1
+  if post_deserialize_exists {
+    post_deserialize_index = post_deserialize.Index
+  }
+  
+  for _, field := range(reflect.VisibleFields(reflect_type)) {
+    gv_tag, tagged_gv := field.Tag.Lookup("gv")
+    if tagged_gv {
+      node_tag := field.Tag.Get("node")
+      field_infos[GetFieldTag(gv_tag)] = FieldInfo{
+        Type: field.Type,
+        Index: field.Index,
+        NodeTag: node_tag,
+        Tag: gv_tag,
+      }
+    }
+  }
+
+  ctx.TypeMap[serialized_type] = &TypeInfo{
+    PostDeserializeIndex: post_deserialize_index,
+    Serialized: serialized_type,
+    Reflect: reflect_type,
+    Fields: field_infos,
+    Type: nil,
+    Resolve: nil,
+  }
+  ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
+
+  return nil
+}
+
 func identity(value interface{}) interface{} {
   return value
 }
@@ -938,8 +981,13 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   if err != nil {
     return nil, err
   }
-
+  
   err = RegisterInterface[Extension](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterInterface[Signal](ctx)
   if err != nil {
     return nil, err
   }
@@ -1000,6 +1048,21 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterScalar[WaitReason](ctx, identity, coerce[WaitReason], astString[WaitReason], nil)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterObjectNoGQL[QueuedSignal](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterObjectNoGQL[TimeoutSignal](ctx)
+  if err != nil {
+    return nil, err
+  }
+
+  err = RegisterObjectNoGQL[StatusSignal](ctx)
   if err != nil {
     return nil, err
   }

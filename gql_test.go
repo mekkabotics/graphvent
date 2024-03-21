@@ -18,7 +18,7 @@ import (
 
 
 func TestGQLSubscribe(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test", "listener", "changes"})
 
   n1, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
   fatalErr(t, err)
@@ -35,7 +35,7 @@ func TestGQLSubscribe(t *testing.T) {
   ctx.Log.Logf("test", "NODE: %s", n1.ID)
 
   sub_1 := GQLPayload{
-    Query: "subscription Self { Self { ID, Type } }",
+    Query: "subscription { Self { ID, Type ... on Lockable { lockable_state } } }",
   }
 
   port := gql_ext.tcp_listener.Addr().(*net.TCPAddr).Port
@@ -96,13 +96,18 @@ func TestGQLSubscribe(t *testing.T) {
     fatalErr(t, err)
     ctx.Log.Logf("test", "SUB: %s", resp[:n])
 
-    err = ctx.Send(gql, []SendMsg{{
-      Dest: gql.ID,
-      Signal: NewStatusSignal(gql.ID, map[ExtType]Changes{
-        ExtTypeFor[GQLExt](): {"state"},
-      }),
-    }})
+    lock_id, err := LockLockable(ctx, gql)
     fatalErr(t, err)
+
+    response, _, err := WaitForResponse(listener_ext.Chan, 100*time.Millisecond, lock_id)
+    fatalErr(t, err)
+
+    switch response.(type) {
+    case *SuccessSignal:
+      ctx.Log.Logf("test", "Locked %s", gql.ID)
+    default:
+      t.Errorf("Unexpected lock response: %s", response)
+    }
 
     n, err = ws.Read(resp)
     fatalErr(t, err)
