@@ -35,7 +35,6 @@ type LockableExt struct{
   ReqID *uuid.UUID `gv:"req_id"`
   Owner *NodeID `gv:"owner"`
   PendingOwner *NodeID `gv:"pending_owner"`
-  PendingID uuid.UUID `gv:"pending_id"`
   Requirements map[NodeID]ReqState `gv:"requirements" node:"Lockable:"`
   Waiting WaitMap `gv:"waiting_locks" node:":Lockable"`
 }
