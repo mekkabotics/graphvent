@@ -21,13 +21,6 @@ func (signal TimeoutSignal) String() string {
   return fmt.Sprintf("TimeoutSignal(%s)", &signal.ResponseHeader)
 }
 
-type SignalDirection int
-const (
-  Up SignalDirection = iota
-  Down
-  Direct
-)
-
 type SignalHeader struct {
   Id uuid.UUID `gv:"id"`
 }
@@ -205,18 +198,30 @@ func NewLinkSignal(action string, id NodeID) Signal {
 
 type LockSignal struct {
   SignalHeader
-  State string
 }
 func (signal LockSignal) String() string {
-  return fmt.Sprintf("LockSignal(%s, %s)", signal.SignalHeader, signal.State)
+  return fmt.Sprintf("LockSignal(%s)", signal.SignalHeader)
 }
 
-func NewLockSignal(state string) *LockSignal {
+func NewLockSignal() *LockSignal {
   return &LockSignal{
     NewSignalHeader(),
-    state,
   }
 }
+
+type UnlockSignal struct {
+  SignalHeader
+}
+func (signal UnlockSignal) String() string {
+  return fmt.Sprintf("UnlockSignal(%s)", signal.SignalHeader)
+}
+
+func NewUnlockSignal() *UnlockSignal {
+  return &UnlockSignal{
+    NewSignalHeader(),
+  }
+}
+
 
 type ReadSignal struct {
   SignalHeader

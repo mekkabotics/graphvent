@@ -66,6 +66,8 @@ func (q QueuedSignal) String() string {
   return fmt.Sprintf("%+v@%s", reflect.TypeOf(q.Signal), q.Time)
 }
 
+type WaitMap map[uuid.UUID]NodeID
+
 // Default message channel size for nodes
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
@@ -99,54 +101,6 @@ func (node *Node) PostDeserialize(ctx *Context) error {
   node.MsgChan = make(chan RecvMsg, node.BufferSize)
 
   return nil
-}
-
-type WaitReason string
-type WaitInfo struct {
-  Destination NodeID `gv:"destination" node:"Base"`
-  Timeout uuid.UUID `gv:"timeout"`
-  Reason WaitReason `gv:"reason"`
-}
-
-type WaitMap map[uuid.UUID]WaitInfo
-
-// Removes a signal from the wait_map and dequeue the associated timeout signal
-// Returns the data, and whether or not the ID was found in the wait_map
-func (node *Node) ProcessResponse(wait_map WaitMap, response ResponseSignal) (WaitInfo, bool) {
-  wait_info, is_processed := wait_map[response.ResponseID()]
-  if is_processed == true {
-    delete(wait_map, response.ResponseID())
-    if response.ID() != wait_info.Timeout {
-      node.DequeueSignal(wait_info.Timeout)
-    }
-    return wait_info, true
-  }
-  return WaitInfo{}, false
-}
-
-func (node *Node) NewTimeout(reason WaitReason, dest NodeID, timeout time.Duration) (WaitInfo, uuid.UUID) {
-  id := uuid.New()
-
-  timeout_signal := NewTimeoutSignal(id)
-  node.QueueSignal(time.Now().Add(timeout), timeout_signal)
-
-  return WaitInfo{
-    Destination: dest,
-    Timeout: timeout_signal.Id,
-    Reason: reason,
-  }, id
-}
-
-// Creates a timeout signal for signal, queues it for the node at the timeout, and returns the WaitInfo
-func (node *Node) QueueTimeout(reason WaitReason, dest NodeID, signal Signal, timeout time.Duration) WaitInfo {
-  timeout_signal := NewTimeoutSignal(signal.ID())
-  node.QueueSignal(time.Now().Add(timeout), timeout_signal)
-
-  return WaitInfo{
-    Destination: dest,
-    Timeout: timeout_signal.Id,
-    Reason: reason,
-  }
 }
 
 func (node *Node) QueueSignal(time time.Time, signal Signal) {

@@ -903,7 +903,7 @@ func (ctx *Context) Send(node *Node, messages []SendMsg) error {
     if err == nil {
       select {
       case target.MsgChan <- RecvMsg{node.ID, msg.Signal}:
-        ctx.Log.Logf("signal", "Sent %s to %s", msg.Signal, msg.Dest)
+        ctx.Log.Logf("signal_sent", "Sent %s to %s", msg.Signal, msg.Dest)
       default:
         buf := make([]byte, 4096)
         n := runtime.Stack(buf, false)
@@ -1064,11 +1064,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[WaitReason](ctx, identity, coerce[WaitReason], astString[WaitReason], nil)
-  if err != nil {
-    return nil, err
-  }
-
   err = RegisterScalar[Change](ctx, identity, coerce[Change], astString[Change], nil)
   if err != nil {
     return nil, err
@@ -1091,11 +1086,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterObject[Node](ctx)
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterObject[WaitInfo](ctx)
   if err != nil {
     return nil, err
   }
