@@ -129,7 +129,7 @@ func (ext *LockableExt) HandleUnlockSignal(ctx *Context, node *Node, source Node
       messages = append(messages, SendMsg{source, NewErrorSignal(signal.Id, "not_owner")})
     } else {
       if len(ext.Requirements) == 0 {
-        changes = append(changes, "state", "owner", "pending_owner")
+        changes = append(changes, "lockable_state", "owner", "pending_owner")
 
         ext.Owner = nil
 
@@ -139,7 +139,7 @@ func (ext *LockableExt) HandleUnlockSignal(ctx *Context, node *Node, source Node
 
         messages = append(messages, SendMsg{source, NewSuccessSignal(signal.Id)})
       } else {
-        changes = append(changes, "state", "waiting", "requirements", "pending_owner")
+        changes = append(changes, "lockable_state", "waiting", "requirements", "pending_owner")
 
         ext.PendingOwner = nil
 
@@ -173,7 +173,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
   switch ext.State {
   case Unlocked:
     if len(ext.Requirements) == 0 {
-      changes = append(changes, "state", "owner", "pending_owner")
+      changes = append(changes, "lockable_state", "owner", "pending_owner")
 
       ext.Owner = new(NodeID)
       *ext.Owner = source
@@ -184,7 +184,7 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
       ext.State = Locked
       messages = append(messages, SendMsg{source, NewSuccessSignal(signal.Id)})
     } else {
-      changes = append(changes, "state", "requirements", "waiting", "pending_owner")
+      changes = append(changes, "lockable_state", "requirements", "waiting", "pending_owner")
 
       ext.PendingOwner = new(NodeID)
       *ext.PendingOwner = source
@@ -221,7 +221,7 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
 
     switch ext.State {
     case Locking:
-      changes = append(changes, "state", "requirements")
+      changes = append(changes, "lockable_state", "requirements")
 
       ext.Requirements[id] = Unlocked
 
@@ -242,11 +242,11 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
       }
 
       if unlocked == len(ext.Requirements) {
-        changes = append(changes, "owner", "state")
+        changes = append(changes, "owner", "lockable_state")
         ext.State = Unlocked
         ext.Owner = nil
       } else {
-        changes = append(changes, "state")
+        changes = append(changes, "lockable_state")
         ext.State = AbortingLock
       }
 
@@ -271,7 +271,7 @@ func (ext *LockableExt) HandleErrorSignal(ctx *Context, node *Node, source NodeI
         }
 
         if unlocked == len(ext.Requirements) {
-          changes = append(changes, "owner", "state")
+          changes = append(changes, "owner", "lockable_state")
           ext.State = Unlocked
           ext.Owner = nil
         }
@@ -309,7 +309,7 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
       }
 
       if locked == len(ext.Requirements) {
-        changes = append(changes, "state", "owner", "req_id")
+        changes = append(changes, "lockable_state", "owner", "req_id")
         ext.State = Locked
 
         ext.Owner = new(NodeID)
@@ -338,7 +338,7 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
         }
 
         if unlocked == len(ext.Requirements) {
-          changes = append(changes, "state", "pending_owner", "req_id")
+          changes = append(changes, "lockable_state", "pending_owner", "req_id")
 
           messages = append(messages, SendMsg{*ext.PendingOwner, NewErrorSignal(*ext.ReqID, "not_unlocked: %s", ext.State)})
           ext.State = Unlocked
@@ -359,7 +359,7 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
       }
 
       if unlocked == len(ext.Requirements) {
-        changes = append(changes, "state", "owner", "req_id")
+        changes = append(changes, "lockable_state", "owner", "req_id")
 
         messages = append(messages, SendMsg{*ext.Owner, NewSuccessSignal(*ext.ReqID)})
         ext.State = Unlocked

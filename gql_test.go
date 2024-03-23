@@ -18,7 +18,7 @@ import (
 
 
 func TestGQLSubscribe(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "listener", "changes"})
+  ctx := logTestContext(t, []string{"test"})
 
   n1, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
   fatalErr(t, err)
@@ -94,7 +94,7 @@ func TestGQLSubscribe(t *testing.T) {
 
     n, err = ws.Read(resp)
     fatalErr(t, err)
-    ctx.Log.Logf("test", "SUB: %s", resp[:n])
+    ctx.Log.Logf("test", "SUB1: %s", resp[:n])
 
     lock_id, err := LockLockable(ctx, gql)
     fatalErr(t, err)
@@ -111,7 +111,15 @@ func TestGQLSubscribe(t *testing.T) {
 
     n, err = ws.Read(resp)
     fatalErr(t, err)
-    ctx.Log.Logf("test", "SUB: %s", resp[:n])
+    ctx.Log.Logf("test", "SUB2: %s", resp[:n])
+
+    n, err = ws.Read(resp)
+    fatalErr(t, err)
+    ctx.Log.Logf("test", "SUB3: %s", resp[:n])
+
+    n, err = ws.Read(resp)
+    fatalErr(t, err)
+    ctx.Log.Logf("test", "SUB4: %s", resp[:n])
 
     // TODO: check that there are no more messages sent to ws within a timeout
   }

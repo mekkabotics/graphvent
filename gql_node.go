@@ -94,6 +94,7 @@ func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) (
   return m, nil
 }
 
+// TODO: instead of doing the read right away, check if any new fields need to be read
 func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
   ctx, err := PrepResolve(p)
   if err != nil {

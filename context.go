@@ -1145,6 +1145,24 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
           if err != nil {
             return nil, err
           }
+          switch source := p.Source.(type) {
+          case *StatusSignal:
+            ctx.Context.Log.Logf("test", "StatusSignal: %+v", source)
+            cached_node, cached := ctx.NodeCache[source.Source]
+            ctx.Context.Log.Logf("test", "Cached: %t", cached)
+            if cached {
+              for ext_type, ext_changes := range(source.Changes) {
+                cached_ext, cached := cached_node.Data[ext_type]
+                if cached {
+                  for _, field := range(ext_changes) {
+                    delete(cached_ext, string(field))
+                  }
+                  cached_node.Data[ext_type] = cached_ext
+                }
+              }
+              ctx.NodeCache[source.Source] = cached_node
+            }
+          }
           return ResolveNode(ctx.Server.ID, p)
         },
       },
