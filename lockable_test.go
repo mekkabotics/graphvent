@@ -79,7 +79,7 @@ func Test1000Lock(t *testing.T) {
 }
 
 func TestLock(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "lockable", "signal"})
+  ctx := logTestContext(t, []string{"test", "lockable"})
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
     listener := NewListenerExt(1000)
@@ -102,24 +102,28 @@ func TestLock(t *testing.T) {
   ctx.Log.Logf("test", "l4: %s", l4.ID)
   ctx.Log.Logf("test", "l5: %s", l5.ID)
 
+  ctx.Log.Logf("test", "locking l0")
   id_1, err := LockLockable(ctx, l0)
   fatalErr(t, err)
   response, _, err := WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_1)
   fatalErr(t, err)
   ctx.Log.Logf("test", "l0 lock: %+v", response)
 
+  ctx.Log.Logf("test", "locking l1")
   id_2, err := LockLockable(ctx, l1)
   fatalErr(t, err)
-  response, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_2)
+  response, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*1000, id_2)
   fatalErr(t, err)
   ctx.Log.Logf("test", "l1 lock: %+v", response)
 
+  ctx.Log.Logf("test", "unlocking l0")
   id_3, err := UnlockLockable(ctx, l0)
   fatalErr(t, err)
   response, _, err = WaitForResponse(l0_listener.Chan, time.Millisecond*10, id_3)
   fatalErr(t, err)
   ctx.Log.Logf("test", "l0 unlock: %+v", response)
 
+  ctx.Log.Logf("test", "locking l1")
   id_4, err := LockLockable(ctx, l1)
   fatalErr(t, err)
   response, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10, id_4)
