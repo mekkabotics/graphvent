@@ -64,16 +64,43 @@ func GetFields(ctx *Context, node_type string, selection_set *ast.SelectionSet) 
 }
 
 // Returns the fields that need to be resolved
-func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) (map[ExtType][]string, error) {
-  m := map[ExtType][]string{}
+func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) []FieldIndex {
   fields := []FieldIndex{}
   for _, field := range(p.Info.FieldASTs) {
     fields = append(fields, GetFields(ctx.Context, p.Info.ReturnType.Name(), field.SelectionSet)...)
   }
 
+  return fields
+}
+
+func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
+  ctx, err := PrepResolve(p)
+  if err != nil {
+    return NodeResult{}, err
+  }
+
+  switch source := p.Source.(type) {
+  case *StatusSignal:
+    cached_node, cached := ctx.NodeCache[source.Source]
+    if cached {
+      for ext_type, ext_changes := range(source.Changes) {
+        cached_ext, cached := cached_node.Data[ext_type]
+        if cached {
+          for _, field := range(ext_changes) {
+            delete(cached_ext, string(field))
+          }
+          cached_node.Data[ext_type] = cached_ext
+        }
+      }
+      ctx.NodeCache[source.Source] = cached_node
+    }
+  }
+
   cache, node_cached := ctx.NodeCache[id]
+  fields := GetResolveFields(id, ctx, p) 
+  not_cached := map[ExtType][]string{}
   for _, field := range(fields) {
-    ext_fields, exists := m[field.Extension]
+    ext_fields, exists := not_cached[field.Extension]
     if exists == false {
       ext_fields = []string{}
     }
@@ -88,71 +115,60 @@ func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) (
       }
     }
 
-    m[field.Extension] = append(ext_fields, field.Tag)
-  }
-  
-  return m, nil
-}
-
-// TODO: instead of doing the read right away, check if any new fields need to be read
-func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
-  ctx, err := PrepResolve(p)
-  if err != nil {
-    return NodeResult{}, err
+    not_cached[field.Extension] = append(ext_fields, field.Tag)
   }
 
-  fields, err := GetResolveFields(id, ctx, p)
-  if err != nil {
-    return NodeResult{}, err
-  }
-  
-  ctx.Context.Log.Logf("gql", "Resolving fields %+v on node %s", fields, id)
+  if (len(not_cached) == 0) && (node_cached == true) {
+    ctx.Context.Log.Logf("gql", "No new fields to resolve for %s", id)
+    return cache, nil
+  } else {
+    ctx.Context.Log.Logf("gql", "Resolving fields %+v on node %s", not_cached, id)
 
-  signal := NewReadSignal(fields)
-  response_chan := ctx.Ext.GetResponseChannel(signal.ID())
-  // TODO: TIMEOUT DURATION
-  err = ctx.Context.Send(ctx.Server, []SendMsg{{
-    Dest: id,
-    Signal: signal,
-  }})
-  if err != nil {
-    ctx.Ext.FreeResponseChannel(signal.ID())
-    return NodeResult{}, err
-  }
-
-  response, _, err := WaitForResponse(response_chan, 100*time.Millisecond, signal.ID())
-  ctx.Ext.FreeResponseChannel(signal.ID())
-  if err != nil {
-    return NodeResult{}, err
-  }
-
-  switch response := response.(type) {
-  case *ReadResultSignal:
-    cache, node_cached := ctx.NodeCache[id]
-    if node_cached == false {
-      cache = NodeResult{
-        NodeID: id,
-        NodeType: response.NodeType,
-        Data: response.Extensions,
-      }
-    } else {
-      for ext_type, ext_data := range(response.Extensions) {
-        cached_ext, ext_cached := cache.Data[ext_type]
-        if ext_cached {
-          for field_name, field := range(ext_data) {
-            cache.Data[ext_type][field_name] = field
-          }
-        } else {
-          cache.Data[ext_type] = ext_data
-        }
-
-        cache.Data[ext_type] = cached_ext
-      }
+    signal := NewReadSignal(not_cached)
+    response_chan := ctx.Ext.GetResponseChannel(signal.ID())
+    // TODO: TIMEOUT DURATION
+    err = ctx.Context.Send(ctx.Server, []SendMsg{{
+      Dest: id,
+      Signal: signal,
+    }})
+    if err != nil {
+      ctx.Ext.FreeResponseChannel(signal.ID())
+      return NodeResult{}, err
     }
 
-    ctx.NodeCache[id] = cache
-    return ctx.NodeCache[id], nil
-  default:
-    return NodeResult{}, fmt.Errorf("Bad read response: %+v", response)
+    response, _, err := WaitForResponse(response_chan, 100*time.Millisecond, signal.ID())
+    ctx.Ext.FreeResponseChannel(signal.ID())
+    if err != nil {
+      return NodeResult{}, err
+    }
+
+    switch response := response.(type) {
+    case *ReadResultSignal:
+      if node_cached == false {
+        cache = NodeResult{
+          NodeID: id,
+          NodeType: response.NodeType,
+          Data: response.Extensions,
+        }
+      } else {
+        for ext_type, ext_data := range(response.Extensions) {
+          cached_ext, ext_cached := cache.Data[ext_type]
+          if ext_cached {
+            for field_name, field := range(ext_data) {
+              cache.Data[ext_type][field_name] = field
+            }
+          } else {
+            cache.Data[ext_type] = ext_data
+          }
+
+          cache.Data[ext_type] = cached_ext
+        }
+      }
+
+      ctx.NodeCache[id] = cache
+      return ctx.NodeCache[id], nil
+    default:
+      return NodeResult{}, fmt.Errorf("Bad read response: %+v", response)
+    }
   }
 }

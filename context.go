@@ -47,8 +47,6 @@ type TypeInfo struct {
 
   Serialize SerializeFn
   Deserialize DeserializeFn
-
-  Resolve func(interface{},graphql.ResolveParams)(interface{},error)
 }
 
 type ExtensionInfo struct {
@@ -135,7 +133,6 @@ func (ctx *Context) GQLType(t reflect.Type, node_type string) (graphql.Type, err
             return nil, err
           }
           map_type := ctx.TypeTypes[t].Type
-          ctx.Log.Logf("gql", "Getting type for %s: %s", t, map_type)
           return map_type, nil
         }
       case reflect.Pointer:
@@ -224,24 +221,6 @@ func RegisterMap(ctx *Context, reflect_type reflect.Type, node_type string) erro
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql_map,
-    Resolve: func(v interface{},p graphql.ResolveParams) (interface{}, error) {
-      val := reflect.ValueOf(v)
-      if val.Type() != (reflect_type) {
-        return nil, fmt.Errorf("%s is not %s", val.Type(), reflect_type)
-      } else {
-        pairs := make([]Pair, val.Len())
-        iter := val.MapRange()
-        i := 0
-        for iter.Next() {
-          pairs[i] = Pair{
-            Key: iter.Key().Interface(),
-            Val: iter.Value().Interface(),
-          }
-          i += 1
-        }
-        return pairs, nil
-      }
-    },
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
  
@@ -286,17 +265,12 @@ func BuildSchema(ctx *Context, query, mutation *graphql.Object) (graphql.Schema,
           return nil, err
         }
 
-        c, err := ctx.Ext.AddSubscription(ctx.ID)
+        c, err := ctx.Ext.AddSubscription(ctx.ID, ctx)
         if err != nil {
           return nil, err
         }
 
-        first_result, err := query.Resolve(p)
-        if err != nil {
-          return nil, err
-        }
-
-        c <- first_result
+        c <- nil
         return c, nil
       },
       Resolve: query.Resolve,
@@ -477,11 +451,7 @@ func RegisterNodeType(ctx *Context, name string, extensions []ExtType) error {
             return nil, fmt.Errorf("Can't resolve unknown NodeType %s", node.NodeType)
           }
 
-          if gql_resolve != nil {
-            return gql_resolve(node.Data[node_info.Fields[field_name]][field_name], p)
-          } else {
-            return node.Data[node_info.Fields[field_name]][field_name], nil
-          }
+          return gql_resolve(node.Data[node_info.Fields[field_name]][field_name], p)
         },
       })
     }
@@ -588,7 +558,6 @@ func RegisterObject[T any](ctx *Context) error {
     Reflect: reflect_type,
     Fields: field_infos,
     Type: gql,
-    Resolve: nil,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
@@ -631,7 +600,6 @@ func RegisterObjectNoGQL[T any](ctx *Context) error {
     Reflect: reflect_type,
     Fields: field_infos,
     Type: nil,
-    Resolve: nil,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
@@ -781,14 +749,13 @@ func RegisterEnum[E comparable](ctx *Context, str_map map[E]string) error {
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql,
-    Resolve: nil,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
   return nil
 }
 
-func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}, resolve func(interface{},graphql.ResolveParams)(interface{},error)) error {
+func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}) error {
   reflect_type := reflect.TypeFor[S]()
   serialized_type := SerializedTypeFor[S]()
 
@@ -809,7 +776,6 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
     Serialized: serialized_type,
     Reflect: reflect_type,
     Type: gql,
-    Resolve: resolve,
   }
   ctx.TypeTypes[reflect_type] = ctx.TypeMap[serialized_type]
 
@@ -920,18 +886,46 @@ func (ctx *Context) Send(node *Node, messages []SendMsg) error {
   return nil
 }
 
+func resolveNodeID(val interface{}, p graphql.ResolveParams) (interface{}, error) {
+  id, ok := p.Source.(NodeID)
+  if ok == false {
+    return nil, fmt.Errorf("%+v is not NodeID", p.Source)
+  }
+
+  return ResolveNode(id, p)
+}
+
+// TODO: Cache these functions so they're not duplicated when called with the same t
 func (ctx *Context)GQLResolve(t reflect.Type, node_type string) (func(interface{},graphql.ResolveParams)(interface{},error)) {
-  info, mapped := ctx.TypeTypes[t]
-  if mapped {
-    return info.Resolve
+  if t == reflect.TypeFor[NodeID]() {
+    return resolveNodeID
   } else {
     switch t.Kind() {
-    //case reflect.Array:
-    //case reflect.Slice:
+    case reflect.Map:
+      return func(v interface{}, p graphql.ResolveParams) (interface{}, error) {
+        val := reflect.ValueOf(v)
+        if val.Type() != t {
+          return nil, fmt.Errorf("%s is not %s", reflect.TypeOf(val), t)
+        } else {
+          pairs := make([]Pair, val.Len())
+          iter := val.MapRange()
+          i := 0
+          for iter.Next() {
+            pairs[i] = Pair{
+              Key: iter.Key().Interface(),
+              Val: iter.Value().Interface(),
+            }
+            i += 1
+          }
+          return pairs, nil
+        }
+      }
     case reflect.Pointer:
       return ctx.GQLResolve(t.Elem(), node_type)
     default:
-      return nil
+      return func(v interface{}, p graphql.ResolveParams) (interface{}, error) {
+        return v, nil
+      }
     }
   }
 }
@@ -976,20 +970,8 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   var err error
-
-  err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID], func(v interface{}, p graphql.ResolveParams)(interface{}, error) {
-    id, ok := v.(NodeID)
-    if ok == false {
-      return nil, fmt.Errorf("%+v is not NodeID", v)
-    }
-    
-    node, err := ResolveNode(id, p)
-    if err != nil {
-      return nil, err
-    }
-
-    return node, nil
-  }) 
+ 
+  err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID]) 
   if err != nil {
     return nil, err
   }
@@ -1004,12 +986,12 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType], nil) 
+  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType]) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[ExtType](ctx, identity, coerce[ExtType], astInt[ExtType], nil)
+  err = RegisterScalar[ExtType](ctx, identity, coerce[ExtType], astInt[ExtType])
   if err != nil {
     return nil, err
   }
@@ -1019,37 +1001,32 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool], nil)
+  err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool])
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[int](ctx, identity, coerce[int], astInt[int], nil) 
+  err = RegisterScalar[int](ctx, identity, coerce[int], astInt[int]) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[uint32](ctx, identity, coerce[uint32], astInt[uint32], nil)
+  err = RegisterScalar[uint32](ctx, identity, coerce[uint32], astInt[uint32])
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[uint8](ctx, identity, coerce[uint8], astInt[uint8], nil)
+  err = RegisterScalar[uint8](ctx, identity, coerce[uint8], astInt[uint8])
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[time.Time](ctx, stringify, unstringify[time.Time], unstringifyAST[time.Time], nil)
+  err = RegisterScalar[time.Time](ctx, stringify, unstringify[time.Time], unstringifyAST[time.Time])
   if err != nil {
     return nil, err
   }
   
-  err = RegisterScalar[string](ctx, identity, coerce[string], astString[string], nil)
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterScalar[EventState](ctx, identity, coerce[EventState], astString[EventState], nil)
+  err = RegisterScalar[string](ctx, identity, coerce[string], astString[string])
   if err != nil {
     return nil, err
   }
@@ -1059,12 +1036,12 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterScalar[uuid.UUID](ctx, stringify, unstringify[uuid.UUID], unstringifyAST[uuid.UUID], nil) 
+  err = RegisterScalar[uuid.UUID](ctx, stringify, unstringify[uuid.UUID], unstringifyAST[uuid.UUID]) 
   if err != nil {
     return nil, err
   }
 
-  err = RegisterScalar[Change](ctx, identity, coerce[Change], astString[Change], nil)
+  err = RegisterScalar[Change](ctx, identity, coerce[Change], astString[Change])
   if err != nil {
     return nil, err
   }
@@ -1095,11 +1072,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
     return nil, err
   }
 
-  err = RegisterExtension[EventExt](ctx, nil)
-  if err != nil {
-    return nil, err
-  }
-
   err = RegisterExtension[ListenerExt](ctx, nil)
   if err != nil {
     return nil, err
@@ -1116,11 +1088,6 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterObject[LockableExt](ctx)
-  if err != nil {
-    return nil, err
-  }
-
-  err = RegisterObject[EventExt](ctx)
   if err != nil {
     return nil, err
   }
@@ -1145,24 +1112,7 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
           if err != nil {
             return nil, err
           }
-          switch source := p.Source.(type) {
-          case *StatusSignal:
-            ctx.Context.Log.Logf("test", "StatusSignal: %+v", source)
-            cached_node, cached := ctx.NodeCache[source.Source]
-            ctx.Context.Log.Logf("test", "Cached: %t", cached)
-            if cached {
-              for ext_type, ext_changes := range(source.Changes) {
-                cached_ext, cached := cached_node.Data[ext_type]
-                if cached {
-                  for _, field := range(ext_changes) {
-                    delete(cached_ext, string(field))
-                  }
-                  cached_node.Data[ext_type] = cached_ext
-                }
-              }
-              ctx.NodeCache[source.Source] = cached_node
-            }
-          }
+
           return ResolveNode(ctx.Server.ID, p)
         },
       },

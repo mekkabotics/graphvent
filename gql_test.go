@@ -16,9 +16,8 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-
 func TestGQLSubscribe(t *testing.T) {
-  ctx := logTestContext(t, []string{"test"})
+  ctx := logTestContext(t, []string{"test", "gql"})
 
   n1, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
   fatalErr(t, err)
@@ -31,11 +30,14 @@ func TestGQLSubscribe(t *testing.T) {
   gql, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt([]NodeID{n1.ID}), gql_ext, listener_ext)
   fatalErr(t, err)
 
+  query := "subscription { Self { ID, Type ... on Lockable { lockable_state } } }"
+
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
-  ctx.Log.Logf("test", "NODE: %s", n1.ID)
+  ctx.Log.Logf("test", "Node: %s", n1.ID)
+  ctx.Log.Logf("test", "Query: %s", query)
 
   sub_1 := GQLPayload{
-    Query: "subscription { Self { ID, Type ... on Lockable { lockable_state } } }",
+    Query: query,
   }
 
   port := gql_ext.tcp_listener.Addr().(*net.TCPAddr).Port
@@ -116,10 +118,6 @@ func TestGQLSubscribe(t *testing.T) {
     n, err = ws.Read(resp)
     fatalErr(t, err)
     ctx.Log.Logf("test", "SUB3: %s", resp[:n])
-
-    n, err = ws.Read(resp)
-    fatalErr(t, err)
-    ctx.Log.Logf("test", "SUB4: %s", resp[:n])
 
     // TODO: check that there are no more messages sent to ws within a timeout
   }

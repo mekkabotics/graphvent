@@ -249,13 +249,14 @@ func GQLHandler(ctx *Context, server *Node, gql_ext *GQLExt) func(http.ResponseW
     for header, value := range(r.Header) {
       header_map[header] = value
     }
-    ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
 
     resolve_context, err := NewResolveContext(ctx, server, gql_ext)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       json.NewEncoder(w).Encode(GQLUnauthorized(""))
       return
+    } else {
+      ctx.Log.Logf("gql", "New Query: %s", resolve_context.ID)
     }
 
     req_ctx := context.Background()
@@ -304,7 +305,6 @@ func sendOneResultAndClose(res *graphql.Result) chan *graphql.Result {
   return resultChannel
 }
 
-
 func getOperationTypeOfReq(p graphql.Params) string{
   source := source.NewSource(&source.Source{
     Body: []byte(p.RequestString),
@@ -330,18 +330,6 @@ func getOperationTypeOfReq(p graphql.Params) string{
   return "END_OF_FUNCTION"
 }
 
-func GQLWSDo(ctx * Context, p graphql.Params) chan *graphql.Result {
-  operation := getOperationTypeOfReq(p)
-  ctx.Log.Logf("gqlws", "GQLWSDO_OPERATION: %s - %+v", operation, p.RequestString)
-
-  if operation == ast.OperationTypeSubscription {
-    return graphql.Subscribe(p)
-  } else {
-    res := graphql.Do(p)
-    return sendOneResultAndClose(res)
-  }
-}
-
 func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.ResponseWriter, *http.Request) {
   return func(w http.ResponseWriter, r * http.Request) {
     ctx.Log.Logf("gqlws_new", "HANDLING %s",r.RemoteAddr)
@@ -351,11 +339,12 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
       header_map[header] = value
     }
 
-    ctx.Log.Logm("gql", header_map, "REQUEST_HEADERS")
     resolve_context, err := NewResolveContext(ctx, server, gql_ext)
     if err != nil {
       ctx.Log.Logf("gql", "GQL_AUTH_ERR: %s", err)
       return
+    } else {
+      ctx.Log.Logf("gql", "New Subscription: %s", resolve_context.ID)
     }
 
     req_ctx := context.Background()
@@ -429,11 +418,14 @@ func GQLWSHandler(ctx * Context, server *Node, gql_ext *GQLExt) func(http.Respon
             params.VariableValues = msg.Payload.Variables
           }
 
-          res_chan := GQLWSDo(ctx, params)
-          if res_chan == nil {
-            ctx.Log.Logf("gqlws", "res_chan is nil")
+          var res_chan chan *graphql.Result
+          operation := getOperationTypeOfReq(params)
+
+          if operation == ast.OperationTypeSubscription {
+            res_chan = graphql.Subscribe(params)
           } else {
-            ctx.Log.Logf("gqlws", "res_chan: %+v", res_chan)
+            res := graphql.Do(params)
+            res_chan = sendOneResultAndClose(res)
           }
 
           go func(res_chan chan *graphql.Result) {
@@ -526,6 +518,7 @@ type SelfField struct {
 
 type SubscriptionInfo struct {
   ID uuid.UUID
+  NodeCache *map[NodeID]NodeResult
   Channel chan interface{}
 }
 
@@ -569,7 +562,7 @@ func (ext *GQLExt) PostDeserialize(*Context) error {
   return nil
 }
 
-func (ext *GQLExt) AddSubscription(id uuid.UUID) (chan interface{}, error) {
+func (ext *GQLExt) AddSubscription(id uuid.UUID, ctx *ResolveContext) (chan interface{}, error) {
   ext.subscriptions_lock.Lock()
   defer ext.subscriptions_lock.Unlock()
 
@@ -583,6 +576,7 @@ func (ext *GQLExt) AddSubscription(id uuid.UUID) (chan interface{}, error) {
 
   ext.subscriptions = append(ext.subscriptions, SubscriptionInfo{
     id,
+    &ctx.NodeCache,
     c,
   })
 
@@ -645,8 +639,6 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
       default:
         ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
       }
-    } else {
-      ctx.Log.Logf("gql", "received success signal response %+v with no mapped resolver", sig)
     }
 
   case *ErrorSignal:
@@ -659,9 +651,6 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
       default:
         ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
       }
-
-    } else {
-      ctx.Log.Logf("gql", "received error signal response %+v with no mapped resolver", sig)
     }
 
   case *ReadResultSignal:
@@ -669,23 +658,22 @@ func (ext *GQLExt) Process(ctx *Context, node *Node, source NodeID, signal Signa
     if response_chan != nil {
       select {
       case response_chan <- sig:
-        ctx.Log.Logf("gql", "Forwarded to resolver, %+v", sig)
       default:
         ctx.Log.Logf("gql", "Resolver channel overflow %+v", sig)
       }
-    } else {
-      ctx.Log.Logf("gql", "Received read result that wasn't expected - %+v", sig)
     }
 
   case *StatusSignal:
     ext.subscriptions_lock.RLock()
-    ctx.Log.Logf("gql", "forwarding status signal from %+v to resolvers %+v", sig.Source, ext.subscriptions)
-    for _, resolver := range(ext.subscriptions) {
-      select {
-      case resolver.Channel <- sig:
-        ctx.Log.Logf("gql_subscribe", "forwarded status signal to resolver: %+v", resolver.ID)
-      default:
-        ctx.Log.Logf("gql_subscribe", "resolver channel overflow: %+v", resolver.ID)
+    for _, sub := range(ext.subscriptions) {
+      _, cached := (*sub.NodeCache)[sig.Source]
+      if cached {
+        select {
+        case sub.Channel <- sig:
+          ctx.Log.Logf("gql", "forwarded status signal %+v to subscription: %s", sig, sub.ID)
+        default:
+          ctx.Log.Logf("gql", "subscription channel overflow: %s", sub.ID)
+        }
       }
     }
     ext.subscriptions_lock.RUnlock()

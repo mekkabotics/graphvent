@@ -167,7 +167,7 @@ type StatusSignal struct {
   Changes map[ExtType]Changes `gv:"changes"`
 }
 func (signal StatusSignal) String() string {
-  return fmt.Sprintf("StatusSignal(%s, %+v)", signal.SignalHeader, signal.Changes)
+  return fmt.Sprintf("StatusSignal(%s: %+v)", signal.Source, signal.Changes)
 }
 func NewStatusSignal(source NodeID, changes map[ExtType]Changes) *StatusSignal {
   return &StatusSignal{
