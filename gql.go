@@ -501,7 +501,7 @@ type Field struct {
 type NodeResult struct {
   NodeID NodeID
   NodeType NodeType
-  Data map[ExtType]map[string]interface{}
+  Data map[string]interface{}
 }
 
 type ListField struct {

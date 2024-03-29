@@ -1,7 +1,7 @@
 package graphvent
 
-type Change string
-type Changes []Change
+type Tag string
+type Changes []Tag
 
 // Extensions are data attached to nodes that process signals
 type Extension interface {

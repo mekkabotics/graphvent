@@ -3,6 +3,7 @@ package graphvent
 import (
 	"encoding/binary"
 	"fmt"
+  "reflect"
 
 	badger "github.com/dgraph-io/badger/v3"
 )
@@ -59,11 +60,11 @@ func WriteNodeInit(ctx *Context, node *Node) error {
     for ext_type, ext := range(node.Extensions) {
       // Write each extension's current value
       ext_id := binary.BigEndian.AppendUint64(id_ser, uint64(ext_type))
-      ext_val, err := Serialize(ctx, ext)
+      ext_ser, err := SerializeValue(ctx, reflect.ValueOf(ext).Elem())
       if err != nil {
         return err
       }
-      err = tx.Set(ext_id, ext_val)
+      err = tx.Set(ext_id, ext_ser)
     }
     return nil
   })
@@ -74,7 +75,7 @@ func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) err
     // Get the base key bytes
     id_ser, err := node.ID.MarshalBinary()
     if err != nil {
-      return err
+      return fmt.Errorf("Marshal ID error: %+w", err)
     }
 
     // Write the signal queue if it needs to be written
@@ -84,11 +85,11 @@ func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) err
       sigqueue_id := append(id_ser, []byte(" - SIGQUEUE")...)
       sigqueue_val, err := Serialize(ctx, node.SignalQueue)
       if err != nil {
-        return err
+        return fmt.Errorf("SignalQueue Serialize Error: %+v, %w", node.SignalQueue, err)
       }
       err = tx.Set(sigqueue_id, sigqueue_val)
       if err != nil {
-        return err
+        return fmt.Errorf("SignalQueue set error: %+v, %w", node.SignalQueue, err)
       }
     }
 
@@ -100,14 +101,14 @@ func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) err
         return fmt.Errorf("%s is not an extension in %s", ext_type, node.ID)
       }
       ext_id := binary.BigEndian.AppendUint64(id_ser, uint64(ext_type))
-      ext_ser, err := Serialize(ctx, ext)
+      ext_ser, err := SerializeValue(ctx, reflect.ValueOf(ext).Elem())
       if err != nil {
-        return err
+        return fmt.Errorf("Extension serialize err: %s, %w", reflect.TypeOf(ext), err)
       }
 
       err = tx.Set(ext_id, ext_ser)
       if err != nil {
-        return err
+        return fmt.Errorf("Extension set err: %s, %w", reflect.TypeOf(ext), err)
       }
     }
     return nil
@@ -173,10 +174,25 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
         return err
       }
 
+      ext_info, exists := ctx.Extensions[ext_type]
+      if exists == false {
+        return fmt.Errorf("Extension %s not in context", ext_type)
+      }
+
       var ext Extension
+      var ok bool
       err = ext_item.Value(func(val []byte) error {
-        ext, err = Deserialize[Extension](ctx, val)
-        return err
+        value, _, err := DeserializeValue(ctx, val, ext_info.Type)
+        if err != nil {
+          return err
+        }
+
+        ext, ok = value.Addr().Interface().(Extension)
+        if ok == false {
+          return fmt.Errorf("Parsed value %+v is not extension", value.Type())
+        }
+
+        return nil
       })
       if err != nil {
         return err

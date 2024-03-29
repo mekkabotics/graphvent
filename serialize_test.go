@@ -144,7 +144,9 @@ func TestSerializeValues(t *testing.T) {
   testSerializeCompare[*int](t, ctx, nil)
   testSerializeCompare(t, ctx, "string")
 
-  node, err := NewNode(ctx, nil, "Base", 100)
+  testSerialize(t, ctx, NewListenerExt(10))
+
+  node, err := NewNode(ctx, nil, "Node", 100)
   fatalErr(t, err)
   testSerialize(t, ctx, node)
 }

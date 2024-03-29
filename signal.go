@@ -30,7 +30,7 @@ func (signal SignalHeader) ID() uuid.UUID {
 }
 
 func (header SignalHeader) String() string {
-   return fmt.Sprintf("SignalHeader(%s)", header.Id)
+   return fmt.Sprintf("%s", header.Id)
 }
 
 type ResponseSignal interface {
@@ -48,7 +48,7 @@ func (header ResponseHeader) ResponseID() uuid.UUID {
 }
 
 func (header ResponseHeader) String() string {
-   return fmt.Sprintf("ResponseHeader(%s, %s)", header.Id, header.ReqID)
+   return fmt.Sprintf("%s for %s", header.Id, header.ReqID)
 }
 
 type Signal interface {
@@ -164,16 +164,16 @@ func NewACLTimeoutSignal(req_id uuid.UUID) *ACLTimeoutSignal {
 type StatusSignal struct {
   SignalHeader
   Source NodeID `gv:"source"`
-  Changes map[ExtType]Changes `gv:"changes"`
+  Fields []string `gv:"fields"`
 }
 func (signal StatusSignal) String() string {
-  return fmt.Sprintf("StatusSignal(%s: %+v)", signal.Source, signal.Changes)
+  return fmt.Sprintf("StatusSignal(%s: %+v)", signal.Source, signal.Fields)
 }
-func NewStatusSignal(source NodeID, changes map[ExtType]Changes) *StatusSignal {
+func NewStatusSignal(source NodeID, fields []string) *StatusSignal {
   return &StatusSignal{
     NewSignalHeader(),
     source,
-    changes,
+    fields,
   }
 }
 
@@ -225,17 +225,17 @@ func NewUnlockSignal() *UnlockSignal {
 
 type ReadSignal struct {
   SignalHeader
-  Extensions map[ExtType][]string `json:"extensions"`
+  Fields []string `json:"extensions"`
 }
 
 func (signal ReadSignal) String() string {
-  return fmt.Sprintf("ReadSignal(%s, %+v)", signal.SignalHeader, signal.Extensions)
+  return fmt.Sprintf("ReadSignal(%s, %+v)", signal.SignalHeader, signal.Fields)
 }
 
-func NewReadSignal(exts map[ExtType][]string) *ReadSignal {
+func NewReadSignal(fields []string) *ReadSignal {
   return &ReadSignal{
     NewSignalHeader(),
-    exts,
+    fields,
   }
 }
 
@@ -243,19 +243,19 @@ type ReadResultSignal struct {
   ResponseHeader
   NodeID NodeID
   NodeType NodeType
-  Extensions map[ExtType]map[string]any
+  Fields map[string]any
 }
 
 func (signal ReadResultSignal) String() string {
-  return fmt.Sprintf("ReadResultSignal(%s, %s, %+v)", signal.ResponseHeader, signal.NodeID, signal.Extensions)
+  return fmt.Sprintf("ReadResultSignal(%s, %s, %+v)", signal.ResponseHeader, signal.NodeID, signal.Fields)
 }
 
-func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, exts map[ExtType]map[string]any) *ReadResultSignal {
+func NewReadResultSignal(req_id uuid.UUID, node_id NodeID, node_type NodeType, fields map[string]any) *ReadResultSignal {
   return &ReadResultSignal{
     NewResponseHeader(req_id),
     node_id,
     node_type,
-    exts,
+    fields,
   }
 }
 

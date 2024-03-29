@@ -30,15 +30,10 @@ type FieldIndex struct {
   Tag string
 }
 
-func GetFields(ctx *Context, node_type string, selection_set *ast.SelectionSet) []FieldIndex {
-  names := []FieldIndex{}
+func GetFields(selection_set *ast.SelectionSet) []string {
+  names := []string{}
   if selection_set == nil {
     return names
-  }
-
-  node_info, mapped := ctx.NodeTypes[node_type]
-  if mapped == false {
-    return nil
   }
 
   for _, sel := range(selection_set.Selections) {
@@ -47,16 +42,9 @@ func GetFields(ctx *Context, node_type string, selection_set *ast.SelectionSet) 
       if field.Name.Value == "ID" || field.Name.Value == "Type" {
         continue
       }
-
-      extension, mapped := node_info.Fields[field.Name.Value]
-      if mapped == false {
-        continue
-      }
-      names = append(names, FieldIndex{extension, field.Name.Value})
+      names = append(names, field.Name.Value)
     case *ast.InlineFragment:
-      names = append(names, GetFields(ctx, field.TypeCondition.Name.Value, field.SelectionSet)...)
-    default:
-      ctx.Log.Logf("gql", "Unknown selection type: %s", reflect.TypeOf(field))
+      names = append(names, GetFields(field.SelectionSet)...)
     }
   }
 
@@ -64,10 +52,10 @@ func GetFields(ctx *Context, node_type string, selection_set *ast.SelectionSet) 
 }
 
 // Returns the fields that need to be resolved
-func GetResolveFields(id NodeID, ctx *ResolveContext, p graphql.ResolveParams) []FieldIndex {
-  fields := []FieldIndex{}
+func GetResolveFields(p graphql.ResolveParams) []string {
+  fields := []string{}
   for _, field := range(p.Info.FieldASTs) {
-    fields = append(fields, GetFields(ctx.Context, p.Info.ReturnType.Name(), field.SelectionSet)...)
+    fields = append(fields, GetFields(field.SelectionSet)...)
   }
 
   return fields
@@ -83,13 +71,10 @@ func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
   case *StatusSignal:
     cached_node, cached := ctx.NodeCache[source.Source]
     if cached {
-      for ext_type, ext_changes := range(source.Changes) {
-        cached_ext, cached := cached_node.Data[ext_type]
+      for _, field_name := range(source.Fields) {
+        _, cached := cached_node.Data[field_name]
         if cached {
-          for _, field := range(ext_changes) {
-            delete(cached_ext, string(field))
-          }
-          cached_node.Data[ext_type] = cached_ext
+          delete(cached_node.Data, field_name)
         }
       }
       ctx.NodeCache[source.Source] = cached_node
@@ -97,25 +82,22 @@ func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
   }
 
   cache, node_cached := ctx.NodeCache[id]
-  fields := GetResolveFields(id, ctx, p) 
-  not_cached := map[ExtType][]string{}
-  for _, field := range(fields) {
-    ext_fields, exists := not_cached[field.Extension]
-    if exists == false {
-      ext_fields = []string{}
-    }
-
-    if node_cached {
-      ext_cache, ext_cached := cache.Data[field.Extension]
-      if ext_cached {
-        _, field_cached := ext_cache[field.Tag]
+  fields := GetResolveFields(p) 
+  var not_cached []string
+  if node_cached {
+    not_cached = []string{}
+    for _, field := range(fields) {
+      if node_cached {
+        _, field_cached := cache.Data[field]
         if field_cached {
           continue
         }
       }
-    }
 
-    not_cached[field.Extension] = append(ext_fields, field.Tag)
+      not_cached = append(not_cached, field)
+    }
+  } else {
+    not_cached = fields
   }
 
   if (len(not_cached) == 0) && (node_cached == true) {
@@ -148,20 +130,11 @@ func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
         cache = NodeResult{
           NodeID: id,
           NodeType: response.NodeType,
-          Data: response.Extensions,
+          Data: response.Fields,
         }
       } else {
-        for ext_type, ext_data := range(response.Extensions) {
-          cached_ext, ext_cached := cache.Data[ext_type]
-          if ext_cached {
-            for field_name, field := range(ext_data) {
-              cache.Data[ext_type][field_name] = field
-            }
-          } else {
-            cache.Data[ext_type] = ext_data
-          }
-
-          cache.Data[ext_type] = cached_ext
+        for field_name, field_value := range(response.Fields) {
+          cache.Data[field_name] = field_value
         }
       }
 

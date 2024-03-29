@@ -10,12 +10,12 @@ func TestLink(t *testing.T) {
 
 
   l2_listener := NewListenerExt(10)
-  l2, err := NewNode(ctx, nil, "Lockable", 10, l2_listener, NewLockableExt(nil))
+  l2, err := NewNode(ctx, nil, "LockableNode", 10, l2_listener, NewLockableExt(nil))
   fatalErr(t, err)
 
   l1_lockable := NewLockableExt(nil)
   l1_listener := NewListenerExt(10)
-  l1, err := NewNode(ctx, nil, "Lockable", 10, l1_listener, l1_lockable)
+  l1, err := NewNode(ctx, nil, "LockableNode", 10, l1_listener, l1_lockable)
   fatalErr(t, err)
 
   link_signal := NewLinkSignal("add", l2.ID)
@@ -42,24 +42,24 @@ func TestLink(t *testing.T) {
   fatalErr(t, err)
 }
 
-func Test1000Lock(t *testing.T) {
+func Test10000Lock(t *testing.T) {
   ctx := logTestContext(t, []string{"test"})
 
   NewLockable := func()(*Node) {
-    l, err := NewNode(ctx, nil, "Lockable", 10, NewLockableExt(nil))
+    l, err := NewNode(ctx, nil, "LockableNode", 10, NewLockableExt(nil))
     fatalErr(t, err)
     return l
   }
 
-  reqs := make([]NodeID, 1000)
+  reqs := make([]NodeID, 10000)
   for i := range(reqs) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
   }
-  ctx.Log.Logf("test", "CREATED_1000")
+  ctx.Log.Logf("test", "CREATED_10000")
 
-  listener := NewListenerExt(5000)
-  node, err := NewNode(ctx, nil, "Lockable", 5000, listener, NewLockableExt(reqs))
+  listener := NewListenerExt(50000)
+  node, err := NewNode(ctx, nil, "LockableNode", 500000, listener, NewLockableExt(reqs))
   fatalErr(t, err)
   ctx.Log.Logf("test", "CREATED_LISTENER")
 
@@ -75,15 +75,15 @@ func Test1000Lock(t *testing.T) {
     t.Fatalf("Unexpected response to lock - %s", resp)
   }
 
-  ctx.Log.Logf("test", "LOCKED_1000")
+  ctx.Log.Logf("test", "LOCKED_10000")
 }
 
 func TestLock(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "lockable"})
 
   NewLockable := func(reqs []NodeID)(*Node, *ListenerExt) {
-    listener := NewListenerExt(1000)
-    l, err := NewNode(ctx, nil, "Lockable", 10, listener, NewLockableExt(reqs))
+    listener := NewListenerExt(10000)
+    l, err := NewNode(ctx, nil, "LockableNode", 10, listener, NewLockableExt(reqs))
     fatalErr(t, err)
     return l, listener
   }
@@ -112,7 +112,7 @@ func TestLock(t *testing.T) {
   ctx.Log.Logf("test", "locking l1")
   id_2, err := LockLockable(ctx, l1)
   fatalErr(t, err)
-  response, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*1000, id_2)
+  response, _, err = WaitForResponse(l1_listener.Chan, time.Millisecond*10000, id_2)
   fatalErr(t, err)
   ctx.Log.Logf("test", "l1 lock: %+v", response)
 

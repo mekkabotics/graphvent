@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"reflect"
   "math"
-	"slices"
 )
 
 type SerializedType uint64
@@ -39,14 +38,8 @@ func (t FieldTag) String() string {
   return fmt.Sprintf("0x%x", uint64(t))
 }
 
-func NodeTypeFor(extensions []ExtType) NodeType {
-  digest := []byte("GRAPHVENT_NODE - ")
-
-  slices.Sort(extensions)
-
-  for _, ext := range(extensions) {
-    digest = binary.BigEndian.AppendUint64(digest, uint64(ext))
-  }
+func NodeTypeFor(name string) NodeType {
+  digest := []byte("GRAPHVENT_NODE - " + name)
 
   hash := sha512.Sum512(digest)
   return NodeType(binary.BigEndian.Uint64(hash[0:8]))
@@ -66,6 +59,10 @@ func ExtTypeFor[E any, T interface { *E; Extension}]() ExtType {
   return ExtType(SerializedTypeFor[E]())
 }
 
+func ExtTypeOf(t reflect.Type) ExtType {
+  return ExtType(SerializeType(t.Elem()))
+}
+
 func SignalTypeFor[S Signal]() SignalType {
   return SignalType(SerializedTypeFor[S]())
 }
@@ -81,7 +78,7 @@ func GetFieldTag(tag string) FieldTag {
 }
 
 func TypeStack(ctx *Context, t reflect.Type) ([]byte, error) {
-  info, registered := ctx.TypeTypes[t]
+  info, registered := ctx.Types[t]
   if registered {
     return binary.BigEndian.AppendUint64(nil, uint64(info.Serialized)), nil
   } else {
@@ -131,7 +128,7 @@ func UnwrapStack(ctx *Context, stack []byte) (reflect.Type, []byte, error) {
   first_bytes, left := split(stack, 8)
   first := SerializedType(binary.BigEndian.Uint64(first_bytes))
 
-  info, registered := ctx.TypeMap[first]
+  info, registered := ctx.TypesReverse[first]
   if registered {
     return info.Reflect, left, nil
   } else {
@@ -177,13 +174,13 @@ func UnwrapStack(ctx *Context, stack []byte) (reflect.Type, []byte, error) {
 }
 
 func Serialize[T any](ctx *Context, value T) ([]byte, error) {
-  return serializeValue(ctx, reflect.ValueOf(&value).Elem())
+  return SerializeValue(ctx, reflect.ValueOf(&value).Elem())
 }
 
 func Deserialize[T any](ctx *Context, data []byte) (T, error) {
   reflect_type := reflect.TypeFor[T]()
   var zero T
-  value, left, err := deserializeValue(ctx, data, reflect_type)
+  value, left, err := DeserializeValue(ctx, data, reflect_type)
   if err != nil {
     return zero, err
   } else if len(left) != 0 {
@@ -195,10 +192,10 @@ func Deserialize[T any](ctx *Context, data []byte) (T, error) {
   return value.Interface().(T), nil
 }
 
-func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
   var serialize SerializeFn = nil
 
-  info, registered := ctx.TypeTypes[value.Type()]
+  info, registered := ctx.Types[value.Type()]
   if registered {
     serialize = info.Serialize 
   }
@@ -248,7 +245,7 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
       if value.IsNil() {
         return []byte{0x00}, nil
       } else {
-        elem, err := serializeValue(ctx, value.Elem())
+        elem, err := SerializeValue(ctx, value.Elem())
         if err != nil {
           return nil, err
         }
@@ -265,7 +262,7 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
 
         data := []byte{}
         for i := 0; i < value.Len(); i++ {
-          elem, err := serializeValue(ctx, value.Index(i))
+          elem, err := SerializeValue(ctx, value.Index(i))
           if err != nil {
             return nil, err
           }
@@ -279,7 +276,7 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
     case reflect.Array:
       data := []byte{}
       for i := 0; i < value.Len(); i++ {
-        elem, err := serializeValue(ctx, value.Index(i))
+        elem, err := SerializeValue(ctx, value.Index(i))
         if err != nil {
           return nil, err
         }
@@ -293,16 +290,20 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
       binary.BigEndian.PutUint64(len_bytes, uint64(value.Len()))
 
       data := []byte{}
+      key := reflect.New(value.Type().Key()).Elem()
+      val := reflect.New(value.Type().Elem()).Elem()
       iter := value.MapRange()
       for iter.Next() {
-        k, err := serializeValue(ctx, iter.Key())
+        key.SetIterKey(iter)
+        val.SetIterValue(iter)
+
+        k, err := SerializeValue(ctx, key)
         if err != nil {
           return nil, err
         }
-
         data = append(data, k...)
 
-        v, err := serializeValue(ctx, iter.Value())
+        v, err := SerializeValue(ctx, val) 
         if err != nil {
           return nil, err
         }
@@ -319,7 +320,7 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
 
         for field_tag, field_info := range(info.Fields) {
           data = append(data, binary.BigEndian.AppendUint64(nil, uint64(field_tag))...)
-          field_bytes, err := serializeValue(ctx, value.FieldByIndex(field_info.Index))
+          field_bytes, err := SerializeValue(ctx, value.FieldByIndex(field_info.Index))
           if err != nil {
             return nil, err
           }
@@ -332,7 +333,7 @@ func serializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
     case reflect.Interface:
       data, err := TypeStack(ctx, value.Elem().Type())
 
-      val_data, err := serializeValue(ctx, value.Elem())
+      val_data, err := SerializeValue(ctx, value.Elem())
       if err != nil {
         return nil, err
       }
@@ -352,10 +353,10 @@ func split(data []byte, n int) ([]byte, []byte) {
   return data[:n], data[n:]
 }
 
-func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value, []byte, error) {
+func DeserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value, []byte, error) {
   var deserialize DeserializeFn = nil
 
-  info, registered := ctx.TypeTypes[t]
+  info, registered := ctx.Types[t]
   if registered {
     deserialize = info.Deserialize
   }
@@ -439,7 +440,7 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
         value.SetZero()
         return value, after_flags, nil
       } else {
-        elem_value, after_elem, err := deserializeValue(ctx, after_flags, t.Elem())
+        elem_value, after_elem, err := DeserializeValue(ctx, after_flags, t.Elem())
         if err != nil {
           return reflect.Value{}, nil, err
         }
@@ -454,7 +455,7 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
       for i := 0; i < length; i++ {
         var elem_value reflect.Value
         var err error
-        elem_value, left, err = deserializeValue(ctx, left, t.Elem())
+        elem_value, left, err = DeserializeValue(ctx, left, t.Elem())
         if err != nil {
           return reflect.Value{}, nil, err
         }
@@ -468,7 +469,7 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
       for i := 0; i < t.Len(); i++ {
         var elem_value reflect.Value
         var err error
-        elem_value, left, err = deserializeValue(ctx, left, t.Elem())
+        elem_value, left, err = DeserializeValue(ctx, left, t.Elem())
         if err != nil {
           return reflect.Value{}, nil, err
         }
@@ -487,12 +488,12 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
         var val_value reflect.Value
         var err error
 
-        key_value, left, err = deserializeValue(ctx, left, t.Key())        
+        key_value, left, err = DeserializeValue(ctx, left, t.Key())        
         if err != nil {
           return reflect.Value{}, nil, err
         }
 
-        val_value, left, err = deserializeValue(ctx, left, t.Elem())
+        val_value, left, err = DeserializeValue(ctx, left, t.Elem())
         if err != nil {
           return reflect.Value{}, nil, err
         }
@@ -503,7 +504,7 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
       return value, left, nil
 
     case reflect.Struct:
-      info, mapped := ctx.TypeTypes[t]
+      info, mapped := ctx.Types[t]
       if mapped {
         value := reflect.New(t).Elem()
 
@@ -520,7 +521,7 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
           if mapped {
             var field_val reflect.Value
             var err error
-            field_val, left, err = deserializeValue(ctx, left, field_info.Type)
+            field_val, left, err = DeserializeValue(ctx, left, field_info.Type)
             if err != nil {
               return reflect.Value{}, nil, err
             }
@@ -544,7 +545,7 @@ func deserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
         return reflect.Value{}, nil, err
       }
 
-      elem_val, left, err := deserializeValue(ctx, rest, elem_type)
+      elem_val, left, err := DeserializeValue(ctx, rest, elem_type)
       if err != nil {
         return reflect.Value{}, nil, err
       }

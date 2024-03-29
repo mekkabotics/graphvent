@@ -24,6 +24,10 @@ type NodeID uuid.UUID
 func (id NodeID) MarshalBinary() ([]byte, error) {
   return (uuid.UUID)(id).MarshalBinary()
 }
+func (id *NodeID) UnmarshalBinary(data []byte) error {
+  return (*uuid.UUID)(id).UnmarshalBinary(data)
+}
+
 func (id NodeID) String() string {
   return (uuid.UUID)(id).String()
 }
@@ -140,7 +144,13 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   }
 
   if soonest_signal != nil {
-    return soonest_signal, time.After(time.Until(soonest_signal.Time))
+    if time.Now().Compare(soonest_time) == -1 {
+      return soonest_signal, time.After(time.Until(soonest_signal.Time))
+    } else {
+      c := make(chan time.Time, 1)
+      c <- soonest_time
+      return soonest_signal, c
+    }
   } else {
     return nil, nil
   }
@@ -166,25 +176,23 @@ func (err StringError) MarshalBinary() ([]byte, error) {
   return []byte(string(err)), nil
 }
 
-func (node *Node) ReadFields(ctx *Context, reqs map[ExtType][]string)map[ExtType]map[string]any {
-  ctx.Log.Logf("read_field", "Reading %+v on %+v", reqs, node.ID)
-  exts := map[ExtType]map[string]any{}
-  for ext_type, field_reqs := range(reqs) {
-    ext_info, ext_known := ctx.Extensions[ext_type]
-    if ext_known { 
-      fields := map[string]any{}
-      for _, req := range(field_reqs) {
-        ext, exists := node.Extensions[ext_type]
-        if exists == false {
-          fields[req] = fmt.Errorf("%+v does not have %+v extension", node.ID, ext_type)
-        } else {
-          fields[req] = reflect.ValueOf(ext).Elem().FieldByIndex(ext_info.Fields[req].Index).Interface()
-        }
-      }
-      exts[ext_type] = fields
+func (node *Node) ReadFields(ctx *Context, fields []string)map[string]any {
+  ctx.Log.Logf("read_field", "Reading %+v on %+v", fields, node.ID)
+  values := map[string]any{}
+
+  node_info := ctx.NodeTypes[node.Type]
+
+  for _, field_name := range(fields) {
+    field_info, mapped := node_info.Fields[field_name]
+    if mapped {
+      ext := node.Extensions[field_info.Extension]
+      values[field_name] = reflect.ValueOf(ext).Elem().FieldByIndex(field_info.Index).Interface()
+    } else {
+      values[field_name] = fmt.Errorf("NodeType %s has no field %s", node.Type, field_name)
     }
   }
-  return exts
+
+  return values
 }
 
 // Main Loop for nodes
@@ -196,14 +204,21 @@ func nodeLoop(ctx *Context, node *Node, started chan error) error {
     ctx.Log.Logf("node", "Set %s active", node.ID)
   }
 
+  ctx.Log.Logf("node_ext", "Loading extensions for %s", node.ID)
+
   for _, extension := range(node.Extensions) {
+    ctx.Log.Logf("node_ext", "Loading extension %s for %s", reflect.TypeOf(extension), node.ID)
     err := extension.Load(ctx, node)
     if err != nil {
+      ctx.Log.Logf("node_ext", "Failed to load extension %s on node %s", reflect.TypeOf(extension), node.ID)
       node.Active.Store(false)
-      ctx.Log.Logf("node", "Failed to load extension %s on node %s", reflect.TypeOf(extension), node.ID)
       return err
+    } else {
+      ctx.Log.Logf("node_ext", "Loaded extension %s on node %s", reflect.TypeOf(extension), node.ID)
     }
   }
+
+  ctx.Log.Logf("node_ext", "Loaded extensions for %s", node.ID)
 
   started <- nil
 
@@ -212,10 +227,6 @@ func nodeLoop(ctx *Context, node *Node, started chan error) error {
     var signal Signal
     var source NodeID
     select {
-    case msg := <- node.MsgChan:
-      signal = msg.Signal
-      source = msg.Source
-
     case <-node.TimeoutChan:
       signal = node.NextSignal.Signal
       source = node.ID
@@ -244,13 +255,17 @@ func nodeLoop(ctx *Context, node *Node, started chan error) error {
       } else {
         ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL: %s@%s", node.ID, signal, t, node.NextSignal, node.NextSignal.Time)
       }
+    case msg := <- node.MsgChan:
+      signal = msg.Signal
+      source = msg.Source
+
     }
 
     ctx.Log.Logf("node", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
 
     switch sig := signal.(type) {
     case *ReadSignal:
-      result := node.ReadFields(ctx, sig.Extensions)
+      result := node.ReadFields(ctx, sig.Fields)
       msgs := []SendMsg{}
       msgs = append(msgs, SendMsg{source, NewReadResultSignal(sig.ID(), node.ID, node.Type, result)})
       ctx.Send(node, msgs)
@@ -283,8 +298,25 @@ func (node *Node) Unload(ctx *Context) error {
 }
 
 func (node *Node) QueueChanges(ctx *Context, changes map[ExtType]Changes) error {
-  node.QueueSignal(time.Now(), NewStatusSignal(node.ID, changes))
-  return nil
+  node_info, exists := ctx.NodeTypes[node.Type]
+  if exists == false {
+    return fmt.Errorf("Node type not in context, can't map changes to field names")
+  } else {
+    fields := []string{}
+    for ext_type, ext_changes := range(changes) {
+      ext_map, ext_mapped := node_info.ReverseFields[ext_type]
+      if ext_mapped {
+        for _, ext_tag := range(ext_changes) {
+          field_name, tag_mapped := ext_map[ext_tag]
+          if tag_mapped {
+            fields = append(fields, field_name)
+          }
+        }
+      }
+    }
+    node.QueueSignal(time.Time{}, NewStatusSignal(node.ID, fields))
+    return nil
+  }
 }
 
 func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
@@ -311,12 +343,14 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
     }
   }
 
-  if len(changes) != 0 {
+  if (len(changes) != 0) || node.writeSignalQueue {
     write_err := WriteNodeChanges(ctx, node, changes)
     if write_err != nil {
       return write_err
     }
+  }
 
+  if len(changes) != 0 {
     status_err := node.QueueChanges(ctx, changes)
     if status_err != nil {
       return status_err
@@ -365,7 +399,8 @@ func KeyID(pub ed25519.PublicKey) NodeID {
 
 // Create a new node in memory and start it's event loop
 func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size uint32, extensions ...Extension) (*Node, error) {
-  node_type, known_type := ctx.NodeTypes[type_name]
+  node_type := NodeTypeFor(type_name)
+  node_info, known_type := ctx.NodeTypes[node_type]
   if known_type == false {
     return nil, fmt.Errorf("%s is not a known node type", type_name)
   }
@@ -392,9 +427,9 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
       return nil, fmt.Errorf("Cannot create node with nil extension")
     }
 
-    ext_type, exists := ctx.ExtensionTypes[reflect.TypeOf(ext).Elem()]
+    ext_type, exists := ctx.Extensions[ExtTypeOf(reflect.TypeOf(ext))]
     if exists == false {
-      return nil, fmt.Errorf("%+v is not a known Extension", reflect.TypeOf(ext))
+      return nil, fmt.Errorf("%+v(%+v) is not a known Extension", reflect.TypeOf(ext), ExtTypeOf(reflect.TypeOf(ext)))
     }
     _, exists = ext_map[ext_type.ExtType]
     if exists == true {
@@ -403,7 +438,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     ext_map[ext_type.ExtType] = ext
   }
 
-  for _, required_ext := range(node_type.Extensions) {
+  for _, required_ext := range(node_info.RequiredExtensions) {
     _, exists := ext_map[required_ext]
     if exists == false {
       return nil, fmt.Errorf(fmt.Sprintf("%+v requires %+v", node_type, required_ext))
@@ -413,7 +448,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
   node := &Node{
     Key: key,
     ID: id,
-    Type: node_type.NodeType,
+    Type: node_type,
     Extensions: ext_map,
     MsgChan: make(chan RecvMsg, buffer_size),
     BufferSize: buffer_size,
@@ -429,7 +464,6 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
   ctx.AddNode(id, node)
   started := make(chan error, 1)
   go runNode(ctx, node, started)
-
   err = <- started
   if err != nil {
     return nil, err

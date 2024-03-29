@@ -9,24 +9,20 @@ import (
 )
 
 func TestNodeDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"node", "db"})
+  ctx := logTestContext(t, []string{"test", "node", "db"})
 
   node_listener := NewListenerExt(10)
-  node, err := NewNode(ctx, nil, "Base", 10, NewLockableExt(nil), node_listener)
+  node, err := NewNode(ctx, nil, "Node", 10, NewLockableExt(nil), node_listener)
   fatalErr(t, err)
 
   _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
-    gql_changes, has_gql := sig.Changes[ExtTypeFor[GQLExt]()]
-    if has_gql == true {
-      return slices.Contains(gql_changes, "state") && sig.Source == node.ID
-    }
-    return false
+    return slices.Contains(sig.Fields, "state") && sig.Source == node.ID
   })
 
   err = ctx.Unload(node.ID)
   fatalErr(t, err)
 
-  ctx.nodeMap = map[NodeID]*Node{}
+  ctx.nodes = map[NodeID]*Node{}
   _, err = ctx.getNode(node.ID)
   fatalErr(t, err)
 }
@@ -46,15 +42,13 @@ func TestNodeRead(t *testing.T) {
   ctx.Log.Logf("test", "N2: %s", n2_id)
 
   n2_listener := NewListenerExt(10)
-  n2, err := NewNode(ctx, n2_key, "Base", 10, n2_listener)
+  n2, err := NewNode(ctx, n2_key, "Node", 10, n2_listener)
   fatalErr(t, err)
 
-  n1, err := NewNode(ctx, n1_key, "Base", 10, NewListenerExt(10)) 
+  n1, err := NewNode(ctx, n1_key, "Node", 10, NewListenerExt(10)) 
   fatalErr(t, err)
 
-  read_sig := NewReadSignal(map[ExtType][]string{
-    ExtTypeFor[ListenerExt](): {"buffer"},
-  })
+  read_sig := NewReadSignal([]string{"buffer"})
   msgs := []SendMsg{{n1.ID, read_sig}}
   err = ctx.Send(n2, msgs)
   fatalErr(t, err)

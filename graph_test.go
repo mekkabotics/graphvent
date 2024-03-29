@@ -11,7 +11,7 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt, error) {
   listener_extension := NewListenerExt(buffer)
   listener, err := NewNode(ctx,
                       nil,
-                      "LockableListener",
+                      "LockableNode",
                       10,
                       nil,
                       listener_extension,
@@ -27,9 +27,6 @@ func logTestContext(t * testing.T, components []string) *Context {
   }
 
   ctx, err := NewContext(db, NewConsoleLogger(components))
-  fatalErr(t, err)
-
-  err = RegisterNodeType(ctx, "LockableListener", []ExtType{ExtTypeFor[ListenerExt](), ExtTypeFor[LockableExt]()})
   fatalErr(t, err)
 
   return ctx
