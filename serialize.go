@@ -77,49 +77,59 @@ func GetFieldTag(tag string) FieldTag {
   return FieldTag(Hash("GRAPHVENT_FIELD_TAG", tag))
 }
 
-func TypeStack(ctx *Context, t reflect.Type) ([]byte, error) {
+func TypeStack(ctx *Context, t reflect.Type, data []byte) (int, error) {
   info, registered := ctx.Types[t]
   if registered {
-    return binary.BigEndian.AppendUint64(nil, uint64(info.Serialized)), nil
+    binary.BigEndian.PutUint64(data, uint64(info.Serialized))
+    return 8, nil
   } else {
     switch t.Kind() {
     case reflect.Map:
-      key_stack, err := TypeStack(ctx, t.Key())
+      binary.BigEndian.PutUint64(data, uint64(SerializeType(reflect.Map)))
+
+      key_written, err := TypeStack(ctx, t.Key(), data[8:])
       if err != nil {
-        return nil, err
+        return 0, err
       }
 
-      elem_stack, err := TypeStack(ctx, t.Elem())
+      elem_written, err := TypeStack(ctx, t.Elem(), data[8 + key_written:])
       if err != nil {
-        return nil, err
+        return 0, err
       }
 
-      return append(binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Map))), append(key_stack, elem_stack...)...), nil
+      return 8 + key_written + elem_written, nil
+
     case reflect.Pointer:
-      elem_stack, err := TypeStack(ctx, t.Elem())
+      binary.BigEndian.PutUint64(data, uint64(SerializeType(reflect.Pointer)))
+
+      elem_written, err := TypeStack(ctx, t.Elem(), data[8:])
       if err != nil {
-        return nil, err
+        return 0, err
       }
 
-      return append(binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Pointer))), elem_stack...), nil
+      return 8 + elem_written, nil
     case reflect.Slice:
-      elem_stack, err := TypeStack(ctx, t.Elem())
+      binary.BigEndian.PutUint64(data, uint64(SerializeType(reflect.Slice)))
+
+      elem_written, err := TypeStack(ctx, t.Elem(), data[8:])
       if err != nil {
-        return nil, err
+        return 0, err
       }
 
-      return append(binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Slice))), elem_stack...), nil
+      return 8 + elem_written, nil
     case reflect.Array:
-      elem_stack, err := TypeStack(ctx, t.Elem())
+      binary.BigEndian.PutUint64(data, uint64(SerializeType(reflect.Array)))
+      binary.BigEndian.PutUint64(data[8:], uint64(t.Len()))
+
+      elem_written, err := TypeStack(ctx, t.Elem(), data[16:])
       if err != nil {
-        return nil, err
+        return 0, err
       }
 
-      stack := binary.BigEndian.AppendUint64(nil, uint64(SerializeType(reflect.Array)))
-      stack = binary.BigEndian.AppendUint64(stack, uint64(t.Len()))
-      return append(stack, elem_stack...), nil
+      return 16 + elem_written, nil
+
     default:
-      return nil, fmt.Errorf("Hit %s, which is not a registered type", t.String())
+      return 0, fmt.Errorf("Hit %s, which is not a registered type", t.String())
     }
   }
 }
@@ -173,8 +183,8 @@ func UnwrapStack(ctx *Context, stack []byte) (reflect.Type, []byte, error) {
   }
 }
 
-func Serialize[T any](ctx *Context, value T) ([]byte, error) {
-  return SerializeValue(ctx, reflect.ValueOf(&value).Elem())
+func Serialize[T any](ctx *Context, value T, data []byte) (int, error) {
+  return SerializeValue(ctx, reflect.ValueOf(&value).Elem(), data)
 }
 
 func Deserialize[T any](ctx *Context, data []byte) (T, error) {
@@ -192,7 +202,7 @@ func Deserialize[T any](ctx *Context, data []byte) (T, error) {
   return value.Interface().(T), nil
 }
 
-func SerializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
+func SerializeValue(ctx *Context, value reflect.Value, data []byte) (int, error) {
   var serialize SerializeFn = nil
 
   info, registered := ctx.Types[value.Type()]
@@ -204,148 +214,155 @@ func SerializeValue(ctx *Context, value reflect.Value) ([]byte, error) {
     switch value.Type().Kind() {
     case reflect.Bool:
       if value.Bool() {
-        return []byte{0xFF}, nil
+        data[0] = 0xFF
       } else {
-        return []byte{0x00}, nil
+        data[0] = 0x00
       }
+      return 1, nil
 
     case reflect.Int8:
-      return []byte{byte(value.Int())}, nil
+      data[0] = byte(value.Int())
+      return 1, nil
     case reflect.Int16:
-      return binary.BigEndian.AppendUint16(nil, uint16(value.Int())), nil
+      binary.BigEndian.PutUint16(data, uint16(value.Int()))
+      return 2, nil
     case reflect.Int32:
-      return binary.BigEndian.AppendUint32(nil, uint32(value.Int())), nil
+      binary.BigEndian.PutUint32(data, uint32(value.Int()))
+      return 4, nil
     case reflect.Int64:
       fallthrough
     case reflect.Int:
-      return binary.BigEndian.AppendUint64(nil, uint64(value.Int())), nil
+      binary.BigEndian.PutUint64(data, uint64(value.Int()))
+      return 8, nil
 
     case reflect.Uint8:
-      return []byte{byte(value.Uint())}, nil
+      data[0] = byte(value.Uint())
+      return 1, nil
     case reflect.Uint16:
-      return binary.BigEndian.AppendUint16(nil, uint16(value.Uint())), nil
+      binary.BigEndian.PutUint16(data, uint16(value.Uint()))
+      return 2, nil
     case reflect.Uint32:
-      return binary.BigEndian.AppendUint32(nil, uint32(value.Uint())), nil
+      binary.BigEndian.PutUint32(data, uint32(value.Uint()))
+      return 4, nil
     case reflect.Uint64:
       fallthrough
     case reflect.Uint:
-      return binary.BigEndian.AppendUint64(nil, value.Uint()), nil
+      binary.BigEndian.PutUint64(data, value.Uint())
+      return 8, nil
 
     case reflect.Float32:
-      return binary.BigEndian.AppendUint32(nil, math.Float32bits(float32(value.Float()))), nil
+      binary.BigEndian.PutUint32(data, math.Float32bits(float32(value.Float())))
+      return 4, nil
     case reflect.Float64:
-      return binary.BigEndian.AppendUint64(nil, math.Float64bits(value.Float())), nil
+      binary.BigEndian.PutUint64(data, math.Float64bits(value.Float()))
+      return 8, nil
 
     case reflect.String:
-      len_bytes := make([]byte, 8)
-      binary.BigEndian.PutUint64(len_bytes, uint64(value.Len()))
-      return append(len_bytes, []byte(value.String())...), nil
+      binary.BigEndian.PutUint64(data, uint64(value.Len()))
+      copy(data[8:], []byte(value.String()))
+      return 8 + value.Len(), nil
 
     case reflect.Pointer:
       if value.IsNil() {
-        return []byte{0x00}, nil
+        data[0] = 0x00
+        return 1, nil
       } else {
-        elem, err := SerializeValue(ctx, value.Elem())
+        data[0] = 0x01
+        written, err := SerializeValue(ctx, value.Elem(), data[1:])
         if err != nil {
-          return nil, err
+          return 0, err
         }
-
-        return append([]byte{0x01}, elem...), nil
+        return 1 + written, nil
       }
 
     case reflect.Slice:
       if value.IsNil() {
-        return []byte{0x00}, nil
+        data[0] = 0x00
+        return 8, nil
       } else {
-        len_bytes := make([]byte, 8)
-        binary.BigEndian.PutUint64(len_bytes, uint64(value.Len()))
-
-        data := []byte{}
+        data[0] = 0x01
+        binary.BigEndian.PutUint64(data[1:], uint64(value.Len()))
+        total_written := 0
         for i := 0; i < value.Len(); i++ {
-          elem, err := SerializeValue(ctx, value.Index(i))
+          written, err := SerializeValue(ctx, value.Index(i), data[9+total_written:])
           if err != nil {
-            return nil, err
+            return 0, err
           }
-
-          data = append(data, elem...)
+          total_written += written
         }
-
-        return append(len_bytes, data...), nil
+        return 9 + total_written, nil
       }
 
     case reflect.Array:
       data := []byte{}
+      total_written := 0
       for i := 0; i < value.Len(); i++ {
-        elem, err := SerializeValue(ctx, value.Index(i))
+        written, err := SerializeValue(ctx, value.Index(i), data[total_written:])
         if err != nil {
-          return nil, err
+          return 0, err
         }
-
-        data = append(data, elem...)
+        total_written += written
       }
-      return data, nil
+      return total_written, nil
 
     case reflect.Map:
-      len_bytes := make([]byte, 8)
-      binary.BigEndian.PutUint64(len_bytes, uint64(value.Len()))
+      binary.BigEndian.PutUint64(data, uint64(value.Len()))
 
-      data := []byte{}
       key := reflect.New(value.Type().Key()).Elem()
       val := reflect.New(value.Type().Elem()).Elem()
       iter := value.MapRange()
+      total_written := 0
       for iter.Next() {
         key.SetIterKey(iter)
         val.SetIterValue(iter)
 
-        k, err := SerializeValue(ctx, key)
+        k, err := SerializeValue(ctx, key, data[8+total_written:])
         if err != nil {
-          return nil, err
+          return 0, err
         }
-        data = append(data, k...)
+        total_written += k
 
-        v, err := SerializeValue(ctx, val) 
+        v, err := SerializeValue(ctx, val, data[8+total_written:]) 
         if err != nil {
-          return nil, err
+          return 0, err
         }
-
-        data = append(data, v...)
+        total_written += v
       }
-      return append(len_bytes, data...), nil
+      return 8 + total_written, nil
     
     case reflect.Struct:
       if registered == false {
-        return nil, fmt.Errorf("Cannot serialize unregistered struct %s", value.Type())
+        return 0, fmt.Errorf("Cannot serialize unregistered struct %s", value.Type())
       } else {
-        data := binary.BigEndian.AppendUint64(nil, uint64(len(info.Fields)))
+        binary.BigEndian.PutUint64(data, uint64(len(info.Fields)))
 
+        total_written := 0
         for field_tag, field_info := range(info.Fields) {
-          data = append(data, binary.BigEndian.AppendUint64(nil, uint64(field_tag))...)
-          field_bytes, err := SerializeValue(ctx, value.FieldByIndex(field_info.Index))
+          binary.BigEndian.PutUint64(data[8+total_written:], uint64(field_tag))
+          total_written += 8
+          written, err := SerializeValue(ctx, value.FieldByIndex(field_info.Index), data[8+total_written:])
           if err != nil {
-            return nil, err
+            return 0, err
           }
-
-          data = append(data, field_bytes...)
+          total_written += written
         }
-        return data, nil
+        return 8 + total_written, nil
       }
 
     case reflect.Interface:
-      data, err := TypeStack(ctx, value.Elem().Type())
+      type_written, err := TypeStack(ctx, value.Elem().Type(), data)
 
-      val_data, err := SerializeValue(ctx, value.Elem())
+      elem_written, err := SerializeValue(ctx, value.Elem(), data[type_written:])
       if err != nil {
-        return nil, err
+        return 0, err
       }
 
-      data = append(data, val_data...)
-
-      return data, nil
+      return type_written + elem_written, nil
     default:
-      return nil, fmt.Errorf("Don't know how to serialize %s", value.Type())
+      return 0, fmt.Errorf("Don't know how to serialize %s", value.Type())
     }
   } else {
-    return serialize(ctx, value)
+    return serialize(ctx, value, data)
   }
 }
 
@@ -449,19 +466,25 @@ func DeserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
       }
 
     case reflect.Slice:
-      len_bytes, left := split(data, 8)
-      length := int(binary.BigEndian.Uint64(len_bytes))
-      value := reflect.MakeSlice(t, length, length)
-      for i := 0; i < length; i++ {
-        var elem_value reflect.Value
-        var err error
-        elem_value, left, err = DeserializeValue(ctx, left, t.Elem())
-        if err != nil {
-          return reflect.Value{}, nil, err
+      nil_byte := data[0]
+      data = data[1:]
+      if nil_byte == 0x00 {
+        return reflect.New(t).Elem(), data, nil
+      } else {
+        len_bytes, left := split(data, 8)
+        length := int(binary.BigEndian.Uint64(len_bytes))
+        value := reflect.MakeSlice(t, length, length)
+        for i := 0; i < length; i++ {
+          var elem_value reflect.Value
+          var err error
+          elem_value, left, err = DeserializeValue(ctx, left, t.Elem())
+          if err != nil {
+            return reflect.Value{}, nil, err
+          }
+          value.Index(i).Set(elem_value)
         }
-        value.Index(i).Set(elem_value)
+        return value, left, nil
       }
-      return value, left, nil
 
     case reflect.Array:
       value := reflect.New(t).Elem()

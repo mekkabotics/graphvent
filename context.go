@@ -26,7 +26,7 @@ var (
   ECDH = ecdh.X25519()
 )
 
-type SerializeFn func(ctx *Context, value reflect.Value) ([]byte, error)
+type SerializeFn func(ctx *Context, value reflect.Value, data []byte) (int, error)
 type DeserializeFn func(ctx *Context, data []byte) (reflect.Value, []byte, error)
 
 type NodeFieldInfo struct {
@@ -992,8 +992,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   var err error
  
   err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID],
-  func(ctx *Context, value reflect.Value) ([]byte, error) {
-    return value.Bytes(), nil
+  func(ctx *Context, value reflect.Value, data []byte) (int, error) {
+    copy(data, value.Bytes())
+    return 16, nil
   }, func(ctx *Context, data []byte) (reflect.Value, []byte, error) {
     if len(data) < 16 {
       return reflect.Value{}, nil, fmt.Errorf("Not enough bytes to decode NodeID(got %d, want 16)", len(data))
@@ -1012,8 +1013,9 @@ func NewContext(db * badger.DB, log Logger) (*Context, error) {
   }
 
   err = RegisterScalar[uuid.UUID](ctx, stringify, unstringify[uuid.UUID], unstringifyAST[uuid.UUID],
-  func(ctx *Context, value reflect.Value) ([]byte, error) {
-    return value.Bytes(), nil
+  func(ctx *Context, value reflect.Value, data []byte) (int, error) {
+    copy(data, value.Bytes())
+    return 16, nil
   }, func(ctx *Context, data []byte) (reflect.Value, []byte, error) {
     if len(data) < 16 {
       return reflect.Value{}, nil, fmt.Errorf("Not enough bytes to decode uuid.UUID(got %d, want 16)", len(data))

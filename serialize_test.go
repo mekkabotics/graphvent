@@ -7,9 +7,12 @@ import (
 )
 
 func testTypeStack[T any](t *testing.T, ctx *Context) {
+  buffer := [1024]byte{}
   reflect_type := reflect.TypeFor[T]()
-  stack, err := TypeStack(ctx, reflect_type)
+  written, err := TypeStack(ctx, reflect_type, buffer[:])
   fatalErr(t, err)
+
+  stack := buffer[:written]
 
   ctx.Log.Logf("test", "TypeStack[%s]: %+v", reflect_type, stack)
 
@@ -41,8 +44,11 @@ func TestSerializeTypes(t *testing.T) {
 }
 
 func testSerializeCompare[T comparable](t *testing.T, ctx *Context, value T) {
-  serialized, err := Serialize(ctx, value) 
+  buffer := [1024]byte{}
+  written, err := Serialize(ctx, value, buffer[:]) 
   fatalErr(t, err)
+
+  serialized := buffer[:written]
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[T](), value, serialized)
 
@@ -57,8 +63,11 @@ func testSerializeCompare[T comparable](t *testing.T, ctx *Context, value T) {
 }
 
 func testSerializeList[L []T, T comparable](t *testing.T, ctx *Context, value L) {
-  serialized, err := Serialize(ctx, value)
+  buffer := [1024]byte{}
+  written, err := Serialize(ctx, value, buffer[:])
   fatalErr(t, err)
+
+  serialized := buffer[:written]
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[L](), value, serialized)
 
@@ -75,8 +84,12 @@ func testSerializeList[L []T, T comparable](t *testing.T, ctx *Context, value L)
 }
 
 func testSerializePointer[P interface {*T}, T comparable](t *testing.T, ctx *Context, value P) {
-  serialized, err := Serialize(ctx, value)
+  buffer := [1024]byte{}
+
+  written, err := Serialize(ctx, value, buffer[:])
   fatalErr(t, err)
+
+  serialized := buffer[:written]
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[P](), value, serialized)
 
@@ -97,8 +110,11 @@ func testSerializePointer[P interface {*T}, T comparable](t *testing.T, ctx *Con
 }
 
 func testSerialize[T any](t *testing.T, ctx *Context, value T) {
-  serialized, err := Serialize(ctx, value)
+  buffer := [1024]byte{}
+  written, err := Serialize(ctx, value, buffer[:])
   fatalErr(t, err)
+
+  serialized := buffer[:written]
 
   ctx.Log.Logf("test", "Serialized Value[%s : %+v]: %+v", reflect.TypeFor[T](), value, serialized)
 
