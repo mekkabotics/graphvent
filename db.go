@@ -3,100 +3,127 @@ package graphvent
 import (
 	"encoding/binary"
 	"fmt"
-  "reflect"
+	"reflect"
+  "sync"
 
 	badger "github.com/dgraph-io/badger/v3"
 )
 
-const NODE_BUFFER_SIZE = 1000000
+type Database interface {
+  WriteNodeInit(*Context, *Node) error
+  WriteNodeChanges(*Context, *Node, map[ExtType]Changes) error
+  LoadNode(*Context, NodeID) (*Node, error)
+}
 
-func WriteNodeInit(ctx *Context, node *Node) error {
+const WRITE_BUFFER_SIZE = 1000000
+type BadgerDB struct {
+  *badger.DB
+  sync.Mutex
+  buffer [WRITE_BUFFER_SIZE]byte
+}
+
+func (db *BadgerDB) WriteNodeInit(ctx *Context, node *Node) error {
   if node == nil {
     return fmt.Errorf("Cannot serialize nil *Node")
   }
 
-  buffer := [NODE_BUFFER_SIZE]byte{}
+  return db.Update(func(tx *badger.Txn) error {
+    db.Lock()
+    defer db.Unlock()
 
-  return ctx.DB.Update(func(tx *badger.Txn) error {
     // Get the base key bytes
     id_ser, err := node.ID.MarshalBinary()
     if err != nil {
       return err
     }
 
+    cur := 0
+
     // Write Node value
-    written, err := Serialize(ctx, node, buffer[:])
+    written, err := Serialize(ctx, node, db.buffer[cur:])
     if err != nil {
       return err
     }
-    err = tx.Set(id_ser, buffer[:written])
+
+    err = tx.Set(id_ser, db.buffer[cur:cur+written])
     if err != nil {
       return err
     }
+
+    cur += written
     
     // Write empty signal queue
     sigqueue_id := append(id_ser, []byte(" - SIGQUEUE")...)
-    written, err = Serialize(ctx, node.SignalQueue, buffer[:])
+    written, err = Serialize(ctx, node.SignalQueue, db.buffer[cur:])
     if err != nil {
       return err
     }
-    err = tx.Set(sigqueue_id, buffer[:written])
+
+    err = tx.Set(sigqueue_id, db.buffer[cur:cur+written])
     if err != nil {
       return err
     }
+
+    cur += written
 
     // Write node extension list
     ext_list := []ExtType{}
     for ext_type := range(node.Extensions) {
       ext_list = append(ext_list, ext_type)
     }
-    written, err = Serialize(ctx, ext_list, buffer[:])
+    written, err = Serialize(ctx, ext_list, db.buffer[cur:])
     if err != nil {
       return err
     }
     ext_list_id := append(id_ser, []byte(" - EXTLIST")...)
-    err = tx.Set(ext_list_id, buffer[:written])
+    err = tx.Set(ext_list_id, db.buffer[cur:cur+written])
     if err != nil {
       return err
     }
+    cur += written
 
     // For each extension:
     for ext_type, ext := range(node.Extensions) {
       // Write each extension's current value
       ext_id := binary.BigEndian.AppendUint64(id_ser, uint64(ext_type))
-      written, err := SerializeValue(ctx, reflect.ValueOf(ext).Elem(), buffer[:])
+      written, err := SerializeValue(ctx, reflect.ValueOf(ext).Elem(), db.buffer[cur:])
       if err != nil {
         return err
       }
-      err = tx.Set(ext_id, buffer[:written])
+      err = tx.Set(ext_id, db.buffer[cur:cur+written])
+      if err != nil {
+        return err
+      }
+      cur += written
     }
     return nil
   })
 }
 
-func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) error {
-  buffer := [NODE_BUFFER_SIZE]byte{}
+func (db *BadgerDB) WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) error {
+  return db.Update(func(tx *badger.Txn) error {
+    db.Lock()
+    defer db.Unlock()
 
-  return ctx.DB.Update(func(tx *badger.Txn) error {
     // Get the base key bytes
-    id_ser, err := node.ID.MarshalBinary()
-    if err != nil {
-      return fmt.Errorf("Marshal ID error: %+w", err)
-    }
+    id_bytes := ([16]byte)(node.ID)
+
+    cur := 0
 
     // Write the signal queue if it needs to be written
     if node.writeSignalQueue {
       node.writeSignalQueue = false
 
-      sigqueue_id := append(id_ser, []byte(" - SIGQUEUE")...)
-      written, err := Serialize(ctx, node.SignalQueue, buffer[:])
+      sigqueue_id := append(id_bytes[:], []byte(" - SIGQUEUE")...)
+      written, err := Serialize(ctx, node.SignalQueue, db.buffer[cur:])
       if err != nil {
         return fmt.Errorf("SignalQueue Serialize Error: %+v, %w", node.SignalQueue, err)
       }
-      err = tx.Set(sigqueue_id, buffer[:written])
+      err = tx.Set(sigqueue_id, db.buffer[cur:cur+written])
       if err != nil {
         return fmt.Errorf("SignalQueue set error: %+v, %w", node.SignalQueue, err)
       }
+      cur += written
     }
 
     // For each ext in changes
@@ -106,24 +133,26 @@ func WriteNodeChanges(ctx *Context, node *Node, changes map[ExtType]Changes) err
       if exists == false {
         return fmt.Errorf("%s is not an extension in %s", ext_type, node.ID)
       }
-      ext_id := binary.BigEndian.AppendUint64(id_ser, uint64(ext_type))
-      written, err := SerializeValue(ctx, reflect.ValueOf(ext).Elem(), buffer[:])
+      ext_id := binary.BigEndian.AppendUint64(id_bytes[:], uint64(ext_type))
+      written, err := SerializeValue(ctx, reflect.ValueOf(ext).Elem(), db.buffer[cur:])
       if err != nil {
         return fmt.Errorf("Extension serialize err: %s, %w", reflect.TypeOf(ext), err)
       }
 
-      err = tx.Set(ext_id, buffer[:written])
+      err = tx.Set(ext_id, db.buffer[cur:cur+written])
       if err != nil {
         return fmt.Errorf("Extension set err: %s, %w", reflect.TypeOf(ext), err)
       }
+      cur += written
     }
     return nil
   })
 }
 
-func LoadNode(ctx *Context, id NodeID) (*Node, error) {
+func (db *BadgerDB) LoadNode(ctx *Context, id NodeID) (*Node, error) {
   var node *Node = nil
-  err := ctx.DB.View(func(tx *badger.Txn) error {
+
+  err := db.View(func(tx *badger.Txn) error {
     // Get the base key bytes
     id_ser, err := id.MarshalBinary()
     if err != nil {
@@ -137,12 +166,13 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
     }
 
     err = node_item.Value(func(val []byte) error {
+      ctx.Log.Logf("db", "DESERIALIZE_NODE(%d bytes): %+v", len(val), val)
       node, err = Deserialize[*Node](ctx, val)
       return err
     })
 
     if err != nil {
-      return nil
+      return fmt.Errorf("Failed to deserialize Node %s - %w", id, err)
     }
 
     // Get the signal queue
@@ -211,6 +241,8 @@ func LoadNode(ctx *Context, id NodeID) (*Node, error) {
 
   if err != nil {
     return nil, err
+  } else if node == nil {
+    return nil, fmt.Errorf("Tried to return nil *Node from BadgerDB.LoadNode without error")
   }
 
   return node, nil

@@ -143,8 +143,7 @@ func (ext *LockableExt) HandleUnlockSignal(ctx *Context, node *Node, source Node
 
         ext.PendingOwner = nil
 
-        ext.ReqID = new(uuid.UUID)
-        *ext.ReqID = signal.Id
+        ext.ReqID = &signal.Id
 
         ext.State = Unlocking
         for id := range(ext.Requirements) {
@@ -175,22 +174,18 @@ func (ext *LockableExt) HandleLockSignal(ctx *Context, node *Node, source NodeID
     if len(ext.Requirements) == 0 {
       changes = append(changes, "state", "owner", "pending_owner")
 
-      ext.Owner = new(NodeID)
-      *ext.Owner = source
+      ext.Owner = &source
 
-      ext.PendingOwner = new(NodeID)
-      *ext.PendingOwner = source
+      ext.PendingOwner = &source
 
       ext.State = Locked
       messages = append(messages, SendMsg{source, NewSuccessSignal(signal.Id)})
     } else {
       changes = append(changes, "state", "requirements", "waiting", "pending_owner")
 
-      ext.PendingOwner = new(NodeID)
-      *ext.PendingOwner = source
+      ext.PendingOwner = &source
 
-      ext.ReqID = new(uuid.UUID)
-      *ext.ReqID = signal.Id
+      ext.ReqID = &signal.Id
 
       ext.State = Locking
       for id := range(ext.Requirements) {
@@ -313,8 +308,7 @@ func (ext *LockableExt) HandleSuccessSignal(ctx *Context, node *Node, source Nod
         changes = append(changes, "state", "owner", "req_id")
         ext.State = Locked
 
-        ext.Owner = new(NodeID)
-        *ext.Owner = *ext.PendingOwner
+        ext.Owner = ext.PendingOwner
 
         messages = append(messages, SendMsg{*ext.Owner, NewSuccessSignal(*ext.ReqID)})
         ext.ReqID = nil

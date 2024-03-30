@@ -202,7 +202,7 @@ func TestGQLQuery(t *testing.T) {
 }
 
 func TestGQLDB(t *testing.T) {
-  ctx := logTestContext(t, []string{"test", "db", "node"})
+  ctx := logTestContext(t, []string{"test", "db", "node", "serialize"})
 
   gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
   fatalErr(t, err)

@@ -194,7 +194,7 @@ func Deserialize[T any](ctx *Context, data []byte) (T, error) {
   if err != nil {
     return zero, err
   } else if len(left) != 0 {
-    return zero, fmt.Errorf("%d bytes left after deserializing %+v", len(left), value)
+    return zero, fmt.Errorf("%d/%d bytes left after deserializing %+v", len(left), len(data), value)
   } else if value.Type() != reflect_type {
     return zero, fmt.Errorf("Deserialized type %s does not match %s", value.Type(), reflect_type)
   }

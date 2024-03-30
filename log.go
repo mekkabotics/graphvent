@@ -50,7 +50,7 @@ func (logger * ConsoleLogger) SetComponents(components []string) error {
     return false
   }
 
-  for c, _ := range(logger.loggers) {
+  for c := range(logger.loggers) {
     if component_enabled(c) == false {
       delete(logger.loggers, c)
     }

@@ -26,7 +26,9 @@ func logTestContext(t * testing.T, components []string) *Context {
     t.Fatal(err)
   }
 
-  ctx, err := NewContext(db, NewConsoleLogger(components))
+  ctx, err := NewContext(&BadgerDB{
+    DB: db,
+  }, NewConsoleLogger(components))
   fatalErr(t, err)
 
   return ctx

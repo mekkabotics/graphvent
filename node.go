@@ -78,7 +78,7 @@ type Node struct {
   Key ed25519.PrivateKey `gv:"key"`
   ID NodeID
   Type NodeType `gv:"type"`
-  // TODO: move each extension to it's own db key, and extend changes to notify which extension was changed
+
   Extensions map[ExtType]Extension
 
   // Channel for this node to receive messages from the Context
@@ -90,7 +90,6 @@ type Node struct {
 
   Active atomic.Bool
 
-  // TODO: enhance WriteNode to write SignalQueue to a different key, and use writeSignalQueue to decide whether or not to update it
   writeSignalQueue bool
   SignalQueue []QueuedSignal
   NextSignal *QueuedSignal
@@ -344,7 +343,7 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   }
 
   if (len(changes) != 0) || node.writeSignalQueue {
-    write_err := WriteNodeChanges(ctx, node, changes)
+    write_err := ctx.DB.WriteNodeChanges(ctx, node, changes)
     if write_err != nil {
       return write_err
     }
@@ -456,7 +455,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     writeSignalQueue: false,
   }
 
-  err = WriteNodeInit(ctx, node)
+  err = ctx.DB.WriteNodeInit(ctx, node)
   if err != nil {
     return nil, err
   }

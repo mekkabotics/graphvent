@@ -42,7 +42,19 @@ func TestLink(t *testing.T) {
   fatalErr(t, err)
 }
 
+func Test10Lock(t *testing.T) {
+  testLockN(t, 10)
+}
+
+func Test1000Lock(t *testing.T) {
+  testLockN(t, 1000)
+}
+
 func Test10000Lock(t *testing.T) {
+  testLockN(t, 10000)
+}
+
+func testLockN(t *testing.T, n int) {
   ctx := logTestContext(t, []string{"test"})
 
   NewLockable := func()(*Node) {
@@ -51,12 +63,12 @@ func Test10000Lock(t *testing.T) {
     return l
   }
 
-  reqs := make([]NodeID, 10000)
+  reqs := make([]NodeID, n)
   for i := range(reqs) {
     new_lockable := NewLockable()
     reqs[i] = new_lockable.ID
   }
-  ctx.Log.Logf("test", "CREATED_10000")
+  ctx.Log.Logf("test", "CREATED_%d", n)
 
   listener := NewListenerExt(50000)
   node, err := NewNode(ctx, nil, "LockableNode", 500000, listener, NewLockableExt(reqs))
@@ -75,7 +87,7 @@ func Test10000Lock(t *testing.T) {
     t.Fatalf("Unexpected response to lock - %s", resp)
   }
 
-  ctx.Log.Logf("test", "LOCKED_10000")
+  ctx.Log.Logf("test", "LOCKED_%d", n)
 }
 
 func TestLock(t *testing.T) {

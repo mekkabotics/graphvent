@@ -17,8 +17,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/graphql-go/graphql"
 	"github.com/graphql-go/graphql/language/ast"
-
-	badger "github.com/dgraph-io/badger/v3"
 )
 
 var (
@@ -82,7 +80,7 @@ type InterfaceInfo struct {
 type Context struct {
 
   // DB is the database connection used to load and write nodes
-  DB * badger.DB
+  DB Database
   // Logging interface
   Log Logger
 
@@ -870,7 +868,7 @@ func (ctx *Context) Stop() {
 }
 
 func (ctx *Context) Load(id NodeID) (*Node, error) {
-  node, err := LoadNode(ctx, id)
+  node, err := ctx.DB.LoadNode(ctx, id)
   if err != nil {
     return nil, err
   }
@@ -973,7 +971,7 @@ func (ctx *Context)GQLResolve(t reflect.Type, node_type string) (func(interface{
 }
 
 // Create a new Context with the base library content added
-func NewContext(db * badger.DB, log Logger) (*Context, error) {
+func NewContext(db Database, log Logger) (*Context, error) {
   uuid.EnableRandPool()
 
   ctx := &Context{
