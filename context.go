@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/exp/constraints"
@@ -25,6 +26,7 @@ var (
 )
 
 type SerializeFn func(ctx *Context, value reflect.Value, data []byte) (int, error)
+type SerializedSizeFn func(ctx *Context, value reflect.Value) (int, error)
 type DeserializeFn func(ctx *Context, data []byte) (reflect.Value, []byte, error)
 
 type NodeFieldInfo struct {
@@ -47,6 +49,7 @@ type TypeInfo struct {
   PostDeserializeIndex int
 
   Serialize SerializeFn
+  SerializedSize SerializedSizeFn
   Deserialize DeserializeFn
 }
 
@@ -76,6 +79,12 @@ type InterfaceInfo struct {
   Fields map[string]graphql.Type
 }
 
+type ContextNode struct {
+  Node *Node
+  Status chan string
+  Command chan string
+}
+
 // A Context stores all the data to run a graphvent process
 type Context struct {
 
@@ -99,7 +108,9 @@ type Context struct {
 
   // Routing map to all the nodes local to this context
   nodesLock sync.RWMutex
-  nodes map[NodeID]*Node
+  nodes map[NodeID]ContextNode
+
+  running atomic.Bool
 }
 
 func gqltype(ctx *Context, t reflect.Type, node_type string) graphql.Type {
@@ -793,7 +804,7 @@ func RegisterEnum[E comparable](ctx *Context, str_map map[E]string) error {
   return nil
 }
 
-func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}, serialize SerializeFn, deserialize DeserializeFn) error {
+func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, from_json func(interface{})interface{}, from_ast func(ast.Value)interface{}, serialize SerializeFn, sizefn SerializedSizeFn, deserialize DeserializeFn) error {
   reflect_type := reflect.TypeFor[S]()
   serialized_type := SerializedTypeFor[S]()
 
@@ -816,6 +827,7 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
     Type: gql,
 
     Serialize: serialize,
+    SerializedSize: sizefn,
     Deserialize: deserialize,
   }
   ctx.TypesReverse[serialized_type] = ctx.Types[reflect_type]
@@ -823,9 +835,13 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
   return nil
 }
 
-func (ctx *Context) AddNode(id NodeID, node *Node) {
+func (ctx *Context) AddNode(id NodeID, node *Node, status chan string, command chan string) {
   ctx.nodesLock.Lock()
-  ctx.nodes[id] = node
+  ctx.nodes[id] = ContextNode{
+    Node: node,
+    Status: status,
+    Command: command,
+  }
   ctx.nodesLock.Unlock()
 }
 
@@ -833,7 +849,7 @@ func (ctx *Context) Node(id NodeID) (*Node, bool) {
   ctx.nodesLock.RLock()
   node, exists := ctx.nodes[id]
   ctx.nodesLock.RUnlock()
-  return node, exists
+  return node.Node, exists
 }
 
 func (ctx *Context) Delete(id NodeID) error {
@@ -841,7 +857,7 @@ func (ctx *Context) Delete(id NodeID) error {
   if err != nil {
     return err
   }
-  // TODO: also delete any associated data
+  // TODO: also delete any associated data from DB
   return nil
 }
 
@@ -853,7 +869,14 @@ func (ctx *Context) Unload(id NodeID) error {
     return fmt.Errorf("%s is not a node in ctx", id)
   }
 
-  err := node.Unload(ctx)
+  node.Command <- "stop"
+  returned := <- node.Status
+  
+  if returned != "stopped" {
+    return fmt.Errorf(returned)
+  }
+
+  err := node.Node.Unload(ctx)
   delete(ctx.nodes, id)
   return err
 }
@@ -861,8 +884,18 @@ func (ctx *Context) Unload(id NodeID) error {
 func (ctx *Context) Stop() {
   ctx.nodesLock.Lock()
   for id, node := range(ctx.nodes) {
-    node.Unload(ctx)
-    delete(ctx.nodes, id)
+    node.Command <- "stop"
+    returned := <- node.Status
+
+    if returned != "stopped" {
+      ctx.Log.Logf("node", "Node returned %s when commanded to stop", returned)
+    } else {
+      err := node.Node.Unload(ctx)
+      if err != nil {
+        ctx.Log.Logf("node", "Error unloading %s: %s", id, err)
+      }
+      delete(ctx.nodes, id)
+    }
   }
   ctx.nodesLock.Unlock()
 }
@@ -873,13 +906,16 @@ func (ctx *Context) Load(id NodeID) (*Node, error) {
     return nil, err
   }
 
-  ctx.AddNode(id, node)
-  started := make(chan error, 1)
-  go runNode(ctx, node, started)
-  err = <- started
-  if err != nil {
-    return nil, err
+  status := make(chan string, 0)
+  command := make(chan string, 0)
+  go runNode(ctx, node, status, command)
+
+  returned := <- status
+  if returned != "active" {
+    return nil, fmt.Errorf(returned)
   }
+
+  ctx.AddNode(id, node, status, command)
 
   return node, nil
 }
@@ -927,7 +963,7 @@ func (ctx *Context) Send(node *Node, messages []SendMsg) error {
 }
 
 func resolveNodeID(val interface{}, p graphql.ResolveParams) (interface{}, error) {
-  id, ok := p.Source.(NodeID)
+  id, ok := val.(NodeID)
   if ok == false {
     return nil, fmt.Errorf("%+v is not NodeID", p.Source)
   }
@@ -984,7 +1020,7 @@ func NewContext(db Database, log Logger) (*Context, error) {
     Interfaces: map[string]InterfaceInfo{},
     NodeTypes: map[NodeType]NodeInfo{},
 
-    nodes: map[NodeID]*Node{},
+    nodes: map[NodeID]ContextNode{},
   }
 
   var err error
@@ -992,6 +1028,8 @@ func NewContext(db Database, log Logger) (*Context, error) {
   err = RegisterScalar[NodeID](ctx, stringify, unstringify[NodeID], unstringifyAST[NodeID],
   func(ctx *Context, value reflect.Value, data []byte) (int, error) {
     copy(data, value.Bytes())
+    return 16, nil
+  }, func(ctx *Context, value reflect.Value) (int, error) {
     return 16, nil
   }, func(ctx *Context, data []byte) (reflect.Value, []byte, error) {
     if len(data) < 16 {
@@ -1014,6 +1052,8 @@ func NewContext(db Database, log Logger) (*Context, error) {
   func(ctx *Context, value reflect.Value, data []byte) (int, error) {
     copy(data, value.Bytes())
     return 16, nil
+  }, func(ctx *Context, value reflect.Value) (int, error) {
+    return 16, nil
   }, func(ctx *Context, data []byte) (reflect.Value, []byte, error) {
     if len(data) < 16 {
       return reflect.Value{}, nil, fmt.Errorf("Not enough bytes to decode uuid.UUID(got %d, want 16)", len(data))
@@ -1031,12 +1071,12 @@ func NewContext(db Database, log Logger) (*Context, error) {
     return nil, fmt.Errorf("Failed to register uuid.UUID: %w", err)
   }
   
-  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType], nil, nil) 
+  err = RegisterScalar[NodeType](ctx, identity, coerce[NodeType], astInt[NodeType], nil, nil, nil) 
   if err != nil {
     return nil, fmt.Errorf("Failed to register NodeType: %w", err)
   }
 
-  err = RegisterScalar[ExtType](ctx, identity, coerce[ExtType], astInt[ExtType], nil, nil)
+  err = RegisterScalar[ExtType](ctx, identity, coerce[ExtType], astInt[ExtType], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register ExtType: %w", err)
   }
@@ -1051,32 +1091,32 @@ func NewContext(db Database, log Logger) (*Context, error) {
     return nil, fmt.Errorf("Failed to register NodeType Node: %w", err)
   }
 
-  err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool], nil, nil)
+  err = RegisterScalar[bool](ctx, identity, coerce[bool], astBool[bool], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register bool: %w", err)
   }
 
-  err = RegisterScalar[int](ctx, identity, coerce[int], astInt[int], nil, nil)
+  err = RegisterScalar[int](ctx, identity, coerce[int], astInt[int], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register int: %w", err)
   }
 
-  err = RegisterScalar[uint32](ctx, identity, coerce[uint32], astInt[uint32], nil, nil)
+  err = RegisterScalar[uint32](ctx, identity, coerce[uint32], astInt[uint32], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register uint32: %w", err)
   }
 
-  err = RegisterScalar[uint8](ctx, identity, coerce[uint8], astInt[uint8], nil, nil)
+  err = RegisterScalar[uint8](ctx, identity, coerce[uint8], astInt[uint8], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register uint8: %w", err)
   }
 
-  err = RegisterScalar[time.Time](ctx, stringify, unstringify[time.Time], unstringifyAST[time.Time], nil, nil)
+  err = RegisterScalar[time.Time](ctx, stringify, unstringify[time.Time], unstringifyAST[time.Time], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register time.Time: %w", err)
   }
   
-  err = RegisterScalar[string](ctx, identity, coerce[string], astString[string], nil, nil)
+  err = RegisterScalar[string](ctx, identity, coerce[string], astString[string], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register string: %w", err)
   }
@@ -1086,7 +1126,7 @@ func NewContext(db Database, log Logger) (*Context, error) {
     return nil, fmt.Errorf("Failed to register ReqState: %w", err)
   }
 
-  err = RegisterScalar[Tag](ctx, identity, coerce[Tag], astString[Tag], nil, nil)
+  err = RegisterScalar[Tag](ctx, identity, coerce[Tag], astString[Tag], nil, nil, nil)
   if err != nil {
     return nil, fmt.Errorf("Failed to register Tag: %w", err)
   }

@@ -160,6 +160,14 @@ func TestSerializeValues(t *testing.T) {
   testSerializeCompare[*int](t, ctx, nil)
   testSerializeCompare(t, ctx, "string")
 
+  testSerialize(t, ctx, map[string]string{
+    "Test": "Test",
+    "key": "String",
+    "": "",
+  })
+
+  testSerialize[map[string]string](t, ctx, nil)
+
   testSerialize(t, ctx, NewListenerExt(10))
 
   node, err := NewNode(ctx, nil, "Node", 100)

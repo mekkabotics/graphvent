@@ -202,6 +202,152 @@ func Deserialize[T any](ctx *Context, data []byte) (T, error) {
   return value.Interface().(T), nil
 }
 
+func SerializedSize(ctx *Context, value reflect.Value) (int, error) {
+  var sizefn SerializedSizeFn = nil
+
+  info, registered := ctx.Types[value.Type()]
+  if registered {
+    sizefn = info.SerializedSize
+  }
+
+  if sizefn == nil {
+    switch value.Type().Kind() {
+    case reflect.Bool:
+      return 1, nil 
+
+    case reflect.Int8:
+      return 1, nil
+    case reflect.Int16:
+      return 2, nil
+    case reflect.Int32:
+      return 4, nil
+    case reflect.Int64:
+      fallthrough
+    case reflect.Int:
+      return 8, nil
+  
+    case reflect.Uint8:
+      return 1, nil
+    case reflect.Uint16:
+      return 2, nil
+    case reflect.Uint32:
+      return 4, nil
+    case reflect.Uint64:
+      fallthrough
+    case reflect.Uint:
+      return 8, nil
+
+    case reflect.Float32:
+      return 4, nil 
+    case reflect.Float64:
+      return 8, nil
+
+    case reflect.String:
+      return 8 + value.Len(), nil
+
+    case reflect.Pointer:
+      if value.IsNil() {
+        return 1, nil
+      } else {
+        elem_len, err := SerializedSize(ctx, value.Elem())
+        if err != nil {
+          return 0, err
+        } else {
+          return 1 + elem_len, nil
+        }
+      }
+
+    case reflect.Slice:
+      if value.IsNil() {
+        return 1, nil
+      } else {
+        elem_total := 0
+        for i := 0; i < value.Len(); i++ {
+          elem_len, err := SerializedSize(ctx, value.Index(i))
+          if err != nil {
+            return 0, err
+          }
+          elem_total += elem_len
+        }
+        return 9 + elem_total, nil 
+      }
+
+    case reflect.Array:
+      total := 0
+      for i := 0; i < value.Len(); i++ {
+        elem_len, err := SerializedSize(ctx, value.Index(i))
+        if err != nil {
+          return 0, err
+        }
+        total += elem_len
+      }
+      return total, nil
+
+    case reflect.Map:
+      if value.IsNil() {
+        return 1, nil
+      } else {
+        key := reflect.New(value.Type().Key()).Elem()
+        val := reflect.New(value.Type().Elem()).Elem()
+        iter := value.MapRange()
+
+        total := 0
+        for iter.Next() {
+          key.SetIterKey(iter)
+          k, err := SerializedSize(ctx, key)
+          if err != nil {
+            return 0, err
+          }
+
+          total += k
+
+          val.SetIterValue(iter)
+          v, err := SerializedSize(ctx, val)
+          if err != nil {
+            return 0, err
+          }
+
+          total += v
+        }
+
+        return 9 + total, nil
+      }
+
+    case reflect.Struct:
+      if registered == false {
+        return 0, fmt.Errorf("Can't serialize unregistered struct %s", value.Type())
+      } else {
+        field_total := 0
+        for _, field_info := range(info.Fields) {
+          field_size, err := SerializedSize(ctx, value.FieldByIndex(field_info.Index))
+          if err != nil {
+            return 0, err
+          }
+
+          field_total += 8
+          field_total += field_size
+        }
+
+        return 8 + field_total, nil
+      }
+
+    case reflect.Interface:
+      // TODO get size of TypeStack instead of just using 128
+      elem_size, err := SerializedSize(ctx, value.Elem())
+      if err != nil {
+        return 0, err
+      }
+
+      return 128 + elem_size, nil
+
+    default:
+      return 0, fmt.Errorf("Don't know how to serialize %s", value.Type())
+    }
+  } else {
+    return sizefn(ctx, value)
+  }
+}
+
 func SerializeValue(ctx *Context, value reflect.Value, data []byte) (int, error) {
   var serialize SerializeFn = nil
 
@@ -294,7 +440,6 @@ func SerializeValue(ctx *Context, value reflect.Value, data []byte) (int, error)
       }
 
     case reflect.Array:
-      data := []byte{}
       total_written := 0
       for i := 0; i < value.Len(); i++ {
         written, err := SerializeValue(ctx, value.Index(i), data[total_written:])
@@ -306,29 +451,35 @@ func SerializeValue(ctx *Context, value reflect.Value, data []byte) (int, error)
       return total_written, nil
 
     case reflect.Map:
-      binary.BigEndian.PutUint64(data, uint64(value.Len()))
+      if value.IsNil() {
+        data[0] = 0x00
+        return 1, nil
+      } else {
+        data[0] = 0x01
+        binary.BigEndian.PutUint64(data[1:], uint64(value.Len()))
 
-      key := reflect.New(value.Type().Key()).Elem()
-      val := reflect.New(value.Type().Elem()).Elem()
-      iter := value.MapRange()
-      total_written := 0
-      for iter.Next() {
-        key.SetIterKey(iter)
-        val.SetIterValue(iter)
+        key := reflect.New(value.Type().Key()).Elem()
+        val := reflect.New(value.Type().Elem()).Elem()
+        iter := value.MapRange()
+        total_written := 0
+        for iter.Next() {
+          key.SetIterKey(iter)
+          val.SetIterValue(iter)
 
-        k, err := SerializeValue(ctx, key, data[8+total_written:])
-        if err != nil {
-          return 0, err
+          k, err := SerializeValue(ctx, key, data[9+total_written:])
+          if err != nil {
+            return 0, err
+          }
+          total_written += k
+
+          v, err := SerializeValue(ctx, val, data[9+total_written:]) 
+          if err != nil {
+            return 0, err
+          }
+          total_written += v
         }
-        total_written += k
-
-        v, err := SerializeValue(ctx, val, data[8+total_written:]) 
-        if err != nil {
-          return 0, err
-        }
-        total_written += v
+        return 9 + total_written, nil
       }
-      return 8 + total_written, nil
     
     case reflect.Struct:
       if registered == false {
@@ -501,30 +652,35 @@ func DeserializeValue(ctx *Context, data []byte, t reflect.Type) (reflect.Value,
       return value, left, nil
 
     case reflect.Map:
-      len_bytes, left := split(data, 8)
-      length := int(binary.BigEndian.Uint64(len_bytes))
+      flags, after_flags := split(data, 1)
+      if flags[0] == 0x00 {
+        return reflect.New(t).Elem(), after_flags, nil
+      } else {
+        len_bytes, left := split(after_flags, 8)
+        length := int(binary.BigEndian.Uint64(len_bytes))
 
-      value := reflect.MakeMapWithSize(t, length)
+        value := reflect.MakeMapWithSize(t, length)
 
-      for i := 0; i < length; i++ {
-        var key_value reflect.Value
-        var val_value reflect.Value
-        var err error
+        for i := 0; i < length; i++ {
+          var key_value reflect.Value
+          var val_value reflect.Value
+          var err error
 
-        key_value, left, err = DeserializeValue(ctx, left, t.Key())        
-        if err != nil {
-          return reflect.Value{}, nil, err
+          key_value, left, err = DeserializeValue(ctx, left, t.Key())        
+          if err != nil {
+            return reflect.Value{}, nil, err
+          }
+
+          val_value, left, err = DeserializeValue(ctx, left, t.Elem())
+          if err != nil {
+            return reflect.Value{}, nil, err
+          }
+
+          value.SetMapIndex(key_value, val_value)
         }
 
-        val_value, left, err = DeserializeValue(ctx, left, t.Elem())
-        if err != nil {
-          return reflect.Value{}, nil, err
-        }
-
-        value.SetMapIndex(key_value, val_value)
+        return value, left, nil
       }
-
-      return value, left, nil
 
     case reflect.Struct:
       info, mapped := ctx.Types[t]

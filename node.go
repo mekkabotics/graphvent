@@ -8,6 +8,7 @@ import (
   "reflect"
   "sync/atomic"
   "time"
+  "sync"
 
   _ "github.com/dgraph-io/badger/v3"
   "github.com/google/uuid"
@@ -72,7 +73,37 @@ func (q QueuedSignal) String() string {
 
 type WaitMap map[uuid.UUID]NodeID
 
-// Default message channel size for nodes
+type Queue[T any] struct {
+  out chan T
+  in chan T
+  buffer []T
+  resize sync.Mutex
+}
+
+func NewQueue[T any](initial int) *Queue[T] {
+  queue := Queue[T]{
+    out: make(chan T, 0),
+    in: make(chan T, 0),
+    buffer: make([]T, 0, initial),
+  }
+
+  go func(queue *Queue[T]) {
+  }(&queue)
+
+  go func(queue *Queue[T]) {
+  }(&queue)
+
+  return &queue
+}
+
+func (queue *Queue[T]) Put(value T) error {
+  return nil
+}
+
+func (queue *Queue[T]) Get(value T) error {
+  return nil
+}
+
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
   Key ed25519.PrivateKey `gv:"key"`
@@ -155,9 +186,9 @@ func SoonestSignal(signals []QueuedSignal) (*QueuedSignal, <-chan time.Time) {
   }
 }
 
-func runNode(ctx *Context, node *Node, started chan error) {
+func runNode(ctx *Context, node *Node, status chan string, control chan string) {
   ctx.Log.Logf("node", "RUN_START: %s", node.ID)
-  err := nodeLoop(ctx, node, started)
+  err := nodeLoop(ctx, node, status, control)
   if err != nil {
     ctx.Log.Logf("node", "%s runNode err %s", node.ID, err)
   }
@@ -195,7 +226,7 @@ func (node *Node) ReadFields(ctx *Context, fields []string)map[string]any {
 }
 
 // Main Loop for nodes
-func nodeLoop(ctx *Context, node *Node, started chan error) error {
+func nodeLoop(ctx *Context, node *Node, status chan string, control chan string) error {
   is_started := node.Active.CompareAndSwap(false, true)
   if is_started == false {
     return fmt.Errorf("%s is already started, will not start again", node.ID)
@@ -219,13 +250,31 @@ func nodeLoop(ctx *Context, node *Node, started chan error) error {
 
   ctx.Log.Logf("node_ext", "Loaded extensions for %s", node.ID)
 
-  started <- nil
+  status <- "active"
 
-  run := true
-  for run == true {
+  running := true
+  for running {
     var signal Signal
     var source NodeID
+
+
     select {
+    case command := <-control:
+      switch command {
+      case "stop":
+        running = false
+      case "pause":
+        status <- "paused"
+        command := <- control
+        switch command {
+        case "resume":
+          status <- "resumed"
+        case "stop":
+          running = false
+        }
+      default:
+        ctx.Log.Logf("node", "Unknown control command %s", command)
+      }
     case <-node.TimeoutChan:
       signal = node.NextSignal.Signal
       source = node.ID
@@ -282,18 +331,17 @@ func nodeLoop(ctx *Context, node *Node, started chan error) error {
   if stopped == false {
     panic("BAD_STATE: stopping already stopped node")
   }
+
+  status <- "stopped"
+
   return nil
 }
 
 func (node *Node) Unload(ctx *Context) error {
-  if node.Active.Load() {
-    for _, extension := range(node.Extensions) {
-      extension.Unload(ctx, node)
-    }
-    return nil
-  } else {
-    return fmt.Errorf("Node not active")
+  for _, extension := range(node.Extensions) {
+    extension.Unload(ctx, node)
   }
+  return nil
 }
 
 func (node *Node) QueueChanges(ctx *Context, changes map[ExtType]Changes) error {
@@ -339,13 +387,6 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
     send_err := ctx.Send(node, messages)
     if send_err != nil {
       return send_err
-    }
-  }
-
-  if (len(changes) != 0) || node.writeSignalQueue {
-    write_err := ctx.DB.WriteNodeChanges(ctx, node, changes)
-    if write_err != nil {
-      return write_err
     }
   }
 
@@ -460,13 +501,16 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     return nil, err
   }
 
-  ctx.AddNode(id, node)
-  started := make(chan error, 1)
-  go runNode(ctx, node, started)
-  err = <- started
-  if err != nil {
-    return nil, err
+  status := make(chan string, 0)
+  command := make(chan string, 0)
+  go runNode(ctx, node, status, command)
+
+  returned := <- status
+  if returned != "active" {
+    return nil, fmt.Errorf(returned)
   }
+
+  ctx.AddNode(id, node, status, command)
 
   return node, nil
 }

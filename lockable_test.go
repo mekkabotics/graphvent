@@ -46,6 +46,10 @@ func Test10Lock(t *testing.T) {
   testLockN(t, 10)
 }
 
+func Test100Lock(t *testing.T) {
+  testLockN(t, 100)
+}
+
 func Test1000Lock(t *testing.T) {
   testLockN(t, 1000)
 }

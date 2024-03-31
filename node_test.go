@@ -22,7 +22,6 @@ func TestNodeDB(t *testing.T) {
   err = ctx.Unload(node.ID)
   fatalErr(t, err)
 
-  ctx.nodes = map[NodeID]*Node{}
   _, err = ctx.getNode(node.ID)
   fatalErr(t, err)
 }
