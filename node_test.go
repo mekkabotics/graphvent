@@ -12,7 +12,7 @@ func TestNodeDB(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "node", "db"})
 
   node_listener := NewListenerExt(10)
-  node, err := NewNode(ctx, nil, "Node", 10, NewLockableExt(nil), node_listener)
+  node, err := NewNode(ctx, nil, "Node", NewLockableExt(nil), node_listener)
   fatalErr(t, err)
 
   _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
@@ -41,10 +41,10 @@ func TestNodeRead(t *testing.T) {
   ctx.Log.Logf("test", "N2: %s", n2_id)
 
   n2_listener := NewListenerExt(10)
-  n2, err := NewNode(ctx, n2_key, "Node", 10, n2_listener)
+  n2, err := NewNode(ctx, n2_key, "Node", n2_listener)
   fatalErr(t, err)
 
-  n1, err := NewNode(ctx, n1_key, "Node", 10, NewListenerExt(10)) 
+  n1, err := NewNode(ctx, n1_key, "Node", NewListenerExt(10)) 
   fatalErr(t, err)
 
   read_sig := NewReadSignal([]string{"buffer"})

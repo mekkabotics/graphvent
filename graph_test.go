@@ -12,7 +12,6 @@ func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt, error) {
   listener, err := NewNode(ctx,
                       nil,
                       "LockableNode",
-                      10,
                       nil,
                       listener_extension,
                       NewLockableExt(nil))

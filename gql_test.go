@@ -19,7 +19,7 @@ import (
 func TestGQLSubscribe(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "gql"})
 
-  n1, err := NewNode(ctx, nil, "LockableNode", 10, NewLockableExt(nil))
+  n1, err := NewNode(ctx, nil, "LockableNode", NewLockableExt(nil))
   fatalErr(t, err)
 
   listener_ext := NewListenerExt(10)
@@ -27,7 +27,7 @@ func TestGQLSubscribe(t *testing.T) {
   gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
   fatalErr(t, err)
 
-  gql, err := NewNode(ctx, nil, "LockableNode", 10, NewLockableExt([]NodeID{n1.ID}), gql_ext, listener_ext)
+  gql, err := NewNode(ctx, nil, "LockableNode", NewLockableExt([]NodeID{n1.ID}), gql_ext, listener_ext)
   fatalErr(t, err)
 
   query := "subscription { Self { ID, Type ... on Lockable { LockableState } } }"
@@ -129,14 +129,14 @@ func TestGQLQuery(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "lockable"})
 
   n1_listener := NewListenerExt(10)
-  n1, err := NewNode(ctx, nil, "LockableNode", 10, NewLockableExt(nil), n1_listener)
+  n1, err := NewNode(ctx, nil, "LockableNode", NewLockableExt(nil), n1_listener)
   fatalErr(t, err)
 
   gql_listener := NewListenerExt(10)
   gql_ext, err := NewGQLExt(ctx, ":0", nil, nil)
   fatalErr(t, err)
 
-  gql, err := NewNode(ctx, nil, "LockableNode", 10, NewLockableExt([]NodeID{n1.ID}), gql_ext, gql_listener)
+  gql, err := NewNode(ctx, nil, "LockableNode", NewLockableExt([]NodeID{n1.ID}), gql_ext, gql_listener)
   fatalErr(t, err)
 
   ctx.Log.Logf("test", "GQL:  %s", gql.ID)
@@ -208,7 +208,7 @@ func TestGQLDB(t *testing.T) {
   fatalErr(t, err)
   listener_ext := NewListenerExt(10)
 
-  gql, err := NewNode(ctx, nil, "Node", 10, gql_ext, listener_ext)
+  gql, err := NewNode(ctx, nil, "Node", gql_ext, listener_ext)
   fatalErr(t, err)
   ctx.Log.Logf("test", "GQL_ID: %s", gql.ID)
   

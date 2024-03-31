@@ -72,6 +72,8 @@ func (q QueuedSignal) String() string {
 
 type WaitMap map[uuid.UUID]NodeID
 
+const NODE_INITIAL_QUEUE_SIZE = 2
+
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
   Key ed25519.PrivateKey `gv:"key"`
@@ -99,7 +101,7 @@ func (node *Node) PostDeserialize(ctx *Context) error {
   public := node.Key.Public().(ed25519.PublicKey)
   node.ID = KeyID(public)
 
-  node.SendChan, node.RecvChan = NewMessageQueue(1000)
+  node.SendChan, node.RecvChan = NewMessageQueue(NODE_INITIAL_QUEUE_SIZE)
 
   return nil
 }
@@ -398,7 +400,7 @@ func KeyID(pub ed25519.PublicKey) NodeID {
 }
 
 // Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size uint32, extensions ...Extension) (*Node, error) {
+func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, extensions ...Extension) (*Node, error) {
   node_type := NodeTypeFor(type_name)
   node_info, known_type := ctx.NodeTypes[node_type]
   if known_type == false {
@@ -454,7 +456,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     writeSignalQueue: false,
   }
 
-  node.SendChan, node.RecvChan = NewMessageQueue(1000)
+  node.SendChan, node.RecvChan = NewMessageQueue(NODE_INITIAL_QUEUE_SIZE)
 
   err = ctx.DB.WriteNodeInit(ctx, node)
   if err != nil {
