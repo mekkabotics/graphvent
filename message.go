@@ -1,9 +1,5 @@
 package graphvent
 
-import (
-  "fmt"
-)
-
 type Message struct {
   Node NodeID
   Signal Signal
@@ -19,8 +15,6 @@ type MessageQueue struct {
 
 func (queue *MessageQueue) ProcessIncoming(message Message) {
   if (queue.write_cursor + 1) == queue.read_cursor || ((queue.write_cursor + 1) == len(queue.buffer) && queue.read_cursor == 0) {
-    fmt.Printf("Growing queue from %d to %d\n", len(queue.buffer), len(queue.buffer)*2)
-
     new_buffer := make([]Message, len(queue.buffer) * 2)
 
     copy(new_buffer, queue.buffer[queue.read_cursor:])
