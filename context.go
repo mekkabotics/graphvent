@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -943,15 +942,7 @@ func (ctx *Context) Send(node *Node, messages []Message) error {
     }
     target, err := ctx.getNode(msg.Node)
     if err == nil {
-      select {
-      case target.MsgChan <- Message{node.ID, msg.Signal}:
-        ctx.Log.Logf("signal_sent", "Sent %s to %s", msg.Signal, msg.Node)
-      default:
-        buf := make([]byte, 4096)
-        n := runtime.Stack(buf, false)
-        stack_str := string(buf[:n])
-        return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", msg.Node, stack_str)
-      }
+      target.SendChan <- Message{node.ID, msg.Signal}
     } else if errors.Is(err, NodeNotFoundError) {
       // TODO: Handle finding nodes in other contexts
       return err

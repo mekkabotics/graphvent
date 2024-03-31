@@ -8,7 +8,6 @@ import (
   "reflect"
   "sync/atomic"
   "time"
-  "sync"
 
   _ "github.com/dgraph-io/badger/v3"
   "github.com/google/uuid"
@@ -73,43 +72,6 @@ func (q QueuedSignal) String() string {
 
 type WaitMap map[uuid.UUID]NodeID
 
-type Queue[T any] struct {
-  out chan T
-  in chan T
-  buffer []T
-  resize sync.Mutex
-}
-
-func NewQueue[T any](initial int) *Queue[T] {
-  queue := Queue[T]{
-    out: make(chan T, 0),
-    in: make(chan T, 0),
-    buffer: make([]T, 0, initial),
-  }
-
-  go func(queue *Queue[T]) {
-    if len(queue.buffer) == 0 {
-      select {
-
-      }
-    } else {
-      select {
-
-      }
-    }
-  }(&queue)
-
-  return &queue
-}
-
-func (queue *Queue[T]) Put(value T) error {
-  return nil
-}
-
-func (queue *Queue[T]) Get(value T) error {
-  return nil
-}
-
 // Nodes represent a group of extensions that can be collectively addressed
 type Node struct {
   Key ed25519.PrivateKey `gv:"key"`
@@ -119,9 +81,8 @@ type Node struct {
   Extensions map[ExtType]Extension
 
   // Channel for this node to receive messages from the Context
-  MsgChan chan Message
-  // Size of MsgChan
-  BufferSize uint32 `gv:"buffer_size"`
+  SendChan chan<- Message
+  RecvChan <-chan Message
   // Channel for this node to process delayed signals
   TimeoutChan <-chan time.Time
 
@@ -138,7 +99,7 @@ func (node *Node) PostDeserialize(ctx *Context) error {
   public := node.Key.Public().(ed25519.PublicKey)
   node.ID = KeyID(public)
 
-  node.MsgChan = make(chan Message, node.BufferSize)
+  node.SendChan, node.RecvChan = NewMessageQueue(1000)
 
   return nil
 }
@@ -308,7 +269,7 @@ func nodeLoop(ctx *Context, node *Node, status chan string, control chan string)
       } else {
         ctx.Log.Logf("node", "NODE_TIMEOUT(%s) - PROCESSING %+v@%s - NEXT_SIGNAL: %s@%s", node.ID, signal, t, node.NextSignal, node.NextSignal.Time)
       }
-    case msg := <- node.MsgChan:
+    case msg := <- node.RecvChan:
       signal = msg.Signal
       source = msg.Node
 
@@ -489,11 +450,11 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     ID: id,
     Type: node_type,
     Extensions: ext_map,
-    MsgChan: make(chan Message, buffer_size),
-    BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},
     writeSignalQueue: false,
   }
+
+  node.SendChan, node.RecvChan = NewMessageQueue(1000)
 
   err = ctx.DB.WriteNodeInit(ctx, node)
   if err != nil {
