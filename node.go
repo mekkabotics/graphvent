@@ -88,9 +88,15 @@ func NewQueue[T any](initial int) *Queue[T] {
   }
 
   go func(queue *Queue[T]) {
-  }(&queue)
+    if len(queue.buffer) == 0 {
+      select {
 
-  go func(queue *Queue[T]) {
+      }
+    } else {
+      select {
+
+      }
+    }
   }(&queue)
 
   return &queue
@@ -113,7 +119,7 @@ type Node struct {
   Extensions map[ExtType]Extension
 
   // Channel for this node to receive messages from the Context
-  MsgChan chan RecvMsg
+  MsgChan chan Message
   // Size of MsgChan
   BufferSize uint32 `gv:"buffer_size"`
   // Channel for this node to process delayed signals
@@ -132,7 +138,7 @@ func (node *Node) PostDeserialize(ctx *Context) error {
   public := node.Key.Public().(ed25519.PublicKey)
   node.ID = KeyID(public)
 
-  node.MsgChan = make(chan RecvMsg, node.BufferSize)
+  node.MsgChan = make(chan Message, node.BufferSize)
 
   return nil
 }
@@ -257,7 +263,6 @@ func nodeLoop(ctx *Context, node *Node, status chan string, control chan string)
     var signal Signal
     var source NodeID
 
-
     select {
     case command := <-control:
       switch command {
@@ -305,17 +310,15 @@ func nodeLoop(ctx *Context, node *Node, status chan string, control chan string)
       }
     case msg := <- node.MsgChan:
       signal = msg.Signal
-      source = msg.Source
+      source = msg.Node
 
     }
-
-    ctx.Log.Logf("node", "NODE_SIGNAL_QUEUE[%s]: %+v", node.ID, node.SignalQueue)
 
     switch sig := signal.(type) {
     case *ReadSignal:
       result := node.ReadFields(ctx, sig.Fields)
-      msgs := []SendMsg{}
-      msgs = append(msgs, SendMsg{source, NewReadResultSignal(sig.ID(), node.ID, node.Type, result)})
+      msgs := []Message{}
+      msgs = append(msgs, Message{source, NewReadResultSignal(sig.ID(), node.ID, node.Type, result)})
       ctx.Send(node, msgs)
 
     default:
@@ -367,21 +370,17 @@ func (node *Node) QueueChanges(ctx *Context, changes map[ExtType]Changes) error 
 }
 
 func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
-  ctx.Log.Logf("node_process", "PROCESSING MESSAGE: %s - %+v", node.ID, signal)
-  messages := []SendMsg{}
+  messages := []Message{}
   changes := map[ExtType]Changes{}
   for ext_type, ext := range(node.Extensions) {
-    ctx.Log.Logf("node_process", "PROCESSING_EXTENSION: %s/%s", node.ID, ext_type)
     ext_messages, ext_changes := ext.Process(ctx, node, source, signal)
     if len(ext_messages) != 0 {
       messages = append(messages, ext_messages...)
     }
     if len(ext_changes) != 0 {
       changes[ext_type] = ext_changes
-      ctx.Log.Logf("changes", "Changes for %s ext[%+v] - %+v", node.ID, ext_type, ext_changes)
     }
   }
-  ctx.Log.Logf("changes", "Changes for %s after %+v - %+v", node.ID, reflect.TypeOf(signal), changes)
 
   if len(messages) != 0 {
     send_err := ctx.Send(node, messages)
@@ -490,7 +489,7 @@ func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, buffer_size
     ID: id,
     Type: node_type,
     Extensions: ext_map,
-    MsgChan: make(chan RecvMsg, buffer_size),
+    MsgChan: make(chan Message, buffer_size),
     BufferSize: buffer_size,
     SignalQueue: []QueuedSignal{},
     writeSignalQueue: false,

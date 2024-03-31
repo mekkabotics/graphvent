@@ -48,7 +48,7 @@ func TestNodeRead(t *testing.T) {
   fatalErr(t, err)
 
   read_sig := NewReadSignal([]string{"buffer"})
-  msgs := []SendMsg{{n1.ID, read_sig}}
+  msgs := []Message{{n1.ID, read_sig}}
   err = ctx.Send(n2, msgs)
   fatalErr(t, err)
 

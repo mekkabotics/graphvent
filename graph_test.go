@@ -49,7 +49,7 @@ func testSend(t *testing.T, ctx *Context, signal Signal, source, destination *No
   source_listener, err := GetExt[ListenerExt](source)
   fatalErr(t, err)
 
-  messages := []SendMsg{{destination.ID, signal}}
+  messages := []Message{{destination.ID, signal}}
   fatalErr(t, ctx.Send(source, messages))
 
   response, signals, err := WaitForResponse(source_listener.Chan, time.Millisecond*10, signal.ID())

@@ -935,22 +935,22 @@ func (ctx *Context) getNode(id NodeID) (*Node, error) {
 }
 
 // Route Messages to dest. Currently only local context routing is supported
-func (ctx *Context) Send(node *Node, messages []SendMsg) error {
+func (ctx *Context) Send(node *Node, messages []Message) error {
   for _, msg := range(messages) {
-    ctx.Log.Logf("signal", "Sending %s to %s", msg.Signal, msg.Dest)
-    if msg.Dest == ZeroID {
+    ctx.Log.Logf("signal", "Sending %s to %s", msg.Signal, msg.Node)
+    if msg.Node == ZeroID {
       panic("Can't send to null ID")
     }
-    target, err := ctx.getNode(msg.Dest)
+    target, err := ctx.getNode(msg.Node)
     if err == nil {
       select {
-      case target.MsgChan <- RecvMsg{node.ID, msg.Signal}:
-        ctx.Log.Logf("signal_sent", "Sent %s to %s", msg.Signal, msg.Dest)
+      case target.MsgChan <- Message{node.ID, msg.Signal}:
+        ctx.Log.Logf("signal_sent", "Sent %s to %s", msg.Signal, msg.Node)
       default:
         buf := make([]byte, 4096)
         n := runtime.Stack(buf, false)
         stack_str := string(buf[:n])
-        return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", msg.Dest, stack_str)
+        return fmt.Errorf("SIGNAL_OVERFLOW: %s - %s", msg.Node, stack_str)
       }
     } else if errors.Is(err, NodeNotFoundError) {
       // TODO: Handle finding nodes in other contexts

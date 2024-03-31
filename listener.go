@@ -50,7 +50,7 @@ func NewListenerExt(buffer int) *ListenerExt {
 }
 
 // Send the signal to the channel, logging an overflow if it occurs
-func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) ([]SendMsg, Changes) {
+func (ext *ListenerExt) Process(ctx *Context, node *Node, source NodeID, signal Signal) ([]Message, Changes) {
   ctx.Log.Logf("listener", "%s - %+v", node.ID, reflect.TypeOf(signal))
   ctx.Log.Logf("listener_debug", "%s->%s - %+v", source, node.ID, signal)
   select {

@@ -109,8 +109,8 @@ func ResolveNode(id NodeID, p graphql.ResolveParams) (NodeResult, error) {
     signal := NewReadSignal(not_cached)
     response_chan := ctx.Ext.GetResponseChannel(signal.ID())
     // TODO: TIMEOUT DURATION
-    err = ctx.Context.Send(ctx.Server, []SendMsg{{
-      Dest: id,
+    err = ctx.Context.Send(ctx.Server, []Message{{
+      Node: id,
       Signal: signal,
     }})
     if err != nil {
