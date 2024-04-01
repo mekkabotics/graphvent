@@ -85,6 +85,7 @@ type Node struct {
   // Channel for this node to receive messages from the Context
   SendChan chan<- Message
   RecvChan <-chan Message
+
   // Channel for this node to process delayed signals
   TimeoutChan <-chan time.Time
 
@@ -327,7 +328,10 @@ func (node *Node) QueueChanges(ctx *Context, changes map[ExtType]Changes) error 
         }
       }
     }
-    node.QueueSignal(time.Time{}, NewStatusSignal(node.ID, fields))
+    ctx.Log.Logf("changes", "Changes to queue from %+v: %+v", node_info.ReverseFields, fields)
+    if len(fields) > 0 {
+      node.QueueSignal(time.Time{}, NewStatusSignal(node.ID, fields))
+    }
     return nil
   }
 }
@@ -353,6 +357,7 @@ func (node *Node) Process(ctx *Context, source NodeID, signal Signal) error {
   }
 
   if len(changes) != 0 {
+    ctx.Log.Logf("changes", "Changes to %s from %+v: %+v", node.ID, signal, changes)
     status_err := node.QueueChanges(ctx, changes)
     if status_err != nil {
       return status_err

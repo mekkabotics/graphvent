@@ -61,7 +61,7 @@ type ExtensionFieldInfo struct {
 type ExtensionInfo struct {
   ExtType
   Type reflect.Type
-  Fields map[string]ExtensionFieldInfo
+  Fields map[Tag]ExtensionFieldInfo
   Data interface{}
 }
 
@@ -328,13 +328,13 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
     return fmt.Errorf("Cannot register extension %+v of type %+v, type already exists in context", reflect_type, ext_type)
   }
 
-  fields := map[string]ExtensionFieldInfo{}
+  fields := map[Tag]ExtensionFieldInfo{}
 
   for _, field := range(reflect.VisibleFields(reflect_type)) {
     gv_tag, tagged_gv := field.Tag.Lookup("gv")
     node_tag := field.Tag.Get("node")
     if tagged_gv {
-      fields[gv_tag] = ExtensionFieldInfo{
+      fields[Tag(gv_tag)] = ExtensionFieldInfo{
         Index: field.Index,
         Type: field.Type,
         NodeTag: node_tag,
@@ -354,7 +354,7 @@ func RegisterExtension[E any, T interface { *E; Extension}](ctx *Context, data i
 
 type FieldMapping struct {
   Extension ExtType
-  Tag string
+  Tag Tag
 }
 
 func RegisterNodeInterface(ctx *Context, name string, fields map[string]graphql.Type) error {
@@ -437,7 +437,6 @@ func RegisterNodeType(ctx *Context, name string, mappings map[string]FieldMappin
     },
   }
 
-  ext_map := map[ExtType]bool{}
   for field_name, mapping := range(mappings) {
     _, duplicate := fields[field_name]
     if duplicate {
@@ -449,7 +448,12 @@ func RegisterNodeType(ctx *Context, name string, mappings map[string]FieldMappin
       return fmt.Errorf("Cannot register node type %s, unknown extension %s", name, mapping.Extension)
     }
 
-    ext_map[mapping.Extension] = true
+    _, exists = reverse_fields[mapping.Extension]
+    if exists == false {
+      reverse_fields[mapping.Extension] = map[Tag]string{}
+    }
+    reverse_fields[mapping.Extension][mapping.Tag] = field_name
+
 
     ext_field, exists := ext_info.Fields[mapping.Tag]
     if exists == false {
@@ -496,7 +500,7 @@ func RegisterNodeType(ctx *Context, name string, mappings map[string]FieldMappin
   })
 
   extensions := []ExtType{}
-  for ext_type := range(ext_map) {
+  for ext_type := range(reverse_fields) {
     extensions = append(extensions, ext_type)
   }
 

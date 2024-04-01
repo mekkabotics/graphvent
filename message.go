@@ -6,8 +6,8 @@ type Message struct {
 }
 
 type MessageQueue struct {
-  out chan Message
-  in chan Message
+  out chan<- Message
+  in <-chan Message
   buffer []Message
   write_cursor int
   read_cursor int
@@ -34,9 +34,12 @@ func (queue *MessageQueue) ProcessIncoming(message Message) {
 }
 
 func NewMessageQueue(initial int) (chan<- Message, <-chan Message) {
+  in := make(chan Message, 0)
+  out := make(chan Message, 0)
+
   queue := MessageQueue{
-    out: make(chan Message, 0),
-    in: make(chan Message, 0),
+    out: out,
+    in: in,
     buffer: make([]Message, initial),
     write_cursor: 0,
     read_cursor: 0,
@@ -61,5 +64,5 @@ func NewMessageQueue(initial int) (chan<- Message, <-chan Message) {
     }
   }(&queue)
 
-  return queue.in, queue.out
+  return in, out
 }
