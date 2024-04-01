@@ -170,7 +170,7 @@ func TestSerializeValues(t *testing.T) {
 
   testSerialize(t, ctx, NewListenerExt(10))
 
-  node, err := NewNode(ctx, nil, "Node")
+  node, err := ctx.NewNode(nil, "Node")
   fatalErr(t, err)
   testSerialize(t, ctx, node)
 }

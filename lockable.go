@@ -44,20 +44,6 @@ type LockableExt struct{
   Waiting WaitMap `gv:"waiting_locks" node:":Lockable"`
 }
 
-func (ext *LockableExt) PostDeserialize(ctx *Context) error {
-  ext.Locked = map[NodeID]any{}
-  ext.Unlocked = map[NodeID]any{}
-
-  for id, state := range(ext.Requirements) {
-    if state == Unlocked {
-      ext.Unlocked[id] = nil
-    } else if state == Locked {
-      ext.Locked[id] = nil
-    }
-  }
-  return nil
-}
-
 func NewLockableExt(requirements []NodeID) *LockableExt {
   var reqs map[NodeID]ReqState = nil
   var unlocked map[NodeID]any = map[NodeID]any{}
@@ -95,6 +81,16 @@ func LockLockable(ctx *Context, node *Node) (uuid.UUID, error) {
 }
 
 func (ext *LockableExt) Load(ctx *Context, node *Node) error {
+  ext.Locked = map[NodeID]any{}
+  ext.Unlocked = map[NodeID]any{}
+
+  for id, state := range(ext.Requirements) {
+    if state == Unlocked {
+      ext.Unlocked[id] = nil
+    } else if state == Locked {
+      ext.Locked[id] = nil
+    }
+  }
   return nil
 }
 

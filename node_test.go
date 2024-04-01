@@ -5,24 +5,19 @@ import (
   "time"
   "crypto/rand"
   "crypto/ed25519"
-  "slices"
 )
 
 func TestNodeDB(t *testing.T) {
   ctx := logTestContext(t, []string{"test", "node", "db"})
 
   node_listener := NewListenerExt(10)
-  node, err := NewNode(ctx, nil, "Node", NewLockableExt(nil), node_listener)
+  node, err := ctx.NewNode(nil, "Node", NewLockableExt(nil), node_listener)
   fatalErr(t, err)
 
-  _, err = WaitForSignal(node_listener.Chan, 10*time.Millisecond, func(sig *StatusSignal) bool {
-    return slices.Contains(sig.Fields, "state") && sig.Source == node.ID
-  })
-
-  err = ctx.Unload(node.ID)
+  err = ctx.Stop()
   fatalErr(t, err)
 
-  _, err = ctx.getNode(node.ID)
+  _, err = ctx.GetNode(node.ID)
   fatalErr(t, err)
 }
 
@@ -41,10 +36,10 @@ func TestNodeRead(t *testing.T) {
   ctx.Log.Logf("test", "N2: %s", n2_id)
 
   n2_listener := NewListenerExt(10)
-  n2, err := NewNode(ctx, n2_key, "Node", n2_listener)
+  n2, err := ctx.NewNode(n2_key, "Node", n2_listener)
   fatalErr(t, err)
 
-  n1, err := NewNode(ctx, n1_key, "Node", NewListenerExt(10)) 
+  n1, err := ctx.NewNode(n1_key, "Node", NewListenerExt(10)) 
   fatalErr(t, err)
 
   read_sig := NewReadSignal([]string{"buffer"})

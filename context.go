@@ -2,7 +2,9 @@ package graphvent
 
 import (
 	"crypto/ecdh"
+	"crypto/ed25519"
 	"encoding"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"reflect"
@@ -105,8 +107,7 @@ type Context struct {
   // Map between database node type hashes and the registered info
   NodeTypes map[NodeType]NodeInfo
 
-  // Routing map to all the nodes local to this context
-  nodesLock sync.RWMutex
+  nodesLock sync.Mutex
   nodes map[NodeID]ContextNode
 
   running atomic.Bool
@@ -838,103 +839,140 @@ func RegisterScalar[S any](ctx *Context, to_json func(interface{})interface{}, f
   return nil
 }
 
-func (ctx *Context) AddNode(id NodeID, node *Node, status chan string, command chan string) {
-  ctx.nodesLock.Lock()
-  ctx.nodes[id] = ContextNode{
-    Node: node,
-    Status: status,
-    Command: command,
-  }
-  ctx.nodesLock.Unlock()
-}
-
-func (ctx *Context) Node(id NodeID) (*Node, bool) {
-  ctx.nodesLock.RLock()
-  node, exists := ctx.nodes[id]
-  ctx.nodesLock.RUnlock()
-  return node.Node, exists
-}
-
-func (ctx *Context) Delete(id NodeID) error {
-  err := ctx.Unload(id)
-  if err != nil {
-    return err
-  }
-  // TODO: also delete any associated data from DB
-  return nil
-}
-
-func (ctx *Context) Unload(id NodeID) error {
+func (ctx *Context) NewNode(key ed25519.PrivateKey, type_name string, extensions ...Extension) (*Node, error) {
   ctx.nodesLock.Lock()
   defer ctx.nodesLock.Unlock()
-  node, exists := ctx.nodes[id]
-  if exists == false {
-    return fmt.Errorf("%s is not a node in ctx", id)
+
+  node_type := NodeTypeFor(type_name)
+  node_info, known_type := ctx.NodeTypes[node_type]
+  if known_type == false {
+    return nil, fmt.Errorf("%s is not a known node type", type_name)
   }
 
-  node.Command <- "stop"
-  returned := <- node.Status
-  
-  if returned != "stopped" {
-    return fmt.Errorf(returned)
+  var err error
+  var public ed25519.PublicKey
+  if key == nil {
+    public, key, err = ed25519.GenerateKey(rand.Reader)
+    if err != nil {
+      return nil, err
+    }
+  } else {
+    public = key.Public().(ed25519.PublicKey)
+  }
+  id := KeyID(public)
+  _, err = ctx.getNode(id)
+  if err == nil {
+    return nil, fmt.Errorf("Attempted to create an existing node")
+  } else if errors.Is(err, NodeNotFoundError) == false {
+    return nil, fmt.Errorf("Error checking if node exists: %+w", err)
   }
 
-  err := node.Node.Unload(ctx)
-  delete(ctx.nodes, id)
-  return err
-}
+  ext_map := map[ExtType]Extension{}
+  for _, ext := range(extensions) {
+    if ext == nil {
+      return nil, fmt.Errorf("Cannot create node with nil extension")
+    }
 
-func (ctx *Context) Stop() {
-  ctx.nodesLock.Lock()
-  for id, node := range(ctx.nodes) {
-    node.Command <- "stop"
-    returned := <- node.Status
+    ext_type, exists := ctx.Extensions[ExtTypeOf(reflect.TypeOf(ext))]
+    if exists == false {
+      return nil, fmt.Errorf("%+v(%+v) is not a known Extension", reflect.TypeOf(ext), ExtTypeOf(reflect.TypeOf(ext)))
+    }
+    _, exists = ext_map[ext_type.ExtType]
+    if exists == true {
+      return nil, fmt.Errorf("Cannot add the same extension to a node twice")
+    }
+    ext_map[ext_type.ExtType] = ext
+  }
 
-    if returned != "stopped" {
-      ctx.Log.Logf("node", "Node returned %s when commanded to stop", returned)
-    } else {
-      err := node.Node.Unload(ctx)
-      if err != nil {
-        ctx.Log.Logf("node", "Error unloading %s: %s", id, err)
-      }
-      delete(ctx.nodes, id)
+  for _, required_ext := range(node_info.RequiredExtensions) {
+    _, exists := ext_map[required_ext]
+    if exists == false {
+      return nil, fmt.Errorf(fmt.Sprintf("%+v requires %+v", node_type, required_ext))
     }
   }
-  ctx.nodesLock.Unlock()
-}
 
-func (ctx *Context) Load(id NodeID) (*Node, error) {
-  node, err := ctx.DB.LoadNode(ctx, id)
+  node := &Node{
+    Key: key,
+    ID: id,
+    Type: node_type,
+    Extensions: ext_map,
+    SignalQueue: []QueuedSignal{},
+    writeSignalQueue: false,
+  }
+
+  node.SendChan, node.RecvChan = NewMessageQueue(NODE_INITIAL_QUEUE_SIZE)
+
+  err = ctx.DB.WriteNodeInit(ctx, node)
   if err != nil {
     return nil, err
   }
 
+  err = ctx.addNode(id, node)
+  if err != nil {
+    return nil, err
+  }
+
+  return node, nil
+}
+
+func (ctx *Context) addNode(id NodeID, node *Node) error {
   status := make(chan string, 0)
   command := make(chan string, 0)
   go runNode(ctx, node, status, command)
 
   returned := <- status
   if returned != "active" {
-    return nil, fmt.Errorf(returned)
+    return fmt.Errorf(returned)
   }
 
-  ctx.AddNode(id, node, status, command)
-
-  return node, nil
+  ctx.nodes[id] = ContextNode{
+    Node: node,
+    Status: status,
+    Command: command,
+  }
+  return nil
 }
 
-// Get a node from the context, or load from the database if not loaded
-func (ctx *Context) getNode(id NodeID) (*Node, error) {
-  target, exists := ctx.Node(id)
+func (ctx *Context) Stop() error {
+  ctx.nodesLock.Lock()
+  defer ctx.nodesLock.Unlock()
 
-  if exists == false {
-    var err error
-    target, err = ctx.Load(id)
-    if err != nil {
-      return nil, fmt.Errorf("Failed to load node %s: %w", id, err)
+  for _, node := range(ctx.nodes) {
+    node.Command <- "stop"
+    returned := <- node.Status
+
+    if returned != "stopped" {
+      return fmt.Errorf("Node returned %s when commanded to stop", returned)
     }
   }
-  return target, nil
+  ctx.nodes = map[NodeID]ContextNode{}
+  return nil
+}
+
+func (ctx *Context) GetNode(id NodeID) (*Node, error) {
+  ctx.nodesLock.Lock()
+  defer ctx.nodesLock.Unlock()
+  return ctx.getNode(id)
+}
+
+func (ctx *Context) getNode(id NodeID) (*Node, error) {
+  target, exists := ctx.nodes[id]
+
+  if exists == false {
+    node, err := ctx.DB.LoadNode(ctx, id)
+    if err != nil {
+      return nil, err
+    }
+
+    err = ctx.addNode(id, node)
+    if err != nil {
+      return nil, err
+    }
+
+    return node, nil
+  } else {
+    return target.Node, nil
+  }
 }
 
 // Route Messages to dest. Currently only local context routing is supported

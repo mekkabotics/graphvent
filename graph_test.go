@@ -9,18 +9,13 @@ import (
 
 func NewSimpleListener(ctx *Context, buffer int) (*Node, *ListenerExt, error) {
   listener_extension := NewListenerExt(buffer)
-  listener, err := NewNode(ctx,
-                      nil,
-                      "LockableNode",
-                      nil,
-                      listener_extension,
-                      NewLockableExt(nil))
+  listener, err := ctx.NewNode(nil, "LockableNode", nil, listener_extension, NewLockableExt(nil))
 
   return listener, listener_extension, err
 }
 
 func logTestContext(t * testing.T, components []string) *Context {
-  db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true))
+  db, err := badger.Open(badger.DefaultOptions("").WithInMemory(true).WithSyncWrites(true))
   if err != nil {
     t.Fatal(err)
   }

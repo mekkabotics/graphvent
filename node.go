@@ -1,16 +1,15 @@
 package graphvent
 
 import (
-  "crypto/ed25519"
-  "crypto/rand"
-  "crypto/sha512"
-  "fmt"
-  "reflect"
-  "sync/atomic"
-  "time"
+	"crypto/ed25519"
+	"crypto/sha512"
+	"fmt"
+	"reflect"
+	"sync/atomic"
+	"time"
 
-  _ "github.com/dgraph-io/badger/v3"
-  "github.com/google/uuid"
+	_ "github.com/dgraph-io/badger/v3"
+	"github.com/google/uuid"
 )
 
 var (
@@ -299,15 +298,12 @@ func nodeLoop(ctx *Context, node *Node, status chan string, control chan string)
     panic("BAD_STATE: stopping already stopped node")
   }
 
-  status <- "stopped"
-
-  return nil
-}
-
-func (node *Node) Unload(ctx *Context) error {
   for _, extension := range(node.Extensions) {
     extension.Unload(ctx, node)
   }
+
+  status <- "stopped"
+
   return nil
 }
 
@@ -402,82 +398,4 @@ func GetExt[E any, T interface { *E; Extension}](node *Node) (T, error) {
 func KeyID(pub ed25519.PublicKey) NodeID {
   id := uuid.NewHash(sha512.New(), ZeroUUID, pub, 3)
   return NodeID(id)
-}
-
-// Create a new node in memory and start it's event loop
-func NewNode(ctx *Context, key ed25519.PrivateKey, type_name string, extensions ...Extension) (*Node, error) {
-  node_type := NodeTypeFor(type_name)
-  node_info, known_type := ctx.NodeTypes[node_type]
-  if known_type == false {
-    return nil, fmt.Errorf("%s is not a known node type", type_name)
-  }
-
-  var err error
-  var public ed25519.PublicKey
-  if key == nil {
-    public, key, err = ed25519.GenerateKey(rand.Reader)
-    if err != nil {
-      return nil, err
-    }
-  } else {
-    public = key.Public().(ed25519.PublicKey)
-  }
-  id := KeyID(public)
-  _, exists := ctx.Node(id)
-  if exists == true {
-    return nil, fmt.Errorf("Attempted to create an existing node")
-  }
-
-  ext_map := map[ExtType]Extension{}
-  for _, ext := range(extensions) {
-    if ext == nil {
-      return nil, fmt.Errorf("Cannot create node with nil extension")
-    }
-
-    ext_type, exists := ctx.Extensions[ExtTypeOf(reflect.TypeOf(ext))]
-    if exists == false {
-      return nil, fmt.Errorf("%+v(%+v) is not a known Extension", reflect.TypeOf(ext), ExtTypeOf(reflect.TypeOf(ext)))
-    }
-    _, exists = ext_map[ext_type.ExtType]
-    if exists == true {
-      return nil, fmt.Errorf("Cannot add the same extension to a node twice")
-    }
-    ext_map[ext_type.ExtType] = ext
-  }
-
-  for _, required_ext := range(node_info.RequiredExtensions) {
-    _, exists := ext_map[required_ext]
-    if exists == false {
-      return nil, fmt.Errorf(fmt.Sprintf("%+v requires %+v", node_type, required_ext))
-    }
-  }
-
-  node := &Node{
-    Key: key,
-    ID: id,
-    Type: node_type,
-    Extensions: ext_map,
-    SignalQueue: []QueuedSignal{},
-    writeSignalQueue: false,
-  }
-
-  node.SendChan, node.RecvChan = NewMessageQueue(NODE_INITIAL_QUEUE_SIZE)
-
-  err = ctx.DB.WriteNodeInit(ctx, node)
-  if err != nil {
-    return nil, err
-  }
-
-  status := make(chan string, 0)
-  command := make(chan string, 0)
-  go runNode(ctx, node, status, command)
-
-  returned := <- status
-  if returned != "active" {
-    return nil, fmt.Errorf(returned)
-  }
-
-  ctx.AddNode(id, node, status, command)
-
-  return node, nil
 }

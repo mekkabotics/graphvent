@@ -542,6 +542,8 @@ type GQLExt struct {
 
 func (ext *GQLExt) Load(ctx *Context, node *Node) error {
   ctx.Log.Logf("gql", "Loading GQL server extension on %s", node.ID)
+  ext.resolver_response = map[uuid.UUID]chan Signal{}
+  ext.subscriptions = []SubscriptionInfo{}
   return ext.StartGQLServer(ctx, node)
 }
 
@@ -553,13 +555,6 @@ func (ext *GQLExt) Unload(ctx *Context, node *Node) {
   } else {
     ctx.Log.Logf("gql", "Unloaded GQL server extension on %s", node.ID)
   }
-}
-
-func (ext *GQLExt) PostDeserialize(*Context) error {
-  ext.resolver_response = map[uuid.UUID]chan Signal{}
-  ext.subscriptions = []SubscriptionInfo{}
-
-  return nil
 }
 
 func (ext *GQLExt) AddSubscription(id uuid.UUID, ctx *ResolveContext) (chan interface{}, error) {
